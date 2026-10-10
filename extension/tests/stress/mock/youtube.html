@@ -1,0 +1,49 @@
+<!doctype html>
+<html dark data-skin="youtube">
+  <head>
+    <meta charset="utf-8" />
+    <title>live_chat (mock)</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0f0f0f; color: #fff; font: 13px/16px Roboto, Arial, sans-serif; }
+      yt-live-chat-app, yt-live-chat-renderer { display: flex; flex-direction: column; height: 100vh; width: 400px; }
+      #chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+      #chat-header { height: 48px; flex: none; border-bottom: 1px solid #333; display: flex; align-items: center; padding: 0 16px; font-weight: 500; }
+      #item-list { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+      yt-live-chat-item-list-renderer { display: block; flex: 1; min-height: 0; }
+      #item-scroller { height: 100%; overflow-y: auto; overflow-x: hidden; }
+      #item-offset { position: relative; }
+      #items { padding: 4px 0; }
+      yt-live-chat-text-message-renderer, yt-live-chat-paid-message-renderer { display: flex; flex-direction: row; align-items: flex-start; padding: 4px 24px; position: relative; font-size: 13px; }
+      yt-live-chat-paid-message-renderer { background: #1565c0; margin: 4px 0; border-radius: 4px; }
+      #author-photo { width: 24px; height: 24px; border-radius: 50%; background: #444; margin-right: 16px; flex: none; }
+      #content { flex: 1; min-width: 0; overflow-wrap: anywhere; line-height: 16px; }
+      #timestamp { color: #aaa; font-size: 11px; margin-right: 8px; }
+      yt-live-chat-author-chip { display: inline-flex; align-items: baseline; margin-right: 8px; }
+      #author-name { color: #aaa; font-weight: 500; }
+      [author-type="moderator"] #author-name { color: #5e84f1; }
+      [author-type="member"] #author-name { color: #2ba640; }
+      yt-live-chat-author-badge-renderer { display: inline-block; width: 16px; height: 16px; margin-left: 2px; background: #5e84f1; border-radius: 2px; vertical-align: middle; }
+      #message img.emoji { width: 24px; height: 24px; vertical-align: middle; margin: -1px 2px; background: #333; border-radius: 3px; display: inline-block; }
+      #purchase-amount { font-weight: 700; display: block; }
+      #input-panel { height: 96px; flex: none; border-top: 1px solid #333; }
+    </style>
+  </head>
+  <body>
+    <yt-live-chat-app>
+      <yt-live-chat-renderer>
+        <div id="chat">
+          <div id="chat-header">Top chat</div>
+          <div id="item-list">
+            <yt-live-chat-item-list-renderer>
+              <div id="item-scroller">
+                <div id="item-offset"><div id="items"></div></div>
+              </div>
+            </yt-live-chat-item-list-renderer>
+          </div>
+          <div id="input-panel"></div>
+        </div>
+      </yt-live-chat-renderer>
+    </yt-live-chat-app>
+    <script src="mock.js"></script>
+  </body>
+</html>

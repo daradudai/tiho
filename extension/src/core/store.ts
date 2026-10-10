@@ -2,7 +2,7 @@
 // in-chat UI (reader). Preact signals: UI subscribes, runtime mutates in
 // batches (at most once per animation frame) to keep renders cheap.
 
-import { signal } from '@preact/signals';
+import { signal, type Signal } from '@preact/signals';
 import type { Category, ChatMessage, ModelStatus, PerfStats, Verdict } from './types';
 import type { Settings } from './settings';
 
@@ -22,26 +22,26 @@ export interface WaveInfo {
 }
 
 export interface Store {
-  settings: ReturnType<typeof signal<Settings>>;
-  model: ReturnType<typeof signal<ModelStatus>>;
-  perf: ReturnType<typeof signal<PerfStats>>;
+  settings: Signal<Settings>;
+  model: Signal<ModelStatus>;
+  perf: Signal<PerfStats>;
   /** Messages seen per category since page load. */
-  counts: ReturnType<typeof signal<Record<Category, number>>>;
+  counts: Signal<Record<Category, number>>;
   /** Total messages seen and filtered (hidden/collapsed) since load. */
-  totals: ReturnType<typeof signal<{ seen: number; filtered: number }>>;
+  totals: Signal<{ seen: number; filtered: number }>;
   /** Messages per second, last 60 s (one bucket per second, oldest first). */
-  rate: ReturnType<typeof signal<number[]>>;
+  rate: Signal<number[]>;
   /** Vibe = positive − negative share, last 60 buckets of 5 s, in [-1, 1]. */
-  vibe: ReturnType<typeof signal<number[]>>;
+  vibe: Signal<number[]>;
   /** Active and recent waves (most recent first, ≤ 10). */
-  waves: ReturnType<typeof signal<WaveInfo[]>>;
+  waves: Signal<WaveInfo[]>;
   /** Recent questions (most recent first, ≤ 100). */
-  questions: ReturnType<typeof signal<LogEntry[]>>;
+  questions: Signal<LogEntry[]>;
   /** Recently filtered messages (most recent first, ≤ 200). */
-  filtered: ReturnType<typeof signal<LogEntry[]>>;
-  platform: ReturnType<typeof signal<string>>;
-  channel: ReturnType<typeof signal<string>>;
-  theme: ReturnType<typeof signal<'dark' | 'light'>>;
+  filtered: Signal<LogEntry[]>;
+  platform: Signal<string>;
+  channel: Signal<string>;
+  theme: Signal<'dark' | 'light'>;
 }
 
 const zeroCounts = (): Record<Category, number> => ({

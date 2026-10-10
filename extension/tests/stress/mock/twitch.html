@@ -1,0 +1,40 @@
+<!doctype html>
+<html class="tw-root--theme-dark" data-skin="twitch">
+  <head>
+    <meta charset="utf-8" />
+    <title>stresschan - Twitch (mock)</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #18181b; color: #efeff1; font: 13px/20px Inter, Roobert, "Helvetica Neue", Arial, sans-serif; }
+      .chat-shell { display: flex; flex-direction: column; height: 100vh; width: 340px; border-left: 1px solid #2f2f35; }
+      .chat-room__content { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+      .stream-chat-header { height: 50px; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px; letter-spacing: .05em; border-bottom: 1px solid #2f2f35; flex: none; }
+      .chat-list--default { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+      .chat-scrollable-area__message-container { padding-bottom: 10px; }
+      .chat-scrollable-area__message-container > div { position: relative; }
+      .chat-line__message { padding: 5px 20px; position: relative; word-wrap: break-word; }
+      .chat-line__message:hover { background: rgba(255,255,255,.08); }
+      .chat-line__username-container { display: inline; }
+      .chat-badge { width: 18px; height: 18px; margin-right: 3px; vertical-align: middle; border-radius: 3px; background: #9147ff; display: inline-block; }
+      .chat-author__display-name { font-weight: 700; }
+      .chat-line__message--emote { width: 28px; height: 28px; vertical-align: middle; margin: -5px 0; background: #3a3a3d; border-radius: 4px; display: inline-block; }
+      .mention-fragment { background: rgba(255,255,255,.12); border-radius: 3px; padding: 0 2px; font-weight: 600; }
+      .chat-line__message--cheer-amount { color: #f0c; font-weight: 700; margin-left: 4px; }
+      .chat-line__status { color: #adadb8; padding: 5px 20px; }
+      .chat-input { height: 80px; border-top: 1px solid #2f2f35; flex: none; }
+    </style>
+  </head>
+  <body>
+    <div class="chat-shell">
+      <div class="chat-room__content">
+        <div class="stream-chat-header">STREAM CHAT</div>
+        <div class="chat-list--default scrollable-area" id="scroller">
+          <div class="chat-scrollable-area__message-container" role="log">
+            <div><div><div class="chat-line__status">Welcome to the chat room!</div></div></div>
+          </div>
+        </div>
+        <div class="chat-input"></div>
+      </div>
+    </div>
+    <script src="mock.js"></script>
+  </body>
+</html>

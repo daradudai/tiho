@@ -1,0 +1,1298 @@
+// The per-frame content-script engine.
+//
+//  MutationObserver (chat list, childList) ──▶ queue
+//  (while filtering, the list carries data-hush-list: rows without a verdict
+//   attribute are invisible from birth — no flash, no per-row premark write)
+//                                                │ rAF (timer when hidden, 1 s watchdog)
+//                                                ▼
+//  READ  phase: adapter.extract → normalize → rules → waves → cache → policy
+//               misses → classifier queue; held rows stay invisible
+//  RESOLVE    : scores that arrived (coalesced with page frames), failed
+//               batches, hold timeouts
+//  WRITE phase: data-hush-a / -c / -r / -wh / -wm / -g attribute diffs only
+//  FLUSH      : classifier batch → Port; Store (≤ 4 Hz, one batch())
+//
+// No layout reads, no inline styles, one stylesheet. Rows are tracked in a
+// WeakMap; a row whose content changes (recycled node) is re-evaluated.
+
+import { batch } from '@preact/signals';
+import { cleanForModel, normalize } from '../core/normalize';
+import { decide, modelCanHide, policyContext, type PolicyContext } from '../core/policy';
+import { needsModel, RuleEngine, Sig, type RuleResult } from '../core/rules';
+import type { Settings } from '../core/settings';
+import { createStore, type LogEntry, type Store } from '../core/store';
+import type { Category, ChatMessage, ModelStatus, PerfStats, Verdict } from '../core/types';
+import { WaveDetector, type WaveHit, type WaveOptions } from '../core/waves';
+import type { BarActions, MountBar } from '../core/bar-actions';
+import type { PlatformAdapter } from '../platforms/types';
+import type { ClassifierClient } from './classifier';
+import { ATTR, RowStyles } from './styles';
+
+export interface RuntimeReport {
+  stats: PerfStats & { platform: string; channel: string; counts: Record<string, number> };
+}
+
+export interface RuntimeOptions {
+  adapter: PlatformAdapter;
+  settings: Settings;
+  store?: Store;
+  doc?: Document;
+  classifier?: ClassifierClient | null;
+  /** Monotonic ms clock (default performance.now). */
+  now?: () => number;
+  raf?: (cb: () => void) => number;
+  caf?: (id: number) => void;
+  mountBar?: MountBar | null;
+  barActions?: BarActions | null;
+  /** Called every ~2 s with perf + counts (e.g. forwarded to the background). */
+  onReport?: (r: RuntimeReport) => void;
+  /** Min interval between Store writes for counters/logs (ms). */
+  storeIntervalMs?: number;
+  /** Housekeeping interval (ms). */
+  tickMs?: number;
+  waves?: WaveOptions;
+  /** Debug hook: called when a row gets a verdict (final = not provisional). */
+  onDecision?: (row: HTMLElement, v: Verdict, final: boolean) => void;
+  /** Called whenever the runtime attaches to a chat list (e.g. to open the classifier Port lazily). */
+  onAttach?: (list: HTMLElement) => void;
+}
+
+interface RowState {
+  key: string;
+  text: string;
+  msg: ChatMessage;
+  norm: string;
+  rule: RuleResult;
+  wave: WaveHit | null;
+  scores: number[] | null;
+  verdict: Verdict | null;
+  /** Verdict is final (not provisional / not waiting for the model). */
+  final: boolean;
+  waiting: boolean;
+  viaModel: boolean;
+  /** Hold deadline (0 = not held). */
+  deadline: number;
+  t0: number;
+  counted: Category | null;
+  filtered: boolean;
+  loggedFiltered: boolean;
+  loggedQuestion: boolean;
+  vibed: boolean;
+  revealed: boolean;
+  // attribute values currently on the row
+  a: string;
+  c: string;
+  r: string;
+  wh: number;
+  /** When the wave counter was last written (throttled: it relayouts the head row). */
+  whAt: number;
+  wm: boolean;
+  /** data-hush-g: pill continuing a run of pills. */
+  g: boolean;
+  /** Visibility class last written: 0 takes no space, 1 pill, 2 visible (-1 unknown). */
+  vis: number;
+}
+
+const LAT_RING = 4096;
+const WAVE_COUNTER_MS = 250;
+const RESOLVE_COALESCE_MS = 40;
+const COALESCE_MIN_RATE = 20; // msg/s
+const COLLAPSED = `[${ATTR.action}="collapse"]`;
+
+const zeroCounts = (): Record<Category, number> => ({
+  toxic: 0,
+  scam: 0,
+  spam: 0,
+  noise: 0,
+  negative: 0,
+  question: 0,
+  positive: 0,
+  clean: 0,
+});
+
+/** 0 = takes no space (hidden / wave member), 1 = collapsed pill, 2 = visible. */
+function visClass(el: Element): number {
+  const a = el.getAttribute(ATTR.action);
+  if (a === 'hide') return 0;
+  if (a !== 'collapse' || el.hasAttribute(ATTR.open)) return 2;
+  return el.hasAttribute(ATTR.waveMember) ? 0 : 1;
+}
+
+function prevIsPill(row: Element): boolean {
+  let s = row.previousElementSibling;
+  for (let k = 0; s && k < 16; k++) {
+    const v = visClass(s);
+    if (v !== 0) return v === 1;
+    s = s.previousElementSibling;
+  }
+  return false;
+}
+
+const PCT_SAMPLE = 512;
+const pctScratch = new Float64Array(PCT_SAMPLE);
+
+/** p50 / p95 over the most recent ≤ 512 samples of a ring (one in-place numeric sort). */
+function percentiles(ring: Float64Array, n: number): [number, number] {
+  const m = Math.min(n, ring.length, PCT_SAMPLE);
+  if (!m) return [0, 0];
+  const size = ring.length;
+  for (let i = 0; i < m; i++) pctScratch[i] = ring[(n - 1 - i + size * 2) % size]!;
+  const a = pctScratch.subarray(0, m).sort();
+  return [a[Math.floor((m - 1) * 0.5)]!, a[Math.floor((m - 1) * 0.95)]!];
+}
+
+export class HushRuntime {
+  readonly store: Store;
+  readonly adapter: PlatformAdapter;
+  readonly rules = new RuleEngine();
+  readonly waves: WaveDetector;
+
+  /** Instrumentation (read by tests and the stress harness). */
+  readonly metrics = {
+    msgs: 0,
+    /** Total main-thread ms spent in runtime callbacks. */
+    mainMs: 0,
+    /** Longest single runtime callback, ms. */
+    maxSliceMs: 0,
+    slices: 0,
+    /** Main-thread ms split by callback: [observer, frame, housekeeping]. */
+    split: [0, 0, 0] as [number, number, number],
+    frames: 0,
+    decided: { rule: 0, cache: 0, model: 0, fallback: 0, timeout: 0 },
+    extractErrors: 0,
+    lat: new Float64Array(LAT_RING),
+    latN: 0,
+    modelLat: new Float64Array(LAT_RING),
+    modelLatN: 0,
+  };
+
+  private doc: Document;
+  private settings: Settings;
+  private ctx: PolicyContext;
+  private thresholds: number[] | null = null;
+  private classifier: ClassifierClient | null;
+  private now: () => number;
+  private raf: (cb: () => void) => number;
+  private caf: (id: number) => void;
+  private styles = new RowStyles();
+
+  private list: HTMLElement | null = null;
+  private observer: MutationObserver | null = null;
+  private states = new WeakMap<Element, RowState>();
+  private retries = new WeakMap<Element, number>();
+  private retryQueue: HTMLElement[] = [];
+  private live = new Set<HTMLElement>();
+  private byKey = new Map<string, HTMLElement>();
+  private queue = new Set<HTMLElement>();
+  private dirty = new Set<HTMLElement>();
+  private waiting = new Map<string, HTMLElement[]>();
+  private held = new Set<HTMLElement>();
+  private resolvedIds: string[] = [];
+  private failedIds: string[] = [];
+  private waveDirty = new Set<string>();
+  private waveHeads = new Map<string, string>();
+
+  private running = false;
+  private active = false;
+  /** Hide rows until their first verdict (list-level data-hush-list). */
+  private holdAtBirth = false;
+  private listMarked = false;
+  /** First pass over the rows present at attach is done (only then mark the list). */
+  private primed = false;
+  /** A runtime error happened: never hide rows at birth again (fail open). */
+  private failOpen = false;
+  private lastFrameAt = 0;
+  private holdOn = false;
+  private scheduled = false;
+  private scheduledAt = 0;
+  private rafId = 0;
+  private fallbackId: ReturnType<typeof setTimeout> | 0 = 0;
+  private holdTimer: ReturnType<typeof setTimeout> | 0 = 0;
+  private nextDeadline = Infinity;
+  private tickTimer: ReturnType<typeof setInterval> | 0 = 0;
+  private ticks = 0;
+  private href = '';
+  private channel = '';
+  private theme: 'dark' | 'light' = 'dark';
+
+  // store accumulators
+  private counts = zeroCounts();
+  private seen = 0;
+  private filteredCount = 0;
+  private newQuestions: LogEntry[] = [];
+  private newFiltered: LogEntry[] = [];
+  private storeDirty = false;
+  private wavesDirty = false;
+  private lastStoreAt = -Infinity;
+  private readonly storeIntervalMs: number;
+  private readonly tickMs: number;
+  private secCount = 0;
+  private rateArr: number[];
+  private vibeArr: number[];
+  private vibePos = 0;
+  private vibeNeg = 0;
+  private vibeN = 0;
+  private lastPerf = { at: 0, received: 0, msgs: 0, mainMs: 0 };
+  private mainEwma = 0;
+
+  // bar
+  private mountBar: MountBar | null;
+  private barActions: BarActions | null;
+  private barCleanup: (() => void) | null = null;
+  private barAnchor: HTMLElement | null = null;
+  private onReport?: (r: RuntimeReport) => void;
+  private onDecision?: (row: HTMLElement, v: Verdict, final: boolean) => void;
+  private onAttach?: (list: HTMLElement) => void;
+
+  constructor(o: RuntimeOptions) {
+    this.adapter = o.adapter;
+    this.settings = o.settings;
+    this.store = o.store ?? createStore(o.settings);
+    this.doc = o.doc ?? document;
+    this.classifier = o.classifier ?? null;
+    this.now = o.now ?? (() => performance.now());
+    const win = this.doc.defaultView ?? (globalThis as unknown as Window);
+    this.raf = o.raf ?? ((cb) => win.requestAnimationFrame(cb));
+    this.caf = o.caf ?? ((id) => win.cancelAnimationFrame(id));
+    this.mountBar = o.mountBar ?? null;
+    this.barActions = o.barActions ?? null;
+    this.onReport = o.onReport;
+    this.onDecision = o.onDecision;
+    this.onAttach = o.onAttach;
+    this.storeIntervalMs = o.storeIntervalMs ?? 250;
+    this.tickMs = o.tickMs ?? 1000;
+    this.waves = new WaveDetector(o.waves);
+    this.rateArr = this.store.rate.peek().slice();
+    this.vibeArr = this.store.vibe.peek().slice();
+    this.ctx = policyContext(o.settings);
+    this.applySettings(o.settings, false);
+  }
+
+  // ───────────────────────────── lifecycle ─────────────────────────────
+
+  start(): void {
+    if (this.running) return;
+    this.running = true;
+    this.store.platform.value = this.adapter.platform;
+    this.tickTimer = setInterval(() => this.tick(), this.tickMs);
+    this.tryAttach();
+  }
+
+  stop(): void {
+    if (!this.running) return;
+    this.running = false;
+    if (this.tickTimer) clearInterval(this.tickTimer);
+    this.tickTimer = 0;
+    this.detach(true);
+    this.unmountBar();
+    this.styles.remove();
+    for (const t of [this.holdTimer, this.resolveTimer, this.laterTimer]) if (t) clearTimeout(t);
+    this.holdTimer = this.resolveTimer = this.laterTimer = 0;
+    this.cancelFrame();
+  }
+
+  get attached(): boolean {
+    return !!this.list;
+  }
+
+  setSettings(s: Settings): void {
+    this.applySettings(s, true);
+  }
+
+  setModelStatus(s: ModelStatus): void {
+    this.store.model.value = s;
+    const thr = s.thresholds && s.thresholds.length ? s.thresholds : null;
+    if (thr && JSON.stringify(thr) !== JSON.stringify(this.thresholds)) {
+      this.thresholds = thr;
+      this.ctx = policyContext(this.settings, thr);
+      this.reevaluateAll(false);
+    }
+    this.holdOn = this.computeHold();
+  }
+
+  /** Scores for these cache ids landed in the classifier cache. */
+  onScores(ids: string[]): void {
+    for (const id of ids) this.resolvedIds.push(id);
+    this.scheduleResolve();
+  }
+
+  /** These ids will not get scores (error / timeout / disconnect). */
+  onFailed(ids: string[]): void {
+    for (const id of ids) this.failedIds.push(id);
+    this.scheduleResolve();
+  }
+
+  /**
+   * Late verdicts ride along with the next frame the page renders anyway (new
+   * rows arriving schedule one); only if none comes within RESOLVE_COALESCE_MS
+   * do we request a frame of our own. Saves a style/layout/paint pass per
+   * model round-trip at the cost of ≤ RESOLVE_COALESCE_MS latency — only in
+   * fast chats (slow chats have no frames to ride and nothing to save).
+   */
+  private scheduleResolve(): void {
+    if (this.scheduled || this.resolveTimer) return;
+    if (this.rateArr[this.rateArr.length - 1]! < COALESCE_MIN_RATE) {
+      this.schedule();
+      return;
+    }
+    this.resolveTimer = setTimeout(() => {
+      this.resolveTimer = 0;
+      this.schedule();
+    }, RESOLVE_COALESCE_MS);
+  }
+  private resolveTimer: ReturnType<typeof setTimeout> | 0 = 0;
+
+  /** Un-hide a message (by ChatMessage.key) and scroll it into view. */
+  reveal(key: string): boolean {
+    const row = this.byKey.get(key);
+    const st = row && this.states.get(row);
+    if (!row || !st) return false;
+    st.revealed = true;
+    row.setAttribute(ATTR.open, '');
+    this.writeRow(row, st);
+    try {
+      row.scrollIntoView({ block: 'nearest' });
+    } catch {
+      /* not in a scrollable view */
+    }
+    return true;
+  }
+
+  /** Run a frame synchronously (tests / harness). */
+  flushNow(): void {
+    this.cancelFrame();
+    this.scheduled = true;
+    this.frame();
+  }
+
+  /** Run housekeeping synchronously (tests / harness). */
+  tickNow(): void {
+    this.tick();
+  }
+
+  /** Sizes of internal structures (memory diagnostics). */
+  debugSizes(): Record<string, number> {
+    let waiting = 0;
+    for (const w of this.waiting.values()) waiting += w.length;
+    return {
+      live: this.live.size,
+      byKey: this.byKey.size,
+      queue: this.queue.size,
+      dirty: this.dirty.size,
+      waitingIds: this.waiting.size,
+      waitingRows: waiting,
+      held: this.held.size,
+      waveHeads: this.waveHeads.size,
+      waveClusters: this.waves.clusters,
+      cache: this.classifier ? this.classifier.cache.size : 0,
+      inflight: this.classifier ? this.classifier.inflight : 0,
+    };
+  }
+
+  // ───────────────────────────── settings ─────────────────────────────
+
+  private applySettings(s: Settings, reevaluate: boolean): void {
+    const prev = this.settings;
+    this.settings = s;
+    if (reevaluate) this.store.settings.value = s;
+    this.rules.setSettings(s);
+    this.ctx = policyContext(s, this.thresholds);
+    const blockRules = s.rules.some((r) => r.enabled && r.mode === 'block');
+    this.holdAtBirth = Object.values(s.actions).some((a) => a === 'hide' || a === 'collapse') || blockRules;
+    this.holdOn = this.computeHold();
+    const wasActive = this.active;
+    this.active = s.enabled && s.sites[this.adapter.platform] !== false;
+    if (!this.running) return;
+    if (this.list) this.styles.update(this.styleOpts());
+    if (wasActive && !this.active) {
+      this.detach(true);
+      this.styles.remove();
+    } else if (!wasActive && this.active) {
+      this.tryAttach();
+    } else if (reevaluate && this.list) {
+      const rulesChanged = prev.rules !== s.rules || prev.trustPrivileged !== s.trustPrivileged;
+      this.reevaluateAll(rulesChanged);
+    }
+    this.syncListMark();
+    this.ensureBar();
+  }
+
+  /** Set / remove data-hush-list on the chat list (rows hidden until their first verdict). */
+  private syncListMark(): void {
+    const want = !!this.list && this.primed && this.active && this.holdAtBirth && !this.failOpen;
+    if (want === this.listMarked) return;
+    this.listMarked = want;
+    const list = this.list;
+    if (!list) return;
+    if (!want) {
+      list.removeAttribute(ATTR.list);
+      return;
+    }
+    // children that are not rows (and rows already decided without an
+    // attribute) must never fall under the hide-at-birth rule
+    const kids = list.children;
+    for (let i = 0; i < kids.length; i++) {
+      const k = kids[i]!;
+      if (!k.hasAttribute(ATTR.action) && !this.queue.has(k as HTMLElement) && !this.held.has(k as HTMLElement))
+        k.setAttribute(ATTR.action, '');
+    }
+    list.setAttribute(ATTR.list, '');
+  }
+
+  private computeHold(): boolean {
+    const s = this.settings;
+    return !!this.classifier && s.holdMs > 0 && this.classifier.holdable && modelCanHide(s.actions);
+  }
+
+  private styleOpts() {
+    return { decorate: this.settings.decorate, theme: this.theme };
+  }
+
+  /** Recompute verdicts for every live row (settings / thresholds changed). */
+  private reevaluateAll(rulesChanged: boolean): void {
+    const now = this.now();
+    for (const row of this.live) {
+      const st = this.states.get(row);
+      if (!st) continue;
+      if (rulesChanged) {
+        const dup = !!(st.rule.sig & Sig.DUPLICATE);
+        st.rule = this.rules.evaluate(st.msg, st.norm, now, dup);
+      }
+      this.redecide(row, st);
+    }
+    this.schedule();
+  }
+
+  // ───────────────────────────── attach / observe ─────────────────────────────
+
+  private loc(): Location {
+    return (this.doc.defaultView ?? window).location;
+  }
+
+  private tryAttach(): void {
+    if (!this.running || !this.active) return;
+    if (this.list && this.list.isConnected) return;
+    if (this.list) this.detach(false);
+    const loc = this.loc();
+    let list: HTMLElement | null = null;
+    try {
+      if (!this.adapter.matches(loc)) return;
+      list = this.adapter.findChatList(this.doc);
+    } catch {
+      return;
+    }
+    if (list) this.attach(list);
+  }
+
+  private attach(list: HTMLElement): void {
+    this.list = list;
+    this.primed = false;
+    try {
+      this.onAttach?.(list);
+    } catch {
+      /* caller's problem */
+    }
+    this.href = this.loc().href;
+    try {
+      this.theme = this.adapter.theme(this.doc);
+      this.channel = this.adapter.channel(this.doc);
+      this.rules.setViewer(this.adapter.viewer?.(this.doc) ?? null);
+    } catch {
+      /* adapter best-effort */
+    }
+    this.store.theme.value = this.theme;
+    this.store.channel.value = this.channel;
+    const root = list.getRootNode();
+    const inShadow = root.nodeType === 11 && 'host' in root;
+    this.styles.mount(inShadow ? (root as ShadowRoot) : this.doc, this.styleOpts());
+
+    const sub = !!this.adapter.observeSubtree;
+    this.observer = new MutationObserver(this.onMutations);
+    this.observer.observe(list, { childList: true, subtree: sub, characterData: sub });
+    list.addEventListener('click', this.onClick, true);
+
+    // rows already present
+    const kids = list.children;
+    for (let i = 0; i < kids.length; i++) {
+      const k = kids[i] as HTMLElement;
+      if (this.isRow(k)) this.queue.add(k);
+    }
+    this.ensureBar();
+    this.schedule();
+  }
+
+  private detach(clear: boolean): void {
+    this.observer?.disconnect();
+    this.observer = null;
+    this.list?.removeEventListener('click', this.onClick, true);
+    this.list?.removeAttribute(ATTR.list);
+    this.listMarked = false;
+    if (clear) {
+      for (const row of this.live) this.clearRow(row);
+      this.states = new WeakMap();
+    }
+    this.list = null;
+    this.live.clear();
+    this.byKey.clear();
+    this.queue.clear();
+    this.dirty.clear();
+    this.waiting.clear();
+    this.held.clear();
+    this.waveHeads.clear();
+    this.waveDirty.clear();
+  }
+
+  private isRow(n: Node): n is HTMLElement {
+    if (n.nodeType !== 1) return false;
+    try {
+      return (n as Element).matches(this.adapter.rowSelector);
+    } catch {
+      return false;
+    }
+  }
+
+  private rowOf(n: Node | null): HTMLElement | null {
+    const list = this.list;
+    let cur: Node | null = n;
+    while (cur && cur.parentNode !== list) cur = cur.parentNode;
+    return cur && this.isRow(cur) ? cur : null;
+  }
+
+  private onMutations = (records: MutationRecord[]): void => {
+    const t0 = performance.now();
+    const list = this.list;
+    if (!list) return;
+    const marked = this.listMarked;
+    for (let i = 0; i < records.length; i++) {
+      const rec = records[i]!;
+      if (rec.type === 'childList' && rec.target === list) {
+        const added = rec.addedNodes;
+        for (let j = 0; j < added.length; j++) {
+          const n = added[j]!;
+          if (this.isRow(n)) this.queue.add(n);
+          else if (marked && n.nodeType === 1) (n as Element).setAttribute(ATTR.action, ''); // not a row: never hide
+        }
+        const removed = rec.removedNodes;
+        for (let j = 0; j < removed.length; j++) {
+          const n = removed[j]!;
+          if (n.nodeType === 1) this.onRemoved(n as HTMLElement);
+        }
+      } else {
+        // subtree change inside a row (only when adapter.observeSubtree)
+        const row = this.rowOf(rec.target);
+        if (row && row.isConnected) this.queue.add(row);
+      }
+    }
+    this.schedule();
+    this.account(t0, 0);
+  };
+
+  private onRemoved(n: HTMLElement): void {
+    if (!this.live.delete(n)) {
+      this.queue.delete(n);
+      return;
+    }
+    const st = this.states.get(n);
+    if (st && this.byKey.get(st.key) === n) this.byKey.delete(st.key);
+    if (st && st.deadline) {
+      st.deadline = 0;
+      this.held.delete(n);
+    }
+  }
+
+  private onClick = (e: Event): void => {
+    const t = e.target as Element | null;
+    const row = t && typeof t.closest === 'function' ? (t.closest(`${COLLAPSED}:not([${ATTR.open}])`) as HTMLElement | null) : null;
+    if (!row || row.parentElement !== this.list) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // expand the whole run of pills (rows taking no space in between stay hidden)
+    let r: Element | null = row;
+    while (r) {
+      const v = visClass(r);
+      if (v === 2) break;
+      if (v === 1) {
+        r.setAttribute(ATTR.open, '');
+        const st = this.states.get(r);
+        if (st) st.revealed = true;
+      }
+      r = r.nextElementSibling;
+    }
+  };
+
+  // ───────────────────────────── frame loop ─────────────────────────────
+
+  private schedule(): void {
+    if (this.scheduled || !this.running) return;
+    this.scheduled = true;
+    this.scheduledAt = performance.now();
+    this.rafId = this.raf(this.frame);
+    // rAF does not fire in hidden documents; keep processing (throttled) anyway.
+    // (Visible documents need no per-frame timer: the 1 s tick is the watchdog.)
+    if (this.doc.visibilityState === 'hidden') this.fallbackId = setTimeout(this.frame, 50);
+  }
+
+  private cancelFrame(): void {
+    if (!this.scheduled) return;
+    this.scheduled = false;
+    this.caf(this.rafId);
+    if (this.fallbackId) clearTimeout(this.fallbackId);
+    this.fallbackId = 0;
+  }
+
+  private frame = (): void => {
+    if (!this.scheduled) return;
+    this.cancelFrame();
+    if (!this.running) return;
+    const t0 = performance.now();
+    this.metrics.frames++;
+    const now = this.now();
+    this.lastFrameAt = now;
+    try {
+      this.runFrame(now);
+    } catch (e) {
+      // never leave the chat hidden because of a bug: fail open
+      this.failOpen = true;
+      this.syncListMark();
+      console.warn('[hush] runtime error, filtering paused for new rows', e);
+    }
+    this.account(t0, 1);
+  };
+
+  private runFrame(now: number): void {
+    if (this.resolveTimer) {
+      clearTimeout(this.resolveTimer);
+      this.resolveTimer = 0;
+    }
+    // READ
+    if (this.queue.size) {
+      for (const row of this.queue) this.process(row, now);
+      this.queue.clear();
+      if (this.retryQueue.length) {
+        for (const r of this.retryQueue) this.queue.add(r);
+        this.retryQueue.length = 0;
+      }
+    }
+    // RESOLVE
+    if (this.resolvedIds.length) this.resolve(this.resolvedIds, true, now);
+    if (this.failedIds.length) this.resolve(this.failedIds, false, now);
+    if (this.held.size && now >= this.nextDeadline) this.expireHolds(now);
+
+    // WRITE
+    if (this.dirty.size) {
+      for (const row of this.dirty) {
+        const st = this.states.get(row);
+        if (st && row.isConnected) this.writeRow(row, st);
+      }
+      this.dirty.clear();
+    }
+    if (this.waveDirty.size) this.writeWaveHeads(now);
+
+    // FLUSH
+    this.classifier?.flush();
+    if (this.storeDirty && now - this.lastStoreAt >= this.storeIntervalMs) this.flushStore(now);
+    else if (this.storeDirty) this.scheduleLater(this.storeIntervalMs);
+    if (this.queue.size) this.schedule(); // retries
+    this.primed = true;
+    this.syncListMark(); // after the first pass over pre-existing rows
+  }
+
+  private laterTimer: ReturnType<typeof setTimeout> | 0 = 0;
+  private scheduleLater(ms: number): void {
+    if (this.laterTimer) return;
+    this.laterTimer = setTimeout(() => {
+      this.laterTimer = 0;
+      this.schedule();
+    }, ms);
+  }
+
+  private account(t0: number, kind: 0 | 1 | 2): void {
+    const dt = performance.now() - t0;
+    const m = this.metrics;
+    m.split[kind] += dt;
+    m.mainMs += dt;
+    m.slices++;
+    if (dt > m.maxSliceMs) m.maxSliceMs = dt;
+  }
+
+  // ───────────────────────────── read phase ─────────────────────────────
+
+  private process(row: HTMLElement, now: number): void {
+    if (!row.isConnected) return;
+    let msg: ChatMessage | null = null;
+    try {
+      msg = this.adapter.extract(row);
+    } catch {
+      this.metrics.extractErrors++;
+    }
+    const prev = this.states.get(row);
+    if (!msg) {
+      if (prev) {
+        this.forget(row, prev);
+        this.clearRow(row);
+        row.setAttribute(ATTR.action, '');
+        return;
+      }
+      // Not a message — or not hydrated yet (content rendered after insertion):
+      // retry on the next two frames (still invisible meanwhile), then mark it
+      // seen (data-hush-a="") so it is never hidden.
+      const n = this.retries.get(row) ?? 0;
+      if (n < 2) {
+        this.retries.set(row, n + 1);
+        this.retryQueue.push(row);
+      } else row.setAttribute(ATTR.action, '');
+      return;
+    }
+    if (prev) {
+      if (prev.key === msg.key && prev.text === msg.text) {
+        // same message re-added / no-op content change
+        this.live.add(row);
+        this.byKey.set(prev.key, row);
+        return;
+      }
+      this.forget(row, prev); // recycled node: new message in an old row
+    }
+
+    // Our attributes always include data-hush-a: one read tells whether the
+    // node carries any (recycled row) — fresh rows skip six more reads.
+    const a0 = row.getAttribute(ATTR.action);
+    const norm = normalize(msg.text);
+    const rule = this.rules.evaluate(msg, norm, now);
+    const st: RowState = {
+      key: msg.key,
+      text: msg.text,
+      msg,
+      norm,
+      rule,
+      wave: null,
+      scores: null,
+      verdict: null,
+      final: false,
+      waiting: false,
+      viaModel: false,
+      deadline: 0,
+      t0: now,
+      counted: null,
+      filtered: false,
+      loggedFiltered: false,
+      loggedQuestion: false,
+      vibed: false,
+      revealed: false,
+      a: a0 ?? '',
+      c: a0 === null ? '' : (row.getAttribute(ATTR.category) ?? ''),
+      r: a0 === null ? '' : (row.getAttribute(ATTR.reason) ?? ''),
+      wh: 0,
+      whAt: 0,
+      wm: a0 !== null && row.hasAttribute(ATTR.waveMember),
+      g: a0 !== null && row.hasAttribute(ATTR.group),
+      vis: -1,
+    };
+    if (a0 !== null) {
+      if (row.hasAttribute(ATTR.waveHead)) row.removeAttribute(ATTR.waveHead);
+      if (row.hasAttribute(ATTR.open)) row.removeAttribute(ATTR.open);
+    }
+    this.states.set(row, st);
+    this.live.add(row);
+    this.byKey.set(msg.key, row);
+    this.seen++;
+    this.secCount++;
+    this.metrics.msgs++;
+    this.storeDirty = true;
+
+    if (norm && rule.user !== 'block' && rule.user !== 'allow') {
+      const hit = this.waves.observe(norm, msg.authorId || msg.author, msg.key, now, msg.text, this.headAlive);
+      if (hit) this.onWave(row, st, hit);
+    }
+
+    const ctx = this.ctx;
+    if (!needsModel(rule)) {
+      this.metrics.decided.rule++;
+      this.setVerdict(row, st, decide(null, rule, st.wave, ctx, 'rule'), true, now);
+      return;
+    }
+    const cl = this.classifier;
+    const cached = cl && norm ? cl.lookup(norm) : undefined;
+    if (cached) {
+      st.scores = cached;
+      this.metrics.decided.cache++;
+      this.setVerdict(row, st, decide(cached, rule, st.wave, ctx, 'cache'), true, now);
+      return;
+    }
+    if (cl && norm && cl.available) {
+      cl.request(norm, cleanForModel(msg.text));
+      const w = this.waiting.get(norm);
+      if (w) w.push(row);
+      else this.waiting.set(norm, [row]);
+      st.waiting = true;
+      const waveMember = st.wave && st.wave.role === 'member' && ctx.collapseWaves;
+      if (this.holdOn && !rule.protect && !rule.user && !waveMember) {
+        st.deadline = now + this.settings.holdMs;
+        this.held.add(row);
+        this.armHold(st.deadline, now);
+        this.dirty.add(row);
+      } else {
+        this.setVerdict(row, st, this.provisional(st), false, now);
+      }
+      return;
+    }
+    this.metrics.decided.fallback++;
+    this.setVerdict(row, st, decide(null, rule, st.wave, ctx, 'rule'), true, now);
+  }
+
+  private headAlive = (key: string): boolean => {
+    const r = this.byKey.get(key);
+    return !!r && r.isConnected;
+  };
+
+  private forget(row: HTMLElement, st: RowState): void {
+    if (this.byKey.get(st.key) === row) this.byKey.delete(st.key);
+    if (st.deadline) this.held.delete(row);
+    st.deadline = 0;
+    st.waiting = false;
+    this.states.delete(row);
+  }
+
+  private provisional(st: RowState): Verdict {
+    return decide(null, { sig: 0, reason: '', protect: st.rule.protect, user: st.rule.user }, st.wave, this.ctx, 'rule');
+  }
+
+  private onWave(row: HTMLElement, st: RowState, hit: WaveHit): void {
+    st.wave = hit;
+    this.waveHeads.set(hit.id, hit.headKey);
+    this.waveDirty.add(hit.id);
+    this.wavesDirty = true;
+    if (hit.retro) {
+      for (const k of hit.retro) {
+        const r = this.byKey.get(k);
+        const s = r && this.states.get(r);
+        if (!r || !s || s === st) continue;
+        s.wave = { ...hit, role: 'member', retro: undefined };
+        this.redecide(r, s);
+      }
+    }
+    const headRow = this.byKey.get(hit.headKey);
+    if (headRow && headRow !== row) {
+      const hs = this.states.get(headRow);
+      if (hs && (!hs.wave || hs.wave.id !== hit.id || hs.wave.role !== 'head')) {
+        hs.wave = { ...hit, role: 'head', retro: undefined };
+        this.redecide(headRow, hs);
+      }
+    }
+  }
+
+  /** Recompute a row's verdict from what we know (scores / rules / wave). */
+  private redecide(row: HTMLElement, st: RowState): void {
+    if (!st.verdict) return; // held: decided when scores land / hold expires
+    const now = this.now();
+    let v: Verdict;
+    if (st.scores) v = decide(st.scores, st.rule, st.wave, this.ctx, st.viaModel ? 'model' : 'cache');
+    else if (st.waiting) v = this.provisional(st);
+    else v = decide(null, st.rule, st.wave, this.ctx, 'rule');
+    this.setVerdict(row, st, v, st.final, now);
+  }
+
+  // ───────────────────────────── resolve ─────────────────────────────
+
+  private resolve(ids: string[], ok: boolean, now: number): void {
+    const cl = this.classifier;
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i]!;
+      const rows = this.waiting.get(id);
+      if (!rows) continue;
+      this.waiting.delete(id);
+      const scores = ok && cl ? (cl.cache.peek(id) ?? null) : null;
+      for (const row of rows) {
+        const st = this.states.get(row);
+        if (!st || st.norm !== id || !st.waiting) continue;
+        st.waiting = false;
+        const wasHeld = st.deadline !== 0;
+        if (wasHeld) {
+          st.deadline = 0;
+          this.held.delete(row);
+        }
+        st.scores = scores;
+        st.viaModel = !!scores;
+        if (scores) this.metrics.decided.model++;
+        else this.metrics.decided.fallback++;
+        const v = scores ? decide(scores, st.rule, st.wave, this.ctx, 'model') : decide(null, st.rule, st.wave, this.ctx, 'rule');
+        this.setVerdict(row, st, v, true, now);
+      }
+    }
+    ids.length = 0;
+    if (!this.held.size && this.holdTimer) {
+      clearTimeout(this.holdTimer);
+      this.holdTimer = 0;
+      this.nextDeadline = Infinity;
+    }
+  }
+
+  private armHold(deadline: number, now: number): void {
+    if (deadline >= this.nextDeadline && this.holdTimer) return;
+    this.nextDeadline = Math.min(this.nextDeadline, deadline);
+    if (this.holdTimer) clearTimeout(this.holdTimer);
+    this.holdTimer = setTimeout(
+      () => {
+        this.holdTimer = 0;
+        this.schedule();
+      },
+      Math.max(0, this.nextDeadline - now) + 2,
+    );
+  }
+
+  private expireHolds(now: number): void {
+    let next = Infinity;
+    for (const row of this.held) {
+      const st = this.states.get(row);
+      if (!st || !st.deadline) {
+        this.held.delete(row);
+        continue;
+      }
+      if (st.deadline <= now) {
+        st.deadline = 0;
+        this.held.delete(row);
+        this.metrics.decided.timeout++;
+        this.setVerdict(row, st, this.provisional(st), false, now);
+      } else if (st.deadline < next) next = st.deadline;
+    }
+    this.nextDeadline = next;
+    if (next !== Infinity) this.armHold(next, now);
+  }
+
+  // ───────────────────────────── verdict bookkeeping ─────────────────────────────
+
+  private setVerdict(row: HTMLElement, st: RowState, v: Verdict, final: boolean, now: number): void {
+    st.verdict = v;
+    st.final = final;
+    const cat = v.category;
+    if (st.counted !== cat) {
+      if (st.counted) this.counts[st.counted]--;
+      this.counts[cat]++;
+      st.counted = cat;
+      this.storeDirty = true;
+    }
+    const filt = v.action === 'hide' || v.action === 'collapse';
+    if (filt !== st.filtered) {
+      this.filteredCount += filt ? 1 : -1;
+      st.filtered = filt;
+      this.storeDirty = true;
+    }
+    if (final) {
+      const m = this.metrics;
+      if (st.t0) {
+        const lat = now - st.t0;
+        m.lat[m.latN++ % LAT_RING] = lat;
+        if (st.viaModel) m.modelLat[m.modelLatN++ % LAT_RING] = lat;
+        st.t0 = 0;
+      }
+      const waveMember = !!(st.wave && st.wave.role === 'member' && v.action === 'collapse');
+      if (filt && !st.loggedFiltered && !waveMember) {
+        st.loggedFiltered = true;
+        this.pushLog(this.newFiltered, st, v, 200);
+      }
+      if (cat === 'question' && !st.loggedQuestion) {
+        st.loggedQuestion = true;
+        this.pushLog(this.newQuestions, st, v, 100);
+      }
+      if (!st.vibed) {
+        st.vibed = true;
+        this.vibeN++;
+        if (cat === 'positive') this.vibePos++;
+        else if (cat === 'negative' || cat === 'toxic') this.vibeNeg++;
+      }
+    }
+    this.dirty.add(row);
+    this.onDecision?.(row, v, final);
+  }
+
+  private pushLog(buf: LogEntry[], st: RowState, v: Verdict, cap: number): void {
+    const m = st.msg;
+    buf.push({
+      msg: { key: m.key, author: m.author, text: m.text, ts: m.ts, platform: m.platform, channel: m.channel },
+      verdict: v,
+    });
+    if (buf.length > cap) buf.shift();
+    this.storeDirty = true;
+  }
+
+  // ───────────────────────────── write phase ─────────────────────────────
+
+  private writeRow(row: HTMLElement, st: RowState): void {
+    const v = st.verdict;
+    let a: string;
+    let c = '';
+    let r = '';
+    if (v) {
+      a = v.action;
+      c = v.category;
+      r = v.reason;
+    } else if (st.deadline) {
+      // Held: already invisible via the list rule while it has no verdict
+      // attribute — skip the write (saves one style recalc per held row).
+      if (this.listMarked && st.a === '') return;
+      a = 'pending';
+    } else a = 'show';
+    if (st.revealed && a !== 'show' && a !== 'highlight') a = 'show';
+    if (st.a !== a) {
+      row.setAttribute(ATTR.action, a);
+      st.a = a;
+    }
+    if (st.c !== c) {
+      if (c) row.setAttribute(ATTR.category, c);
+      else row.removeAttribute(ATTR.category);
+      st.c = c;
+    }
+    if (st.r !== r) {
+      if (r) row.setAttribute(ATTR.reason, r);
+      else row.removeAttribute(ATTR.reason);
+      st.r = r;
+    }
+    const wm = !!(v && st.wave && st.wave.role === 'member' && a === 'collapse');
+    if (st.wm !== wm) {
+      if (wm) row.setAttribute(ATTR.waveMember, '');
+      else row.removeAttribute(ATTR.waveMember);
+      st.wm = wm;
+    }
+    // Runs of pills read as one pill: a pill right after another visible pill
+    // (skipping rows that take no space) gets data-hush-g.
+    const vis = a === 'hide' || wm ? 0 : a === 'collapse' ? 1 : 2;
+    const g = vis === 1 && prevIsPill(row);
+    if (st.g !== g) {
+      if (g) row.setAttribute(ATTR.group, '');
+      else row.removeAttribute(ATTR.group);
+      st.g = g;
+    }
+    if (st.vis !== vis) {
+      st.vis = vis;
+      this.regroupNext(row);
+    }
+  }
+
+  /** The next visible sibling may start / continue a pill run differently now. */
+  private regroupNext(row: Element): void {
+    let s = row.nextElementSibling;
+    for (let k = 0; s && k < 16; k++) {
+      const v = visClass(s);
+      if (v === 0) {
+        s = s.nextElementSibling;
+        continue;
+      }
+      if (v === 1) {
+        const g = prevIsPill(s);
+        const st = this.states.get(s);
+        if (g !== s.hasAttribute(ATTR.group)) {
+          if (g) s.setAttribute(ATTR.group, '');
+          else s.removeAttribute(ATTR.group);
+        }
+        if (st) st.g = g;
+      }
+      return;
+    }
+  }
+
+  private writeWaveHeads(now: number): void {
+    let later = false;
+    for (const id of this.waveDirty) {
+      const key = this.waveHeads.get(id);
+      const row = key ? this.byKey.get(key) : undefined;
+      const st = row && this.states.get(row);
+      if (!row || !st || !st.wave || st.wave.id !== id || st.wave.role !== 'head') {
+        this.waveDirty.delete(id);
+        continue;
+      }
+      const n = this.waves.countOf(id);
+      if (n < 2 || n === st.wh) {
+        this.waveDirty.delete(id);
+        continue;
+      }
+      // the counter text relayouts the head row: ≤ 4 updates/s per wave
+      if (st.wh && now - st.whAt < WAVE_COUNTER_MS) {
+        later = true;
+        continue;
+      }
+      row.setAttribute(ATTR.waveHead, String(n));
+      st.wh = n;
+      st.whAt = now;
+      this.waveDirty.delete(id);
+    }
+    if (later) this.scheduleLater(WAVE_COUNTER_MS);
+  }
+
+  private clearRow(row: HTMLElement): void {
+    row.removeAttribute(ATTR.action);
+    row.removeAttribute(ATTR.category);
+    row.removeAttribute(ATTR.reason);
+    row.removeAttribute(ATTR.waveHead);
+    row.removeAttribute(ATTR.waveMember);
+    row.removeAttribute(ATTR.group);
+    row.removeAttribute(ATTR.open);
+  }
+
+  // ───────────────────────────── store ─────────────────────────────
+
+  private flushStore(now: number): void {
+    this.lastStoreAt = now;
+    this.storeDirty = false;
+    const s = this.store;
+    const nq = this.newQuestions;
+    const nf = this.newFiltered;
+    this.newQuestions = [];
+    this.newFiltered = [];
+    const wavesDirty = this.wavesDirty;
+    this.wavesDirty = false;
+    batch(() => {
+      s.counts.value = { ...this.counts };
+      s.totals.value = { seen: this.seen, filtered: this.filteredCount };
+      if (nq.length) s.questions.value = nq.reverse().concat(s.questions.peek()).slice(0, 100);
+      if (nf.length) s.filtered.value = nf.reverse().concat(s.filtered.peek()).slice(0, 200);
+      if (wavesDirty) s.waves.value = this.waves.list(now);
+    });
+  }
+
+  // ───────────────────────────── housekeeping ─────────────────────────────
+
+  private tick(): void {
+    if (!this.running) return;
+    const t0 = performance.now();
+    const now = this.now();
+    this.ticks++;
+
+    const loc = this.loc();
+    if (loc.href !== this.href) {
+      this.href = loc.href;
+      if (this.list) {
+        let ok = true;
+        try {
+          ok = this.adapter.matches(loc);
+        } catch {
+          ok = false;
+        }
+        if (!ok) this.detach(false);
+      }
+    }
+    if (!this.list || !this.list.isConnected) this.tryAttach();
+
+    if (this.list) {
+      try {
+        const theme = this.adapter.theme(this.doc);
+        if (theme !== this.theme) {
+          this.theme = theme;
+          this.store.theme.value = theme;
+          this.styles.update(this.styleOpts());
+        }
+        const ch = this.adapter.channel(this.doc);
+        if (ch !== this.channel) {
+          this.channel = ch;
+          this.store.channel.value = ch;
+          this.waves.reset();
+          this.rules.reset();
+        }
+        if (this.ticks % 5 === 1 && this.adapter.viewer) this.rules.setViewer(this.adapter.viewer(this.doc));
+      } catch {
+        /* adapter best-effort */
+      }
+    }
+    this.ensureBar();
+    if (this.waveHeads.size > 64) {
+      for (const id of this.waveHeads.keys()) if (!this.waves.isActive(id)) this.waveHeads.delete(id);
+    }
+
+    // a frame was requested but rAF never came (occluded / throttled window): run it now
+    if (this.scheduled && performance.now() - this.scheduledAt > 500) {
+      this.frame();
+    }
+    // watchdog: rows waiting but frames stalled (e.g. throttled) → show them
+    if (this.listMarked && this.queue.size && now - this.lastFrameAt > 1500) {
+      this.listMarked = false;
+      this.list?.removeAttribute(ATTR.list);
+    }
+
+    this.waves.sweep(now);
+    this.wavesDirty = true;
+    this.storeDirty = true;
+    this.classifier?.expire();
+    this.holdOn = this.computeHold();
+
+    // rate (1 s buckets) and vibe (5 s buckets)
+    this.rateArr.shift();
+    this.rateArr.push(this.secCount);
+    this.secCount = 0;
+    if (this.ticks % 5 === 0) {
+      this.vibeArr.shift();
+      this.vibeArr.push(this.vibeN ? (this.vibePos - this.vibeNeg) / this.vibeN : 0);
+      this.vibePos = this.vibeNeg = this.vibeN = 0;
+    }
+    const perf = this.perfStats(now);
+    batch(() => {
+      this.store.rate.value = this.rateArr.slice();
+      if (this.ticks % 5 === 0) this.store.vibe.value = this.vibeArr.slice();
+      this.store.perf.value = perf;
+    });
+    if (this.onReport && this.list && this.ticks % 2 === 0) {
+      this.onReport({ stats: { ...perf, platform: this.adapter.platform, channel: this.channel, counts: { ...this.counts } } });
+    }
+    this.schedule();
+    this.account(t0, 2);
+  }
+
+  private perfStats(now: number): PerfStats {
+    const m = this.metrics;
+    const cl = this.classifier;
+    const lp = this.lastPerf;
+    const dt = Math.max(0.001, (now - lp.at) / 1000);
+    const received = cl ? cl.received : 0;
+    const dMsgs = m.msgs - lp.msgs;
+    const dMain = m.mainMs - lp.mainMs;
+    if (dMsgs > 0) {
+      const perMsg = dMain / dMsgs;
+      this.mainEwma = this.mainEwma ? this.mainEwma * 0.7 + perMsg * 0.3 : perMsg;
+    }
+    const pct = percentiles(m.modelLat, m.modelLatN);
+    const stats: PerfStats = {
+      msgsPerSec: this.rateArr[this.rateArr.length - 1] ?? 0,
+      inferPerSec: lp.at ? (received - lp.received) / dt : 0,
+      cacheHitRate: cl ? cl.cache.hitRate() : 0,
+      p50ms: pct[0],
+      p95ms: pct[1],
+      queue: cl ? cl.inflight : 0,
+      mainMs: this.mainEwma,
+    };
+    this.lastPerf = { at: now, received, msgs: m.msgs, mainMs: m.mainMs };
+    return stats;
+  }
+
+  // ───────────────────────────── bar ─────────────────────────────
+
+  private ensureBar(): void {
+    if (!this.mountBar || !this.barActions || !this.running) return;
+    let anchor: { el: HTMLElement; where: 'before' | 'prepend' } | null = null;
+    try {
+      anchor = this.adapter.matches(this.loc()) ? this.adapter.barAnchor(this.doc) : null;
+    } catch {
+      anchor = null;
+    }
+    if (!anchor) return;
+    if (this.barCleanup && this.barAnchor === anchor.el && anchor.el.isConnected) return;
+    this.unmountBar();
+    try {
+      const r = this.mountBar(anchor, this.store, this.barActions);
+      this.barCleanup = typeof r === 'function' ? r : () => {};
+      this.barAnchor = anchor.el;
+    } catch (e) {
+      console.warn('[hush] bar mount failed', e);
+      this.mountBar = null;
+    }
+  }
+
+  private unmountBar(): void {
+    const c = this.barCleanup;
+    this.barCleanup = null;
+    this.barAnchor = null;
+    if (c) {
+      try {
+        c();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}

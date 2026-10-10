@@ -1,0 +1,5 @@
+# Sampled from ml/data/raw (real chat logs) — never commit.
+.corpus/
+# Build output / raw run data
+.out/
+.runs/

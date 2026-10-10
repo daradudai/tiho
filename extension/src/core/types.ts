@@ -69,6 +69,8 @@ export interface ModelStatus {
   error?: string;
   modelId?: string;
   version?: string;
+  /** Calibrated per-label thresholds aligned with LABELS (model config `hush.thresholds`). Default 0.5. */
+  thresholds?: number[];
 }
 
 export interface PerfStats {
@@ -78,4 +80,6 @@ export interface PerfStats {
   p50ms: number;
   p95ms: number;
   queue: number;
+  /** Content-script main-thread time per message, ms (avg over the last few seconds). */
+  mainMs?: number;
 }

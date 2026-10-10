@@ -21,3 +21,4 @@ extension/test-results/
 extension/playwright-report/
 extension/public/models/
 .DS_Store
+ml/gold/workflow_args.json
