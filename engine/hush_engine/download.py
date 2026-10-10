@@ -1,7 +1,8 @@
 """First-run downloads: the Clef-Flash GGUF (Hugging Face) and a llama.cpp release (GitHub).
 
 Resumable (`.part` + HTTP Range), with a progress line and SHA-256 verification
-for the known model files. Nothing is downloaded if the files already exist.
+for the known model files and llama.cpp archives. Nothing is downloaded if the
+files already exist.
 """
 
 from __future__ import annotations
@@ -28,6 +29,20 @@ MODEL_FILES = {
 # First llama.cpp release tested with the Clef decision endpoint (needs PR #29831).
 LLAMA_BUILD = "b11541"
 LLAMA_RELEASE_URL = "https://github.com/ggml-org/llama.cpp/releases/download/{build}/{asset}"
+# LLAMA_BUILD release asset -> (size in bytes, sha256) from the GitHub release. These are
+# binaries we run, so a replaced or tampered archive must fail like a bad model file does.
+LLAMA_ASSETS = {
+    "llama-b11541-bin-win-cuda-12.4-x64.zip": (265_224_711, "c5ccdd22e6b11c013efd6a931f93c3707e6fa5ab2f90df5c7d1838785540ece3"),
+    "cudart-llama-bin-win-cuda-12.4-x64.zip": (391_443_627, "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"),
+    "llama-b11541-bin-win-vulkan-x64.zip": (33_464_528, "37bba511d120222f13c3d520dd875f739a530cc124e78f7cbce0026de0173d8a"),
+    "llama-b11541-bin-win-cpu-arm64.zip": (12_343_725, "8f112d39c0bde44451ae5878709fdf2196e8d680cb8cb9354ca5332337f0942b"),
+    "llama-b11541-bin-macos-arm64.tar.gz": (12_078_846, "226929037cfcb956f50ae1d54bac13d3d9446d8d819c439580e1e2c00197da5e"),
+    "llama-b11541-bin-macos-x64.tar.gz": (11_602_041, "f74c3e79f68e9d0099bd2adc45c72208ec9748cd39e4098eeef7e49011445565"),
+    "llama-b11541-bin-ubuntu-cuda-12.8-x64.tar.gz": (171_990_585, "551ee13d02dd42599861c8ffbd71c7a110f379a51cb9c5947cb799cdbbc610b2"),
+    "cudart-llama-b11541-bin-ubuntu-cuda-12.8-x64.tar.gz": (594_377_950, "6c8acf749cb80a5932b8c5ba16476c3626ce72b09bcfe9078c27b1087ae39c4f"),
+    "llama-b11541-bin-ubuntu-vulkan-x64.tar.gz": (31_770_592, "bf91ce14ddfda55c01c8b8846aa7d6093a07b0213913b6216ed4a2d6ea78b1f8"),
+    "llama-b11541-bin-ubuntu-arm64.tar.gz": (13_799_565, "fcd44afd8ecdd2068d0c8505c0f96fa32014b4814d0dc74947a471deddcb9998"),
+}
 
 
 def model_filename(quant: str) -> str:
@@ -211,7 +226,8 @@ def ensure_llama_server(llama_dir: Path, build: str = LLAMA_BUILD, nvidia: bool 
     dl = llama_dir / ".download"
     for asset in release_assets(build, nvidia):
         print(f"[hush-engine] downloading llama.cpp {build}: {asset} ...", file=sys.stderr)
-        archive = download(LLAMA_RELEASE_URL.format(build=build, asset=asset), dl / asset)
+        size, sha = LLAMA_ASSETS.get(asset, (None, None)) if build == LLAMA_BUILD else (None, None)
+        archive = download(LLAMA_RELEASE_URL.format(build=build, asset=asset), dl / asset, size=size, sha256=sha)
         _extract_flat(archive, llama_dir)
         archive.unlink(missing_ok=True)
     shutil.rmtree(dl, ignore_errors=True)

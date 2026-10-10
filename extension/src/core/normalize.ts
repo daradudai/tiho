@@ -256,18 +256,19 @@ const RE_INVISIBLE =
 const RE_BLANKS = /[\sᅟᅠ⠀ㅤﾠ]+/g;
 const RE_ZALGO =
   /([̀-ͯ҃-҉᪰-᫿᷀-᷿⃐-⃿︠-︯])[̀-ͯ҃-҉᪰-᫿᷀-᷿⃐-⃿︠-︯]+/g;
-const RE_RUNS = /(.)\1{4,}/gsu;
 const MODEL_MAX = 400;
 
 /**
- * Light cleaning for the text the model sees: keep case, script and emoji,
- * drop invisible chars, squash zalgo stacks, cap char runs at 4 and length at
- * 400 chars, single-space.
+ * Light cleaning for the text the model sees: keep case, script, emoji and
+ * character runs (the model learned walls of repeated characters as spam),
+ * drop invisible chars, squash zalgo stacks, cap length at 400 chars,
+ * single-space. ml/train/textclean.py is the same function for training and
+ * evaluation; keep the two in sync.
  */
 export function cleanForModel(text: string): string {
   if (isClean(text)) return text;
   let s = text.length > MODEL_MAX * 2 ? text.slice(0, MODEL_MAX * 2) : text;
-  s = s.replace(RE_INVISIBLE, '').replace(RE_ZALGO, '$1').replace(RE_BLANKS, ' ').replace(RE_RUNS, '$1$1$1$1');
+  s = s.replace(RE_INVISIBLE, '').replace(RE_ZALGO, '$1').replace(RE_BLANKS, ' ');
   s = s.trim();
   return s.length > MODEL_MAX ? s.slice(0, MODEL_MAX) : s;
 }

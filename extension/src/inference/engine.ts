@@ -49,6 +49,8 @@ export class InferenceEngine {
   private tuning: InferenceTuning = DEFAULT_TUNING;
   private status: ModelStatus = { state: 'idle', backend: 'none' };
   private cache: LRU<string, number[]>;
+  /** Model whose scores the cache holds (`variant@version`). */
+  private cacheModel = '';
   private batcher: DynamicBatcher<number[]>;
   private lastActivity = 0;
   private lastProgressPost = 0;
@@ -80,6 +82,7 @@ export class InferenceEngine {
       maxBatch: t.maxBatch,
       maxWaitMs: t.maxWaitMs,
       maxQueue: t.maxQueue,
+      maxAgeMs: t.maxAgeMs,
       cache: this.opts.cache === false ? null : this.cache,
       now: this.now,
       run: (_keys, texts) => this.infer(texts),
@@ -211,6 +214,13 @@ export class InferenceEngine {
         }
         this.model = m;
         this.loading = null;
+        const id = `${m.variant}@${m.version}`;
+        if (id !== this.cacheModel) {
+          // Another student (6-layer ↔ 3-layer after a lost GPU or the GPU setting): its scores
+          // are calibrated for other thresholds, so nothing the old one scored may answer for it.
+          this.cache.clear();
+          this.cacheModel = id;
+        }
         this.setStatus({
           state: 'ready',
           backend: m.backend as ModelBackend,
@@ -232,9 +242,19 @@ export class InferenceEngine {
     return p;
   }
 
-  /** Batcher flush: tokenize → bucket by length → forward per bucket. */
+  /** Batcher flush: scores from the model that is loaded when they are posted. */
   private async infer(texts: string[]): Promise<number[][]> {
-    const m = await this.ensureModel();
+    for (;;) {
+      const m = await this.ensureModel();
+      const out = await this.forward(m, texts);
+      // Replaced during the pass (lost GPU, GPU setting): these are the old model's scores,
+      // which must neither be cached nor sent with the new one's thresholds. Run them again.
+      if (this.model === m) return out;
+    }
+  }
+
+  /** Tokenize → bucket by length → forward per bucket. */
+  private async forward(m: ModelLike, texts: string[]): Promise<number[][]> {
     const seqs = texts.map((t) => m.tokenize(t, this.tuning.maxChars));
     const plan = planBuckets(
       seqs.map((s) => s.length),

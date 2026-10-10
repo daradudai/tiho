@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 
 import pytest
@@ -44,6 +45,22 @@ def test_health_and_classify(fake):
         res = d["results"][0]
         assert res["id"] == "m1" and 0 <= res["filters"]["bs"] <= 1
         assert set(res["base"]) == {"toxic", "spam", "scam", "noise", "question", "clean", "positive", "negative"}
+
+
+def test_classify_stream_ndjson(fake):
+    with client_for(fake) as c:
+        wait_ready(c)
+        req = {"messages": [{"id": 1, "text": "jump left"}, {"id": "m2", "text": "gg"}],
+               "filters": [{"id": "bs", "question": "Is this message backseating the streamer's gameplay?"}], "stream": True}
+        with c.stream("POST", "/v1/classify", json=req) as r:
+            assert r.status_code == 200
+            assert r.headers["content-type"].startswith("application/x-ndjson")
+            lines = [json.loads(line) for line in r.iter_lines() if line]
+        assert sorted(str(x["id"]) for x in lines[:-1]) == ["1", "m2"]
+        assert all(0 <= x["filters"]["bs"] <= 1 for x in lines[:-1])
+        assert lines[-1]["done"] is True and lines[-1]["expired"] == 0 and "ms" in lines[-1]
+        plain = c.post("/v1/classify", json={**req, "stream": False}).json()
+        assert [x["id"] for x in plain["results"]] == [1, "m2"]
 
 
 def test_validation(fake):

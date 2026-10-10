@@ -2,12 +2,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createStore } from '../../src/core/store';
 import { DEFAULT_SETTINGS } from '../../src/core/settings';
-import { mountBar } from '../../src/ui/bar';
+import { framedByOtherSite, mountBar, type MountOptions } from '../../src/ui/bar';
 import type { BarActions } from '../../src/core/bar-actions';
 
 const flush = () => new Promise((r) => setTimeout(r, 30));
 
-function setup() {
+/** The tests reach into the shadow root and drive the bar with el.click() (untrusted events). */
+function setup(opts: MountOptions = { shadow: 'open', synthetic: true }) {
   document.body.innerHTML = '<div id="col"><div id="list"></div></div>';
   const store = createStore({ ...DEFAULT_SETTINGS });
   store.platform.value = 'twitch';
@@ -19,7 +20,7 @@ function setup() {
     revealMessage: vi.fn(),
   };
   const list = document.getElementById('list')!;
-  const dispose = mountBar({ el: list, where: 'before' }, store, actions);
+  const dispose = mountBar({ el: list, where: 'before' }, store, actions, opts);
   const host = document.querySelector('hush-bar') as HTMLElement;
   return { store, actions, dispose, host, root: host.shadowRoot! };
 }
@@ -93,5 +94,85 @@ describe('mountBar', () => {
     store.settings.value = { ...store.settings.value, showBar: false };
     expect(host.style.display).toBe('none');
     dispose();
+  });
+
+  it('is closed to page scripts: no shadowRoot to reach, synthetic events ignored', async () => {
+    const closed = setup({});
+    expect(closed.host.shadowRoot).toBeNull();
+    closed.dispose();
+
+    const { root, actions, dispose } = setup({ shadow: 'open' });
+    await flush();
+    (root.querySelector('.hb-chip[data-c="spam"]') as HTMLElement).click();
+    (root.querySelector('.hb-seg-btn') as HTMLElement).click();
+    root.querySelector('.hb-chip')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, composed: true }));
+    (root.querySelector('.hb-mark') as HTMLElement).click();
+    await flush();
+    expect(actions.setAction).not.toHaveBeenCalled();
+    expect(actions.setPreset).not.toHaveBeenCalled();
+    expect(root.querySelector('.hb-menu')).toBeNull();
+    expect(root.querySelector('.hb-panel')).toBeNull();
+    dispose();
+  });
+
+  it('menus take focus, move with the arrow keys and give focus back on Escape or Tab', async () => {
+    const { root, actions, dispose } = setup();
+    await flush();
+    const chip = root.querySelector('.hb-chip[data-c="spam"]') as HTMLElement; // chill: collapse
+    chip.focus();
+    chip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, composed: true }));
+    await flush();
+    const items = [...root.querySelectorAll<HTMLElement>('.hb-menu [role="menuitemradio"]')];
+    expect(root.activeElement).toBe(items.find((i) => i.dataset.a === 'collapse'));
+    const key = (k: string) => (root.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+    key('ArrowDown');
+    expect((root.activeElement as HTMLElement).dataset.a).toBe('hide');
+    key('ArrowDown'); // wraps around
+    expect((root.activeElement as HTMLElement).dataset.a).toBe('show');
+    key('End');
+    expect((root.activeElement as HTMLElement).dataset.a).toBe('hide');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flush();
+    expect(root.querySelector('.hb-menu')).toBeNull();
+    expect(root.activeElement).toBe(chip);
+
+    (root.querySelector('.hb-preset-pill') as HTMLElement).click();
+    await flush();
+    expect((root.activeElement as HTMLElement).getAttribute('aria-checked')).toBe('true'); // the current preset
+    key('Tab');
+    await flush();
+    expect(root.querySelector('.hb-menu')).toBeNull();
+    expect(root.activeElement).toBe(root.querySelector('.hb-preset-pill'));
+    expect(actions.setPreset).not.toHaveBeenCalled();
+    dispose();
+  });
+});
+
+describe('framedByOtherSite', () => {
+  /** A fake frame: its host, the origins framing it (Chrome's location.ancestorOrigins) and the top's host. */
+  const frame = (host: string, ancestors: string[] | null, topHost?: string): Window => {
+    const w: Record<string, unknown> = { location: { hostname: host, ancestorOrigins: ancestors ?? undefined } };
+    w.top = ancestors?.length || topHost ? { location: { hostname: topHost ?? 'unused' } } : w;
+    return w as unknown as Window;
+  };
+
+  it('lets top-level chats and chats framed by their own site have the bar', () => {
+    expect(framedByOtherSite(frame('www.twitch.tv', null))).toBe(false);
+    expect(framedByOtherSite(frame('www.youtube.com', ['https://www.youtube.com']))).toBe(false); // live_chat in a watch page
+    expect(framedByOtherSite(frame('www.youtube.com', ['https://studio.youtube.com']))).toBe(false);
+    expect(framedByOtherSite(frame('www.twitch.tv', null, 'dashboard.twitch.tv'))).toBe(false);
+  });
+
+  it('flags embeds on other sites, sandboxed frames and tops it cannot read', () => {
+    expect(framedByOtherSite(frame('www.twitch.tv', ['https://evil.example']))).toBe(true);
+    expect(framedByOtherSite(frame('www.youtube.com', ['https://www.youtube.com', 'https://evil.example']))).toBe(true);
+    expect(framedByOtherSite(frame('kick.com', ['null']))).toBe(true);
+    const w = frame('www.twitch.tv', null, 'evil.example') as unknown as Record<string, unknown>;
+    w.top = {
+      get location(): Location {
+        throw new DOMException('Blocked a frame with origin', 'SecurityError');
+      },
+    };
+    expect(framedByOtherSite(w as unknown as Window)).toBe(true);
   });
 });

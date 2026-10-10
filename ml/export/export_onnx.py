@@ -58,7 +58,9 @@ import onnx
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "train"))
 from onnx import TensorProto, helper, numpy_helper
+from textclean import clean_for_model
 
 # Keep in sync with extension/src/core/types.ts LABELS.
 LABELS = ["toxic", "spam", "scam", "noise", "question", "positive", "negative"]
@@ -359,6 +361,8 @@ def ort_logits(path: Path, ids: np.ndarray, mask: np.ndarray, bs: int = 64) -> n
 
 
 def load_eval_texts(path: str | None, n: int) -> list[str]:
+    """VALIDATION_TEXTS + up to n real chat lines, cleaned the way the extension feeds the model."""
+    texts = []
     p = Path(path) if path else DEFAULT_EVAL
     if p.exists():
         raw = p.read_text(encoding="utf-8")
@@ -367,10 +371,8 @@ def load_eval_texts(path: str | None, n: int) -> list[str]:
         else:
             items = json.loads(raw)
         texts = [it["text"] if isinstance(it, dict) else str(it) for it in items]
-        texts = [t for t in texts if t.strip()][:n]
-        if texts:
-            return list(VALIDATION_TEXTS) + texts
-    return list(VALIDATION_TEXTS)
+        texts = [t for t in map(clean_for_model, texts) if t][:n]
+    return [clean_for_model(t) for t in VALIDATION_TEXTS] + texts
 
 
 # --------------------------------------------------------------------------- main

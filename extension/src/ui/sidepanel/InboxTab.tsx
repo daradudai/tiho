@@ -78,13 +78,17 @@ function QuestionItem({ q, done: isDone, onDone }: { q: LogEntry; done: boolean;
       <Avatar name={q.msg.author} />
       <button class="sp-q-body" onClick={reveal} title="Show in chat">
         <span class="sp-q-meta">
-          <b>{q.msg.author}</b>
+          <b>
+            <bdi>{q.msg.author}</bdi>
+          </b>
           <span class="sp-q-time">{ago(q.msg.ts)}</span>
           <span class="sp-q-go">
             Show in chat <Icon name="arrowUpRight" size={11} strokeWidth={1.9} />
           </span>
         </span>
-        <span class="sp-q-text">{q.msg.text}</span>
+        <span class="sp-q-text" dir="auto">
+          {q.msg.text}
+        </span>
       </button>
       <button class={`sp-check ${isDone ? 'is-on' : ''}`} onClick={onDone} aria-pressed={isDone} title={isDone ? 'Mark as open' : 'Mark as answered'}>
         <Icon name="check" size={12} strokeWidth={2.2} />

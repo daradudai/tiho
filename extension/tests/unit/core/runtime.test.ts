@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PortRequest, PortResponse } from '../../../src/core/protocol';
-import { DEFAULT_SETTINGS, PRESETS, type Settings } from '../../../src/core/settings';
+import { DEFAULT_SETTINGS, PRESETS, filterKey, type EngineFilter, type Settings } from '../../../src/core/settings';
 import { Role, type ChatMessage } from '../../../src/core/types';
 import type { PlatformAdapter } from '../../../src/platforms/types';
 import { ClassifierClient, type ClassifierTransport } from '../../../src/runtime/classifier';
@@ -35,7 +35,7 @@ function fakeAdapter(o: { observeSubtree?: boolean; listId?: string } = {}): Pla
     channel: () => 'test',
     barAnchor: (doc) => ({ el: doc.querySelector('#chat') as HTMLElement, where: 'before' }),
     theme: () => 'dark',
-    viewer: () => 'me',
+    viewer: () => ['me'],
     observeSubtree: o.observeSubtree,
   };
 }
@@ -66,13 +66,16 @@ class FakePort implements ClassifierTransport {
         type: 'scores',
         batchId: r.batchId,
         ids: r.items.map((x) => x.id),
-        scores: r.items.map((x) => score(x.text)),
+        scores: r.items.map((x) => score(x.text).slice()), // fresh arrays, as over a real Port (engine answers attach to them)
         ms: 3,
         backend: 'wasm',
       });
   }
   status(state: 'ready' | 'loading') {
     this.msg!({ type: 'status', status: { state, backend: 'wasm' } });
+  }
+  emit(m: PortResponse) {
+    this.msg!(m);
   }
   kill() {
     this.disc!();
@@ -101,6 +104,7 @@ function setup(o: { settings?: Partial<Settings>; adapter?: PlatformAdapter; mod
     now: () => clock,
     onScores: (ids) => rt.onScores(ids),
     onFailed: (ids) => rt.onFailed(ids),
+    onRescored: (ids) => rt.onRescored(ids),
     onStatus: (s) => rt.setModelStatus(s),
   });
   rt = new HushRuntime({
@@ -241,7 +245,7 @@ describe('runtime: model path + hold', () => {
     rt.flushNow();
     expect(A(bad)).toBe('hide');
     expect(C(bad)).toBe('toxic');
-    expect(bad.getAttribute('data-hush-r')).toBe('toxic 0.97');
+    expect(bad.getAttribute('data-hush-r')).toBe('toxic · 97%');
     expect(A(ok)).toBe('show');
     expect(C(ok)).toBe('clean');
   });
@@ -321,6 +325,46 @@ describe('runtime: model path + hold', () => {
     rt.flushNow();
     expect(A(r)).toBe('show');
     expect(C(r)).toBe('clean');
+  });
+});
+
+describe('runtime: Hush Engine follow-ups', () => {
+  const BACKSEAT: EngineFilter = { id: 'b', question: 'Is this message backseating?', label: 'Backseating', action: 'hide', enabled: true };
+
+  it('a late custom-filter answer re-decides rows already on screen', async () => {
+    setup({ settings: { engine: { ...DEFAULT_SETTINGS.engine, enabled: true, filters: [BACKSEAT] } } });
+    const a = row('go left there is a ledge', { user: 'a' });
+    await frame();
+    const [req] = port.sent;
+    port.replyAll(scorer);
+    rt.flushNow();
+    expect(A(a)).toBe('show'); // local model: clean
+    const b = row('go left there is a ledge', { user: 'b' }); // same text, decided from the cache
+    await frame();
+    expect(A(b)).toBe('show');
+    expect(rt.store.totals.value.filtered).toBe(0);
+
+    port.emit({ type: 'engine', batchId: req!.batchId, ids: req!.items.map((x) => x.id), filters: { [filterKey(BACKSEAT)]: [0.91] } });
+    rt.flushNow();
+    for (const r of [a, b]) {
+      expect(A(r)).toBe('hide');
+      expect(r.getAttribute('data-hush-r')).toBe('filter: backseating');
+    }
+    expect(rt.store.totals.value.filtered).toBe(2);
+    expect(rt.store.filtered.value[0]?.verdict).toMatchObject({ action: 'hide', source: 'engine' });
+  });
+
+  it('an answer below the filter threshold leaves the verdict alone', async () => {
+    setup({ settings: { engine: { ...DEFAULT_SETTINGS.engine, enabled: true, filters: [BACKSEAT] } } });
+    const a = row('nice ledge jump', { user: 'a' });
+    await frame();
+    const [req] = port.sent;
+    port.replyAll(scorer);
+    rt.flushNow();
+    port.emit({ type: 'engine', batchId: req!.batchId, ids: req!.items.map((x) => x.id), filters: { [filterKey(BACKSEAT)]: [0.12] } });
+    rt.flushNow();
+    expect(A(a)).toBe('show');
+    expect(C(a)).toBe('clean');
   });
 });
 
@@ -441,5 +485,94 @@ describe('runtime: DOM churn', () => {
     rt.flushNow();
     for (const el of Array.from(list.children)) expect(el.getAttribute('style')).toBeNull();
     expect(document.getElementById('hush-row-style')).not.toBeNull();
+  });
+});
+
+describe('runtime: a message seen again', () => {
+  /** The same message in a new node where the old one was (Kick re-mount, YouTube re-render). */
+  function remount(el: HTMLElement): HTMLElement {
+    const fresh = document.createElement('div');
+    fresh.className = 'msg';
+    for (const [k, v] of Object.entries(el.dataset)) if (!k.startsWith('hush')) fresh.dataset[k] = v;
+    fresh.textContent = el.textContent;
+    el.replaceWith(fresh);
+    return fresh;
+  }
+
+  it('in a new node keeps its verdict: no "repeat", not counted, logged or classified again', async () => {
+    setup();
+    const ask = row('is the boss fight next?', { user: 'bob' });
+    const bad = row('you are trash', { user: 'eve' });
+    await frame();
+    port.replyAll(scorer);
+    rt.flushNow();
+    expect(A(ask)).toBe('highlight');
+    expect(A(bad)).toBe('hide');
+    const s = rt.store;
+    const seen = s.totals.value.seen;
+    const counts = { ...s.counts.value };
+
+    const ask2 = remount(ask);
+    const bad2 = remount(bad);
+    row('nice play', { user: 'zed' });
+    await frame();
+    expect(port.items.map((x) => x.text)).toEqual(['nice play']);
+    port.replyAll(scorer);
+    rt.flushNow();
+    expect(A(ask2)).toBe('highlight');
+    expect(C(ask2)).toBe('question');
+    expect(A(bad2)).toBe('hide');
+    expect(s.totals.value).toEqual({ seen: seen + 1, filtered: 1 });
+    expect(s.counts.value).toEqual({ ...counts, clean: counts.clean + 1 });
+    expect(s.filtered.value).toHaveLength(1);
+    expect(s.questions.value).toHaveLength(1);
+  });
+
+  it('Hush turned off and on: rows on screen keep their verdicts', async () => {
+    setup();
+    const ok = row('see you all tomorrow', { user: 'bob' });
+    const bad = row('you are trash', { user: 'eve' });
+    await frame();
+    port.replyAll(scorer);
+    rt.flushNow();
+    rt.setSettings({ ...DEFAULT_SETTINGS, enabled: false });
+    expect(ok.hasAttribute('data-hush-a')).toBe(false);
+    rt.setSettings({ ...DEFAULT_SETTINGS });
+    rt.flushNow();
+    expect(A(ok)).toBe('show');
+    expect(ok.hasAttribute('data-hush-r')).toBe(false);
+    expect(A(bad)).toBe('hide');
+    expect(rt.store.totals.value).toEqual({ seen: 2, filtered: 1 });
+  });
+
+  it('a real repeat by the same author still folds', async () => {
+    setup();
+    row('see you all tomorrow', { user: 'bob' });
+    await frame();
+    port.replyAll(scorer);
+    rt.flushNow();
+    const again = row('see you all tomorrow', { user: 'bob' });
+    await frame();
+    expect(A(again)).toBe('collapse');
+    expect(again.getAttribute('data-hush-r')).toBe('repeat');
+  });
+
+  it('a wave head keeps its counter, a row the viewer opened stays open', async () => {
+    setup();
+    const wave = ['a', 'b', 'c', 'd', 'e'].map((u) => row('KEKW', { user: u, emotes: 1 }));
+    row('z'.repeat(40), { key: 'p1' });
+    await frame();
+    expect(rt.reveal('p1')).toBe(true);
+    const head = remount(wave[0]!);
+    const member = remount(wave[2]!);
+    const opened = remount(list.querySelector<HTMLElement>('[data-key="p1"]')!);
+    await frame();
+    expect(A(head)).toBe('show');
+    expect(head.getAttribute('data-hush-wh')).toBe('5');
+    expect(head.hasAttribute('data-hush-wm')).toBe(false);
+    expect(member.hasAttribute('data-hush-wm')).toBe(true);
+    expect(A(opened)).toBe('show');
+    expect(opened.hasAttribute('data-hush-open')).toBe(true);
+    expect(rt.store.totals.value.seen).toBe(6);
   });
 });

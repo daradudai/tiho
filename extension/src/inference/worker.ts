@@ -1,6 +1,7 @@
 // Module Worker hosting the Hush Lite model (spawned by the offscreen document
 // and by the bench page). Messages: see messages.ts.
 
+import { REMOTE_MODEL_PINS } from './config';
 import { InferenceEngine } from './engine';
 import type { InitOptions, WorkerIn, WorkerOut } from './messages';
 import { HushModel } from './model';
@@ -38,6 +39,7 @@ const engine = new InferenceEngine({
       device: opts.device ?? 'auto',
       variant: opts.variant,
       threads,
+      pins: REMOTE_MODEL_PINS,
       onProgress: hooks.onProgress,
       onFallback: hooks.onFallback,
     });

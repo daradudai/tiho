@@ -117,7 +117,8 @@ function SetupHelp({ open }: { open: boolean }) {
       </summary>
       <ol>
         <li>
-          Needs an <b>NVIDIA GPU with 8 GB+</b> (14 GB+ for the full-size model) and <b>Python 3.10+</b>.
+          Needs <b>Python 3.10+</b>. Best on an <b>NVIDIA GPU with 8 GB+</b> (14 GB+ for the full-size model); other GPUs run it through Vulkan (Metal
+          on macOS), usually slower.
         </li>
         <li>
           Get Hush from GitHub (<i>Code → Download ZIP</i>) and open the <code>engine</code> folder.

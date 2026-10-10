@@ -3,7 +3,7 @@
 // Rows carry at most these attributes (written by the runtime):
 //   data-hush-a   show | highlight | dim | collapse | hide | pending
 //   data-hush-c   toxic | scam | spam | noise | negative | question | positive | clean
-//   data-hush-r   short reason ("toxic 0.94", "!command")  → hover chip
+//   data-hush-r   short reason ("toxic · 94%", "!command") → hover chip
 //   data-hush-wh  wave head: live count ("37")              → "×37" badge
 //   data-hush-wm  wave member (collapses into its head, takes no space)
 //   data-hush-run last collapsed row of a run: run length    → "3 hidden · show" pill

@@ -217,6 +217,6 @@ export const youtube: PlatformAdapter = {
     const chip = doc.querySelector('yt-live-chat-message-input-renderer yt-live-chat-author-chip');
     const el = chip ? findById(chip, 'author-name', 1) : null;
     const name = el ? cleanName(directText(el).trim()) : '';
-    return name || null;
+    return name ? [name] : [];
   },
 };

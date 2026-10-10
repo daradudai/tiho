@@ -22,6 +22,9 @@ import httpx
 from .gpu import LaunchProfile
 
 MODEL_ALIAS = "clef-flash"
+# llama-server -lv: errors and warnings only. At the default (3, info) it logs three
+# lines per request, 10-20 MB an hour on a busy chat.
+LOG_VERBOSITY = 2
 
 
 def build_argv(
@@ -30,7 +33,10 @@ def build_argv(
     port: int,
     profile: LaunchProfile,
     extra: list[str] | None = None,
+    api_key: str | None = None,
 ) -> list[str]:
+    """llama-server command line. `api_key` locks every endpoint but /health: llama-server
+    answers any Origin and any Host, so without one any web page could use (and tie up) it."""
     argv = [
         str(exe),
         "-m", str(model),
@@ -42,10 +48,18 @@ def build_argv(
         "-ub", str(profile.ubatch),
         "-b", str(profile.ubatch),
         "--no-webui",
+        "-lv", str(LOG_VERBOSITY),
     ]
+    if api_key:
+        argv += ["--api-key", api_key]
     if profile.ngl is not None:
         argv += ["-ngl", str(profile.ngl)]
     return argv + list(extra or [])
+
+
+def shown_argv(argv: list[str]) -> str:
+    """The command line for the log, without the API key."""
+    return " ".join("***" if i and argv[i - 1] == "--api-key" else a for i, a in enumerate(argv))
 
 
 def port_in_use(port: int, host: str = "127.0.0.1") -> bool:
@@ -136,7 +150,7 @@ class LlamaProcess:
             )
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._log = open(self.log_path, "wb")
-        self._log.write((" ".join(self.argv) + "\n\n").encode())
+        self._log.write((shown_argv(self.argv) + "\n\n").encode())
         self._log.flush()
         kwargs: dict = {}
         if os.name == "nt":
@@ -159,12 +173,18 @@ class LlamaProcess:
             except OSError as e:  # still killed by stop()/atexit on a normal exit
                 print(f"[hush-engine] warning: could not attach llama-server to a job object: {e}", file=sys.stderr)
 
-    def log_tail(self, n: int = 25) -> str:
+    def log_tail(self, n: int = 25, max_bytes: int = 64 << 10) -> str:
+        """The last `n` lines of the log, read from its last `max_bytes` only (it can be large)."""
         try:
-            lines = self.log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-            return "\n".join(lines[-n:])
+            with self.log_path.open("rb") as f:
+                size = f.seek(0, os.SEEK_END)
+                f.seek(max(0, size - max_bytes))
+                lines = f.read().decode("utf-8", errors="replace").splitlines()
         except OSError:
             return ""
+        if size > max_bytes:
+            lines = lines[1:]  # cut off in the middle
+        return "\n".join(lines[-n:])
 
     async def wait_ready(self, timeout: float = 600.0, on_tick=None) -> None:
         """Poll /health until the model is loaded; fail fast if the process dies."""
@@ -173,7 +193,7 @@ class LlamaProcess:
             while True:
                 if not self.alive:
                     code = self.proc.returncode if self.proc else None
-                    raise RuntimeError(f"llama-server exited with code {code}:\n{self.log_tail()}")
+                    raise RuntimeError(f"llama-server exited with code {code}:\n{await asyncio.to_thread(self.log_tail)}")
                 try:
                     r = await c.get(f"{self.url}/health")
                     if r.status_code == 200:
@@ -181,7 +201,7 @@ class LlamaProcess:
                 except httpx.HTTPError:
                     pass
                 if time.monotonic() - t0 > timeout:
-                    raise TimeoutError(f"llama-server not ready after {timeout:.0f}s:\n{self.log_tail()}")
+                    raise TimeoutError(f"llama-server not ready after {timeout:.0f}s:\n{await asyncio.to_thread(self.log_tail)}")
                 if on_tick:
                     on_tick(time.monotonic() - t0)
                 await asyncio.sleep(0.5)

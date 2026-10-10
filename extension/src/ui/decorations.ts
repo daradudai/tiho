@@ -6,14 +6,15 @@
 // Row attributes (contract with src/runtime/engine.ts):
 //   data-hush-a     show | highlight | dim | collapse | hide | pending
 //   data-hush-c     toxic | scam | spam | noise | negative | question | positive | clean
-//   data-hush-r     short reason ("toxic 0.94", "link")                     → hover chip
+//   data-hush-r     short reason ("toxic · 94%", "link")                    → hover chip
 //   data-hush-wh    wave head, live count ("37")                            → "×37" badge
 //   data-hush-wm    wave member (folds into its head, takes no space)
 //   data-hush-run   on the LAST collapsed row of a run: run length ("3")    → "3 hidden · show"
 //   data-hush-open  user expanded a collapsed row
 //
 // Performance (measured in tests/stress): every selector is a compound of
-// plain attribute selectors on the row itself, so Blink only ever matches
+// plain attribute selectors on the row itself (plus :hover, and :dir(rtl) for
+// the mirrored rules of right-to-left chats), so Blink only ever matches
 // rows that carry data-hush-* and never walks ancestors or siblings: no row
 // selector scoping (:is(<rows>)), no sibling (+) or child (> *) combinators,
 // no CSS counters, no transitions on rows. Collapsed rows take no space
@@ -93,6 +94,30 @@ export interface DecorationOptions {
   rowSelector?: string;
 }
 
+/**
+ * data-hush-run values for a static list of rows, given each row's action (for
+ * pages that write the attributes themselves, like the onboarding demo): the
+ * last collapsed row of each run gets the run's length, every other row
+ * nothing. Hidden rows take no space and do not break a run, as in the runtime.
+ */
+export function pillRuns(actions: readonly string[]): (string | undefined)[] {
+  const out: (string | undefined)[] = actions.map(() => undefined);
+  let n = 0;
+  let last = -1;
+  actions.forEach((a, i) => {
+    if (a === 'hide') return;
+    if (a === 'collapse') {
+      n++;
+      last = i;
+      return;
+    }
+    if (n) out[last] = String(n);
+    n = 0;
+  });
+  if (n) out[last] = String(n);
+  return out;
+}
+
 export function decorationCss(platform: Platform | string, theme: Theme, opts: DecorationOptions = {}): string {
   const p = PLATFORM_DECO[platform as Platform] ?? PLATFORM_DECO.twitch;
   const t = THEME_DECO[theme];
@@ -113,6 +138,7 @@ export function decorationCss(platform: Platform | string, theme: Theme, opts: D
   const COL = '[data-hush-a="collapse"]:not([data-hush-open])';
   const RUN = '[data-hush-run][data-hush-a="collapse"]:not([data-hush-open])';
   const SHOWN = ['[data-hush-a="show"]', '[data-hush-a="dim"]', '[data-hush-a="highlight"]'];
+  const RTL = ':dir(rtl)';
   const list = (sels: string[], suffix = '') => sels.map((s) => s + suffix).join(',');
 
   let css = `
@@ -158,6 +184,22 @@ ${list(SHOWN.map((s) => `[data-hush-wh]${s}`), '::before')}{
   display:block;height:18px;margin:${p.wave};padding:0 7px;border-radius:999px;
   font-size:11px;font-weight:650;font-style:normal;line-height:18px;letter-spacing:.01em;font-variant-numeric:tabular-nums;white-space:nowrap;
   color:var(--hush-wave-fg);background:var(--hush-wave-bg)}
+
+/* RTL chats (YouTube's chat frame with an Arabic, Hebrew, Persian or Urdu UI):
+   every rule above that has a side, mirrored. :dir() is matched on the row
+   itself (Blink keeps each element's directionality), so each selector is
+   still one compound on the row. The labels are English and stay left-to-right
+   inside their mirrored shapes: "show ·" then "3 hidden ●", read from the right. */
+[data-hush-a="highlight"]${RTL}{box-shadow:inset -3px 0 0 var(--hush-accent,var(--hush-c-highlight))!important}
+${RUN}${RTL}{padding:3px var(--hush-indent) 3px 8px!important}
+${RUN}${RTL}::before{
+  direction:ltr;padding:0 18px 0 5px;border-radius:0 999px 999px 0;
+  background-image:radial-gradient(circle at calc(100% - 9.5px) 50%,var(--hush-accent,var(--hush-c-noise)) 0 3px,transparent 3.6px);
+  box-shadow:inset -1px 0 0 var(--hush-pill-line),inset 0 1px 0 var(--hush-pill-line),inset 0 -1px 0 var(--hush-pill-line)}
+${RUN}${RTL}::after{
+  padding:0 0 0 10px;border-radius:999px 0 0 999px;
+  box-shadow:inset 1px 0 0 var(--hush-pill-line),inset 0 1px 0 var(--hush-pill-line),inset 0 -1px 0 var(--hush-pill-line)}
+${list(SHOWN.map((s) => `[data-hush-wh]${s}${RTL}`), '::before')}{float:left;margin:${mirrored(p.wave)};direction:ltr}
 `;
 
   if (decorate) {
@@ -198,7 +240,23 @@ ${list(tip, '::after')}{
   animation:hush-tip-in 120ms cubic-bezier(.2,.8,.2,1) 180ms both}
 @keyframes hush-tip-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){${list(tip, '::after')}{animation:none}}
+
+/* RTL, mirrored (see above). A revealed row keeps its dashed edge, now on the right. */
+${list(edged.map((s) => s + RTL), ':not([data-hush-open])')}{box-shadow:inset calc(-1 * var(--hush-edge-w)) 0 0 var(--hush-edge)!important}
+[data-hush-a="highlight"]${RTL}:not([data-hush-open]){
+  background-image:linear-gradient(270deg,color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) var(--hush-hl-mix),transparent),transparent 85%)!important;
+  box-shadow:inset -3px 0 0 var(--hush-accent,var(--hush-c-highlight)),inset -18px 0 18px -18px color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) 55%,transparent)!important}
+[data-hush-open]${RTL}{box-shadow:none!important;background-position:100% 0!important}
+${list(tip.map((s) => s + RTL), '::after')}{
+  right:auto;left:44px;padding:0 15px 0 7px;direction:ltr;
+  background:radial-gradient(circle at calc(100% - 8px) 50%,var(--hush-accent,var(--hush-link)) 0 2.5px,transparent 3.1px),var(--hush-tip-bg)}
 `;
   }
   return css;
+}
+
+/** "6px 10px 0 6px" (top right bottom left) → "6px 6px 0 10px": the same box from the other side. */
+function mirrored(box: string): string {
+  const [t, r = t, b = t, l = r] = box.split(' ');
+  return `${t} ${l} ${b} ${r}`;
 }

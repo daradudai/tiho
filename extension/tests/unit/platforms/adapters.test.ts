@@ -261,6 +261,43 @@ describe('Twitch special rows', () => {
     a.remove();
     b.remove();
   });
+  it('a resub message is paid; watch-streak and highlighted messages are not', () => {
+    expect(m('notice-resub-with-message').paid).toBe(true);
+    expect(m('notice-streak-with-message').paid).toBe(false);
+    expect(m('highlighted').paid).toBe(false);
+  });
+  it('a wrapper around several rows is not one message', () => {
+    const wrap = f.doc.createElement('div');
+    wrap.append(L.get('plain')!.row.cloneNode(true), L.get('mention')!.row.cloneNode(true));
+    f.list.append(wrap);
+    expect(twitch.extract(wrap)).toBeNull();
+    wrap.remove();
+  });
+  it('FFZ cheers are paid and FFZ links are read; BTTV hover cards are not', () => {
+    /** The plain row with another message body. */
+    const withBody = (html: string) => {
+      const r = L.get('plain')!.row.cloneNode(true) as HTMLElement;
+      r.querySelector('[data-a-target="chat-line-message-body"]')!.innerHTML = html;
+      f.list.append(r);
+      return r;
+    };
+    const cheer = withBody(
+      '<span class="ffz-cheer ffz-tooltip" data-tooltip-type="cheer" data-prefix="Cheer" data-amount="1,000" alt="Cheer1000"></span> you are trash at this game',
+    );
+    const link = withBody('cheap viewers at <a class="ffz-tooltip link-fragment" data-tooltip-type="link" href="https://streamboo.com/x">streamboo.com/x</a>');
+    const bttv = withBody(
+      '<div class="bttv-tooltip-wrapper bttv-emote"><img class="chat-line__message--emote" alt="KEKW"><div class="bttv-tooltip bttv-tooltip--up">KEKW<br>Channel emote</div></div> lol',
+    );
+    expect(twitch.extract(cheer)).toMatchObject({ paid: true, text: 'Cheer1000 you are trash at this game', emotes: 1 });
+    expect(twitch.extract(link)).toMatchObject({ paid: false, text: 'cheap viewers at streamboo.com/x' });
+    expect(twitch.extract(bttv)).toMatchObject({ text: 'KEKW lol', emotes: 1 });
+    for (const r of [cheer, link, bttv]) r.remove();
+  });
+  it('viewer: login and display name', () => {
+    f.doc.cookie = 'login=dobi_kr';
+    f.doc.cookie = `twilight-user=${encodeURIComponent(JSON.stringify({ displayName: '도비', login: 'dobi_kr' }))}`;
+    expect(twitch.viewer!(f.doc)).toEqual(expect.arrayContaining(['dobi_kr', '도비']));
+  });
 });
 
 describe('Twitch + 7TV rows', () => {
@@ -284,12 +321,31 @@ describe('Twitch + 7TV rows', () => {
     expect(m.mentions).toHaveLength(1);
     expect(m.text).not.toMatch(/Replying/);
   });
+  it('reply to a name with an "s" in it', () => {
+    const r = L.get('reply')!.row.cloneNode(true) as HTMLElement;
+    r.setAttribute('msg-id', 'reply-to-s');
+    r.querySelector('.seventv-reply-message-part')!.textContent = 'Replying to @sus_streamer: what happened';
+    f.list.append(r);
+    expect(twitch.extract(r)!.mentions).toContain('sus_streamer');
+    r.remove();
+  });
   it('7TV emotes are counted and become their code', () => {
     const ms = f.rows.map((r) => twitch.extract(r)).filter((m): m is ChatMessage => !!m);
     const lul = ms.find((m) => m.text === 'LUL LUL LUL LUL');
     expect(lul?.emotes).toBe(4);
+    expect(lul?.paid).toBe(false);
     expect(ms.filter((m) => m.emotes > 0).length).toBeGreaterThan(10);
     expect(ms.some((m) => m.roles & Role.SUB)).toBe(true);
+  });
+  it('7TV cheers are paid; the bits are part of the code, not text', () => {
+    const r = f.rows.find((x) => x.querySelector('.emote-token'))!.cloneNode(true) as HTMLElement;
+    r.setAttribute('msg-id', 'cheer-1000');
+    // as 7TV renders a cheermote: the span after the emote holds the bits
+    r.querySelector('.seventv-chat-message-body')!.innerHTML =
+      '<span><div class="seventv-emote-box emote-token"><img class="seventv-chat-emote" alt="Cheer"></div><span>1000</span></span><span class="text-token"> you are trash</span>';
+    f.list.append(r);
+    expect(twitch.extract(r)).toMatchObject({ paid: true, text: 'Cheer1000 you are trash', emotes: 1 });
+    r.remove();
   });
 });
 

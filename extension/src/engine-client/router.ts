@@ -9,7 +9,8 @@
 // Asking after the local scores (≈ 20–50 ms) rather than alongside them lets
 // one engine request per text carry both the filters and, when needed, the
 // second opinion: the engine's capacity (~10 texts/s on an RTX 3090) is what
-// limits this, not the wait.
+// limits this, not the wait. For the same reason chats in background tabs are
+// not asked about: their rows have usually scrolled away before anyone looks.
 
 import type { LocalScores, PortLike } from '../inference/hub';
 import { isUnsure, policyContext, type PolicyContext } from '../core/policy';
@@ -67,8 +68,8 @@ export class EngineRouter {
   }
 
   /** Local scores for a batch went to its Port: ask the engine and post its answers there later. */
-  onLocalScores({ port, batchId, items, ids, scores }: LocalScores): void {
-    if (!this.active || !this.deps.client.ready || !ids.length) return;
+  onLocalScores({ port, batchId, items, ids, scores, hidden }: LocalScores): void {
+    if (hidden || !this.active || !this.deps.client.ready || !ids.length) return;
     const ctx = this.settings.engine.refineUncertain ? this.policy() : null;
     const filters = this.filters;
     const { platform, context } = this.where(port);

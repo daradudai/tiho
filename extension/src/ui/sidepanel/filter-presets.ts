@@ -55,4 +55,5 @@ export const FILTER_PRESETS: FilterPreset[] = [
   },
 ];
 
-export const ENGINE_README_URL = 'https://github.com/daradudai/hush/blob/main/engine/README.md';
+export const REPO_URL = 'https://github.com/daradudai/hush';
+export const ENGINE_README_URL = `${REPO_URL}/blob/main/engine/README.md`;

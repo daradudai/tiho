@@ -72,14 +72,18 @@ def _error_message(r: httpx.Response) -> str:
 class LlamaBackend:
     """Async client for one llama-server. `health()` returns "ok" | "loading" | "down"."""
 
-    def __init__(self, base_url: str, timeout: float = 60.0, max_connections: int = 64) -> None:
+    def __init__(self, base_url: str, timeout: float = 60.0, max_connections: int = 64, api_key: str | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=httpx.Timeout(timeout, connect=3.0),
             limits=httpx.Limits(max_connections=max_connections, max_keepalive_connections=max_connections),
+            headers={"Authorization": f"Bearer {api_key}"} if api_key else None,
             trust_env=False,  # never route localhost through HTTP(S)_PROXY
         )
+
+    def _unauthorized(self, r: httpx.Response) -> BackendError:
+        return BackendError(f"llama-server at {self.base_url} wants an API key: {_error_message(r)} (pass it with --attach-key)")
 
     async def systemone(self, body: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -90,6 +94,8 @@ class LlamaBackend:
             raise BackendUnavailable(f"llama-server unreachable at {self.base_url}: {e!r}") from e
         if r.status_code == 200:
             return r.json()
+        if r.status_code == 401:
+            raise self._unauthorized(r)
         msg = _error_message(r)
         m = _TOO_LARGE.search(msg)
         if m or "too large" in msg:
@@ -114,7 +120,10 @@ class LlamaBackend:
     async def info(self) -> BackendInfo:
         info = BackendInfo()
         try:
-            props = (await self._client.get("/props", timeout=5.0)).json()
+            r = await self._client.get("/props", timeout=5.0)
+            if r.status_code == 401:
+                raise self._unauthorized(r)
+            props = r.json()
             info.raw["props"] = {k: props.get(k) for k in ("total_slots", "model_path", "model_alias", "build_info")}
             info.slots = int(props.get("total_slots") or info.slots)
             n_ctx = (props.get("default_generation_settings") or {}).get("n_ctx")

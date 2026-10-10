@@ -7,6 +7,10 @@
 // Local scores are also handed to `onScores` (the background forwards them to
 // the optional Hush Engine, whose answers go to the same Port later).
 //
+// A model that failed to load (network down during the download, crashed
+// worker) is retried with backoff while any chat is open, so it comes back
+// without the viewer toggling settings or restarting Chrome.
+//
 // The SW may be killed at any time; nothing here must survive it: content
 // scripts reconnect their Ports (with backoff) and the offscreen document
 // reconnects when asked (MSG_OFFSCREEN_HELLO) or when it is re-created.
@@ -43,16 +47,22 @@ export interface LocalScores {
   items: ClassifyItem[];
   ids: string[];
   scores: number[][];
+  /** The tab was in the background when it asked: nobody is looking at these rows. */
+  hidden?: boolean;
 }
 
 interface Inflight {
   port: PortLike;
   batchId: number;
   items: ClassifyItem[];
+  hidden: boolean;
   at: number;
 }
 
 const MAX_PENDING_ITEMS = 8192;
+/** Retry a failed model load after this long, doubling up to RETRY_MAX_MS. */
+const RETRY_MIN_MS = 5_000;
+const RETRY_MAX_MS = 5 * 60_000;
 
 export class InferenceHub {
   private clients = new Set<PortLike>();
@@ -64,6 +74,8 @@ export class InferenceHub {
   private status: ModelStatus = { state: 'idle', backend: 'none' };
   private kicking: Promise<void> | null = null;
   private device: Device | 'auto' = 'auto';
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryMs = RETRY_MIN_MS;
   stats: InferenceStats | null = null;
   private readonly now: () => number;
 
@@ -122,6 +134,7 @@ export class InferenceHub {
     });
     safePost(port, { type: 'status', status: this.status } satisfies PortResponse);
     void this.kick();
+    this.retryLater();
   }
 
   attachOffscreen(port: PortLike): void {
@@ -160,7 +173,7 @@ export class InferenceHub {
       return;
     }
     const id = this.gid++;
-    this.inflight.set(id, { port, batchId: m.batchId, items: m.items, at: this.now() });
+    this.inflight.set(id, { port, batchId: m.batchId, items: m.items, hidden: m.hidden === true, at: this.now() });
     if (this.off) {
       this.sendOff({ type: 'classify', id, items: m.items });
       return;
@@ -189,7 +202,7 @@ export class InferenceHub {
           ms: m.ms,
           backend: m.backend,
         } satisfies PortResponse);
-        this.deps.onScores?.({ port: f.port, batchId: f.batchId, items: f.items, ids: m.ids, scores: m.scores });
+        this.deps.onScores?.({ port: f.port, batchId: f.batchId, items: f.items, ids: m.ids, scores: m.scores, hidden: f.hidden });
         return;
       }
       case 'error': {
@@ -224,11 +237,34 @@ export class InferenceHub {
   private setStatus(s: ModelStatus): void {
     const prev = this.status;
     this.status = s;
-    if (prev.state === s.state && prev.backend === s.backend && prev.progress === s.progress && prev.error === s.error && prev.version === s.version)
+    if (s.state === 'ready') this.retryMs = RETRY_MIN_MS;
+    this.retryLater();
+    if (
+      prev.state === s.state &&
+      prev.backend === s.backend &&
+      prev.progress === s.progress &&
+      prev.error === s.error &&
+      prev.modelId === s.modelId &&
+      prev.version === s.version
+    )
       return;
     for (const p of this.clients) safePost(p, { type: 'status', status: s } satisfies PortResponse);
     this.deps.broadcast({ type: 'hush:status', status: s });
     if (s.state !== 'downloading') this.deps.saveStatus?.(s);
+  }
+
+  /** While a chat is open, try a failed load again: after 5 s, then twice as long each time, up to 5 min. */
+  private retryLater(): void {
+    if (this.status.state !== 'error' || this.retryTimer || !this.clients.size) return;
+    const ms = this.retryMs;
+    this.retryMs = Math.min(RETRY_MAX_MS, ms * 2);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      if (this.status.state !== 'error' || !this.clients.size) return;
+      // `init` makes the worker load again; without a host, create one
+      if (this.off) this.sendOff({ type: 'init', opts: { device: this.device } });
+      else void this.kick();
+    }, ms);
   }
 
   private sendOff(m: ToOffscreen): void {

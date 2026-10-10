@@ -32,8 +32,8 @@ Removing the extension deletes all of it.
 
 Only two kinds of requests:
 
-1. **The model download**, once, and only if the build you installed does not include the model (release builds include it). Files come from the URL compiled into the extension (by default a Hugging Face repository). No chat text is sent. Like any download, the host sees your IP address and the files requested.
-2. **Hush Engine, if you use it.** It is off by default. The engine URL is `http://127.0.0.1:7377`, which is your own computer. The side panel checks whether an engine answers there when you open its engine settings. When you turn the engine on, the extension's background service worker sends it the text of chat messages (with the platform name), your custom filter questions and any stream context you typed, and checks its status every few seconds. With the default URL none of this leaves your machine. If you change the URL to another host, all of it goes there instead, so only do that for a machine you control.
+1. **The model download**, once, and only if the build you installed does not include the model. Release zips include it, so they never download it. Other builds fetch it from the URL compiled into the extension (by default a Hugging Face repository; that mirror is planned but not published yet). No chat text is sent. Like any download, the host sees your IP address and the files requested.
+2. **Hush Engine, if you turn it on.** It is off by default, and while it is off the extension sends it nothing. (The one exception is a status check without any chat text: if the extension's background worker does not answer, the side panel asks the engine URL for its status directly.) When you turn the engine on, the extension's background service worker checks the engine's status every few seconds and sends it the text of chat messages that reached the in-browser model (with the platform name), your custom filter questions and any stream context you typed. All of it goes only to the engine URL in your settings, by default `http://127.0.0.1:7377`, which is your own computer: with that URL none of it leaves your machine. If you change the URL to another host, all of it goes there instead, so only do that for a machine you control.
 
 The `huggingface.co`, `*.hf.co`, `127.0.0.1` and `localhost` entries in the extension's permissions exist for exactly these two cases.
 
@@ -50,7 +50,7 @@ The optional engine (`engine/`) runs on your machine:
 
 | Permission | Why |
 |---|---|
-| `storage`, `unlimitedStorage` | settings, feedback, and caching a downloaded model (about 135 MB) |
+| `storage`, `unlimitedStorage` | settings, feedback, and caching a downloaded model (one model file and the tokenizer, 120 to 126 MB) |
 | `offscreen` | runs the model in an offscreen document shared by all tabs |
 | `sidePanel` | the dashboard |
 | YouTube, Twitch, Kick hosts | read and decorate their live chat |

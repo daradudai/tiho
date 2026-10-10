@@ -9,8 +9,9 @@
 //   any page ──{type:'hush:getStatus'}──▶ background → ModelStatus
 //   any page ──{type:'hush:engine:getStatus' | 'hush:engine:test'}──▶ background → Hush Engine
 //
-// The content side is one call: `serveLive(store, handlers)` (runtime agent).
-// Nothing is pushed unless a page is listening.
+// The content side is one call: `serveLive(store, handlers)`, made by
+// startHush (src/runtime/index.ts) once the frame attaches to a chat list, so
+// frames without a chat never answer. Nothing is pushed unless a page is listening.
 
 import type { EngineStatus, EngineTestRequest, EngineTestResult, RuntimeMessage } from '../core/protocol';
 import type { Store, LogEntry, WaveInfo } from '../core/store';
@@ -239,11 +240,11 @@ export function connectLive(onUpdate: (s: LiveSnapshot | null, tab: ActiveTab | 
   let retry: ReturnType<typeof setTimeout> | 0 = 0;
   let stale: ReturnType<typeof setTimeout> | 0 = 0;
   let disposed = false;
+  let connects = 0;
 
-  const clear = () => {
+  const drop = () => {
     if (retry) clearTimeout(retry);
-    if (stale) clearTimeout(stale);
-    retry = stale = 0;
+    retry = 0;
     if (port) {
       try {
         port.disconnect();
@@ -254,33 +255,53 @@ export function connectLive(onUpdate: (s: LiveSnapshot | null, tab: ActiveTab | 
     }
   };
 
+  const clear = () => {
+    drop();
+    if (stale) clearTimeout(stale);
+    stale = 0;
+  };
+
   const armStale = () => {
     if (stale) clearTimeout(stale);
-    stale = setTimeout(() => onUpdate(null, tab), 3500);
+    stale = setTimeout(() => {
+      stale = 0;
+      onUpdate(null, tab);
+    }, 3500);
   };
 
   const connect = async () => {
-    clear();
+    // Retries leave the stale timer running, so a tab whose chat stopped
+    // answering still reports null (with the tab) after 3.5 s.
+    drop();
     if (disposed) return;
-    tab = await getActiveTab();
+    // onActivated and onUpdated can both start a connect while one awaits the
+    // tab: only the latest may open a Port, or the earlier one is never closed.
+    const gen = ++connects;
+    const active = await getActiveTab();
+    if (gen !== connects || disposed) return;
+    tab = active;
     if (!tab || !tab.platform) {
       onUpdate(null, tab);
       return;
     }
     try {
       const p = chrome.tabs.connect(tab.id, { name: PORT_LIVE });
+      let answered = false;
       port = p;
-      armStale();
+      if (!stale) armStale();
       p.onMessage.addListener((m: LivePush) => {
         if (m?.type === 'snapshot') {
+          answered = true;
           armStale();
           onUpdate(m.snapshot, tab);
         }
       });
       p.onDisconnect.addListener(() => {
         void chrome.runtime.lastError;
-        if (port === p) port = null;
-        if (!disposed) retry = setTimeout(connect, 2000);
+        if (port !== p || disposed) return; // dropped for a newer connection
+        port = null;
+        if (!answered) onUpdate(null, tab); // nothing serves this tab (no chat on the page yet)
+        retry = setTimeout(connect, 2000);
       });
     } catch {
       onUpdate(null, tab);
@@ -483,25 +504,64 @@ export interface FeedbackEntry {
   label: Category;
 }
 
+/** Chat messages are at most 500 characters on every platform: "Allow this phrase" keeps all of it. */
+const PHRASE_MAX = 500;
+
 /**
- * "Not spam": remember locally (for future tuning, never uploaded), add an
- * allow rule, and tell the tab to un-hide the message now.
+ * Pattern of the word rule "Allow this phrase" adds: the whole message, so
+ * the rule matches the message it came from (a phrase cut inside a word
+ * matches nothing). Past PHRASE_MAX it is cut at a word boundary.
+ */
+export function allowPhrase(text: string): string {
+  const t = text.trim().replace(/\s+/g, ' ');
+  if (t.length <= PHRASE_MAX) return t;
+  const cut = t.lastIndexOf(' ', PHRASE_MAX);
+  return t.slice(0, cut > 0 ? cut : PHRASE_MAX);
+}
+
+/** A rule pattern as core/rules.ts compares it: case-insensitive, user rules without a leading "@". */
+function ruleKey(kind: UserRule['kind'], pattern: string): string {
+  const p = pattern.trim().toLowerCase();
+  return kind === 'user' ? p.replace(/^@/, '') : p;
+}
+
+export interface AllowResult {
+  /** The enabled allow rule that now covers the message. */
+  rule: UserRule;
+  /** Put the user's rules back as they were before (a no-op when an allow rule already existed). */
+  undo(): Promise<void>;
+}
+
+/**
+ * "Not spam": remember locally (for future tuning, never uploaded), make sure
+ * an enabled allow rule covers the author or phrase, and tell the tab to
+ * un-hide the message now.
  */
 export async function markNotFiltered(
   entry: LogEntry,
   scope: 'author' | 'text',
   conn?: LiveConnection | null,
-): Promise<UserRule> {
-  const rule: UserRule = {
-    id: `fb-${Date.now().toString(36)}`,
-    kind: scope === 'author' ? 'user' : 'word',
-    pattern: scope === 'author' ? entry.msg.author : entry.msg.text.trim().slice(0, 120),
-    mode: 'allow',
-    enabled: true,
-  };
-  const s = await loadSettings();
-  const dup = s.rules.find((r) => r.kind === rule.kind && r.pattern.toLowerCase() === rule.pattern.toLowerCase());
-  if (!dup) await saveSettings({ rules: [...s.rules, rule] });
+): Promise<AllowResult> {
+  const kind: UserRule['kind'] = scope === 'author' ? 'user' : 'word';
+  const pattern = scope === 'author' ? entry.msg.author : allowPhrase(entry.msg.text);
+  const { rules } = await loadSettings();
+  const same = rules.filter((r) => r.kind === kind && ruleKey(kind, r.pattern) === ruleKey(kind, pattern));
+  let rule = same.find((r) => r.mode === 'allow' && r.enabled);
+  let undo = async () => {};
+  if (!rule) {
+    // A block, highlight or disabled rule for the same author or phrase
+    // becomes the allow rule (two contradicting rules would stay in the list).
+    const prev = same[0];
+    const next: UserRule = prev
+      ? { ...prev, mode: 'allow', enabled: true }
+      : { id: `fb-${Date.now().toString(36)}`, kind, pattern, mode: 'allow', enabled: true };
+    await saveSettings({ rules: prev ? rules.map((r) => (r === prev ? next : r)) : [...rules, next] });
+    rule = next;
+    undo = async () => {
+      const cur = (await loadSettings()).rules;
+      await saveSettings({ rules: prev ? cur.map((r) => (r.id === prev.id ? prev : r)) : cur.filter((r) => r.id !== next.id) });
+    };
+  }
   try {
     const r = await chrome.storage.local.get(FEEDBACK_KEY);
     const list = ((r[FEEDBACK_KEY] as FeedbackEntry[]) ?? []).slice(-499);
@@ -520,5 +580,5 @@ export async function markNotFiltered(
     /* ignore */
   }
   conn?.send({ type: 'feedback', key: entry.msg.key, label: 'clean' });
-  return dup ?? rule;
+  return { rule, undo };
 }

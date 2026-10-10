@@ -6,9 +6,9 @@
 // (untrusted link → scam, caps / repeats → spam, "?" → question) and as a
 // fallback when no model is available.
 //
-// Protection (privileged author, paid message, mention of the viewer) is
-// orthogonal: the category is still computed, but the action is capped to
-// show / highlight by the policy.
+// Protection (privileged author, paid message, the viewer's own message or a
+// mention of the viewer) is orthogonal: the category is still computed, but
+// the action is capped to show / highlight by the policy.
 
 import { normalize, tokenCount } from './normalize';
 import { LRU } from './lru';
@@ -36,6 +36,8 @@ export const Sig = {
   FIRST: 1 << 15,
   ASCII_ART: 1 << 16,
   SCAM_PATTERN: 1 << 17,
+  /** Posted by the signed-in viewer. */
+  OWN: 1 << 18,
 } as const;
 
 export interface RuleResult {
@@ -47,7 +49,7 @@ export interface RuleResult {
   user?: UserRule['mode'];
   /** Short human readable reason for decided / user verdicts. */
   reason: string;
-  /** Never hide / collapse / dim (privileged author, paid, mentions the viewer, user allow). */
+  /** Never hide / collapse / dim (privileged author, paid, the viewer's own, mentions the viewer, user allow). */
   protect: boolean;
 }
 
@@ -217,6 +219,8 @@ export interface RuleEngineOptions {
 interface UserHistory {
   texts: string[];
   ts: number[];
+  /** Key of the message that posted each text first. */
+  keys: string[];
 }
 
 const DUP_SLOTS = 4;
@@ -233,10 +237,17 @@ function isWordStart(c: number): boolean {
   return (c >= 0x61 && c <= 0x7a) || (c >= 0x30 && c <= 0x39) || c >= 0xc0;
 }
 
+/** `name` (any case, no "@") is one of the viewer's names (lowercased). */
+function isViewerName(viewer: readonly string[], name: string): boolean {
+  for (const v of viewer) if (name.length === v.length && name.toLowerCase() === v) return true;
+  return false;
+}
+
 export class RuleEngine {
   private compiled: CompiledRules = compileRules([]);
   private trustPrivileged = true;
-  private viewer: string | null = null;
+  /** Names the signed-in viewer goes by (login, display name), lowercased. */
+  private viewer: string[] = [];
   private history: LRU<string, UserHistory>;
   private dupWindowMs: number;
   private linkAllow: string[];
@@ -256,8 +267,13 @@ export class RuleEngine {
     return this.compiled.errors;
   }
 
-  setViewer(name: string | null | undefined): void {
-    this.viewer = name ? name.replace(/^@/, '').toLowerCase() : null;
+  setViewer(names: string | readonly string[] | null | undefined): void {
+    const viewer: string[] = [];
+    for (const n of typeof names === 'string' ? [names] : (names ?? [])) {
+      const v = n.trim().replace(/^@/, '').toLowerCase();
+      if (v && !viewer.includes(v)) viewer.push(v);
+    }
+    this.viewer = viewer;
   }
 
   reset(): void {
@@ -286,23 +302,32 @@ export class RuleEngine {
 
     let lower: string | null = null;
     const viewer = this.viewer;
-    if (viewer) {
-      let hit = false;
-      for (const m of msg.mentions) {
-        const mm = m.charCodeAt(0) === 0x40 ? m.slice(1) : m;
-        if (mm.length === viewer.length && mm.toLowerCase() === viewer) {
-          hit = true;
-          break;
-        }
-      }
-      if (!hit && text.length > viewer.length) {
-        lower = text.toLowerCase();
-        const at = lower.indexOf('@' + viewer);
-        hit = at >= 0 && !isNameChar(lower.charCodeAt(at + 1 + viewer.length));
-      }
-      if (hit) {
-        sig |= Sig.MENTIONS_VIEWER;
+    if (viewer.length) {
+      if (isViewerName(viewer, msg.author) || (msg.authorId && isViewerName(viewer, msg.authorId))) {
+        sig |= Sig.OWN;
         protect = true;
+      } else {
+        let hit = false;
+        for (const m of msg.mentions) {
+          if (isViewerName(viewer, m.charCodeAt(0) === 0x40 ? m.slice(1) : m)) {
+            hit = true;
+            break;
+          }
+        }
+        if (!hit && text.indexOf('@') >= 0) {
+          lower = text.toLowerCase();
+          for (const v of viewer) {
+            const at = lower.indexOf('@' + v);
+            if (at >= 0 && !isNameChar(lower.charCodeAt(at + 1 + v.length))) {
+              hit = true;
+              break;
+            }
+          }
+        }
+        if (hit) {
+          sig |= Sig.MENTIONS_VIEWER;
+          protect = true;
+        }
       }
     }
 
@@ -321,8 +346,8 @@ export class RuleEngine {
       return { sig: sig | Sig.COMMAND, cat: 'noise', reason: '!command', protect };
     }
 
-    // ── duplicate by the same author
-    const dup = knownDup ?? this.trackDuplicate(msg, norm, now);
+    // ── duplicate by the same author (the viewer asking again is not spam)
+    const dup = knownDup ?? (!(sig & Sig.OWN) && this.trackDuplicate(msg, norm, now));
     if (dup) {
       return { sig: sig | Sig.DUPLICATE, cat: 'spam', reason: 'repeat', protect };
     }
@@ -419,13 +444,15 @@ export class RuleEngine {
     const who = msg.authorId || msg.author.toLowerCase();
     let h = this.history.get(who);
     if (!h) {
-      h = { texts: [], ts: [] };
+      h = { texts: [], ts: [], keys: [] };
       this.history.set(who, h);
     }
     const win = this.dupWindowMs;
     let dup = false;
     for (let i = 0; i < h.texts.length; i++) {
       if (h.texts[i] === norm && now - h.ts[i]! <= win) {
+        // the same message seen again (row re-mounted, Hush turned off and on) is no repeat
+        if (h.keys[i] === msg.key) return false;
         dup = true;
         h.ts[i] = now;
         break;
@@ -435,9 +462,11 @@ export class RuleEngine {
       if (h.texts.length >= DUP_SLOTS) {
         h.texts.shift();
         h.ts.shift();
+        h.keys.shift();
       }
       h.texts.push(norm);
       h.ts.push(now);
+      h.keys.push(msg.key);
     }
     return dup;
   }

@@ -157,6 +157,43 @@ describe('DynamicBatcher', () => {
     expect(b.queueLength).toBe(2);
   });
 
+  it('serves the newest items first when more are queued than one pass takes', async () => {
+    const { b, calls, hold, release } = setup({ maxBatch: 2 });
+    hold();
+    const first = b.submit('a', 'a');
+    vi.advanceTimersByTime(10);
+    await flushMicro();
+    const later = ['b', 'c', 'd', 'e'].map((k) => b.submit(k, k));
+    release();
+    await first;
+    await flushMicro();
+    expect(calls[1]!.keys).toEqual(['d', 'e']); // the newest rows are the ones on screen
+    vi.advanceTimersByTime(10);
+    await flushMicro();
+    await Promise.all(later);
+    expect(calls[2]!.keys).toEqual(['b', 'c']);
+  });
+
+  it('drops queued items nobody asked for within maxAgeMs instead of answering them late', async () => {
+    const { b, calls, hold, release } = setup({ maxBatch: 64, maxAgeMs: 1000 });
+    hold();
+    const first = b.submit('a', 'a');
+    vi.advanceTimersByTime(10);
+    await flushMicro();
+    const stale = b.submit('old', 'old');
+    const kept = b.submit('again', 'again');
+    vi.advanceTimersByTime(900);
+    const fresh = b.submit('new', 'new');
+    const rejoined = b.submit('again', 'again'); // asked again: still wanted
+    vi.advanceTimersByTime(200); // the forward pass took 1.1 s
+    release();
+    await first;
+    await expect(stale).rejects.toBeInstanceOf(OverloadedError);
+    expect(await Promise.all([kept, rejoined, fresh])).toEqual(['AGAIN', 'AGAIN', 'NEW']);
+    expect(calls[1]!.keys).toEqual(['again', 'new']);
+    expect(b.expired).toBe(1);
+  });
+
   it('failQueued rejects queued items', async () => {
     const { b } = setup({ maxWaitMs: 1000 });
     const p = b.submit('a', 'a');

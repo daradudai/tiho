@@ -2,6 +2,10 @@
 classes (by teacher score) so every label has enough positives, then write the
 workflow args (chunks) for gold_workflow.js.
 
+Each pick records its `stratum` (the quota label, or "random" for the uniform
+fill) and `w`, the inverse of its chance to be picked, so train/evaluate.py can
+weight gold back to the candidate pool.
+
     python gold/select_gold.py --n 2000 --chunk 200
 """
 from __future__ import annotations
@@ -16,10 +20,10 @@ QUOTAS = [("toxic", 0.25, 260), ("scam", 0.25, 160), ("spam", 0.3, 160), ("negat
           ("question", 0.5, 160), ("positive", 0.4, 140), ("noise", 0.5, 120)]
 
 
-def main(n, chunk, seed):
-    random.seed(seed)
-    rows = [json.loads(l) for l in open(ROOT / "data" / "gold_teacher.jsonl", encoding="utf-8")]
-    random.shuffle(rows)
+def select(rows: list[dict], n: int) -> list[dict]:
+    """Quota picks by teacher score, then a uniform fill from the rest. `w` is 1 for a
+    quota pick (taken for sure, given the teacher's scores) and len(rest) / len(fill)
+    for the fill, which stands for every candidate no quota took."""
     picked, used = [], set()
     for lab, thr, cap in QUOTAS:
         c = 0
@@ -29,15 +33,23 @@ def main(n, chunk, seed):
             if r["text"] in used:
                 continue
             used.add(r["text"])
-            picked.append(r)
+            picked.append({**r, "stratum": lab, "w": 1.0})
             c += 1
         print(f"{lab}: {c}")
+    rest = []
     for r in rows:
-        if len(picked) >= n:
-            break
         if r["text"] not in used:
             used.add(r["text"])
-            picked.append(r)
+            rest.append(r)
+    fill = rest[: max(0, n - len(picked))]
+    return picked + [{**r, "stratum": "random", "w": len(rest) / len(fill)} for r in fill]
+
+
+def main(n, chunk, seed):
+    random.seed(seed)
+    rows = [json.loads(l) for l in open(ROOT / "data" / "gold_teacher.jsonl", encoding="utf-8")]
+    random.shuffle(rows)
+    picked = select(rows, n)
     random.shuffle(picked)
     for i, r in enumerate(picked):
         r["i"] = i

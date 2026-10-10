@@ -23,8 +23,11 @@ export interface PlatformAdapter {
   barAnchor(doc: Document): { el: HTMLElement; where: 'before' | 'prepend' } | null;
   /** Platform theme, used to theme the bar and decorations. */
   theme(doc: Document): 'dark' | 'light';
-  /** Logged-in viewer name if detectable (messages mentioning them are never hidden). */
-  viewer?(doc: Document): string | null;
+  /**
+   * Names the signed-in viewer goes by (login, display name), empty when not
+   * detectable. Their own messages and messages mentioning them are never hidden.
+   */
+  viewer?(doc: Document): string[];
   /**
    * Runtime hint (optional, default false): observe the chat list with
    * `subtree` + `characterData` so rows whose content is patched in place

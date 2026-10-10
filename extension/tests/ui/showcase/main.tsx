@@ -19,9 +19,9 @@ document.documentElement.dataset.theme = theme;
 document.documentElement.dataset.view = view;
 
 const MODEL: Record<string, ModelStatus> = {
-  ready: { state: 'ready', backend: 'webgpu', modelId: 'hush/hush-lite-mmbert-small', version: '1.0.0' },
-  wasm: { state: 'ready', backend: 'wasm', modelId: 'hush/hush-lite-mmbert-small', version: '1.0.0' },
-  downloading: { state: 'downloading', backend: 'none', progress: 0.42, modelId: 'hush/hush-lite-mmbert-small' },
+  ready: { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2-6L' },
+  wasm: { state: 'ready', backend: 'wasm', modelId: 'hush-lite/uint8', version: 'v2-3L' },
+  downloading: { state: 'downloading', backend: 'none', progress: 0.42, modelId: 'hush-lite/q8' },
   loading: { state: 'loading', backend: 'webgpu' },
   error: { state: 'error', backend: 'none', error: 'WebGPU adapter lost; falling back' },
 };

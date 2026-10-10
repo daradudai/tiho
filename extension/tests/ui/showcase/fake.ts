@@ -34,7 +34,7 @@ export const CHAT: FakeMsg[] = [
   { author: 'quietfox', color: '#2e8b57', text: 'chat is so calm today, love it', c: 'positive', r: 'positive · 88%' },
   { author: 'Sven_DE', color: '#b22222', text: 'warum spielt er nicht ranked heute?', c: 'question', r: 'question · 92%' },
   { author: 'lowkey_lena', color: '#8a2be2', text: 'audio is a bit quiet compared to the game', c: 'negative', r: 'negative · 77%' },
-  { author: 'copypasta_king', color: '#daa520', text: 'POGGERS POGGERS POGGERS POGGERS POGGERS POGGERS', c: 'spam', r: 'spam · flood' },
+  { author: 'copypasta_king', color: '#daa520', text: 'POGGERS POGGERS POGGERS POGGERS POGGERS POGGERS', c: 'spam', r: 'spam · 97%' },
   { author: 'ana_rs', color: '#00bfff', text: 'jajaja el último round fue increíble', c: 'positive', r: 'positive · 84%' },
   { author: 'mod_rex', color: '#00ad03', text: 'Reminder: be nice in chat, no spoilers please', c: 'clean', badges: ['mod'] },
   { author: 'hypetrain', color: '#ff69b4', text: 'W', c: 'noise', r: 'noise · 97%' },
@@ -59,13 +59,13 @@ const QUESTIONS = [
 const FILTERED: [string, Category, string][] = [
   ['you are so trash uninstall', 'toxic', 'toxic · 94%'],
   ['FREE SKINS at csgo-drop .win claim now', 'scam', 'scam · 98%'],
-  ['follow4follow check my channel!!', 'scam', 'link + promo'],
-  ['POGGERS POGGERS POGGERS POGGERS POGGERS', 'spam', 'spam · flood'],
+  ['follow4follow check my channel!!', 'scam', 'scam · 92%'],
+  ['POGGERS POGGERS POGGERS POGGERS POGGERS', 'spam', 'spam · 97%'],
   ['ez clap noob team diff', 'toxic', 'toxic · 71%'],
   ['💰 crypto signals in bio 💰', 'scam', 'scam · 96%'],
   ['aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'spam', 'char flood'],
   ['ты просто ужасно играешь, удали игру', 'toxic', 'toxic · 88%'],
-  ['!drop', 'noise', 'command'],
+  ['!drop', 'noise', '!command'],
   ['L', 'noise', 'noise · 93%'],
 ];
 
@@ -83,7 +83,7 @@ export function makeStore(platform = 'twitch', theme: 'dark' | 'light' = 'dark',
     s.platform.value = platform;
     s.channel.value = platform === 'youtube' ? 'Lofi Girl' : platform === 'kick' ? 'trainwreckstv' : 'xqc';
     s.theme.value = theme;
-    s.model.value = { state: 'ready', backend: 'webgpu', modelId: 'hush/hush-lite-mmbert-small', version: '1.0.0' };
+    s.model.value = { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2-6L' };
     s.perf.value = { msgsPerSec: 86, inferPerSec: 41, cacheHitRate: 0.52, p50ms: 6, p95ms: 14, queue: 0 };
     s.counts.value = { toxic: 214, scam: 96, spam: 488, noise: 2140, negative: 377, question: 163, positive: 1290, clean: 4932 };
     const seen = Object.values(s.counts.value).reduce((a, b) => a + b, 0);

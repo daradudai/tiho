@@ -6,9 +6,10 @@ one global-attention layer (RoPE theta 160k) with two local ones (theta 10k), an
 the type is derived from the layer index, so we keep whole aligned blocks of 3
 (global, local, local) to preserve each layer's attention type and RoPE.
 
-Targets: teacher (v2) probabilities on every unique real chat message we have
-(~300k, no labels needed) plus the labeled sets, where the hard label is mixed
-with the teacher probability.
+Targets: teacher (v2) probabilities on every unique real chat message in
+data/raw/ (no labels needed) plus the labeled sets, where the hard label is mixed
+with the teacher probability. Texts are cleaned the way the extension feeds the
+model (`clean_for_model`); gold texts are left out.
 
     python train/distill.py --teacher runs/v2/best --blocks 0,3,6 --out runs/v2-9L
 """
@@ -19,7 +20,6 @@ import copy
 import glob
 import json
 import random
-import re
 import time
 from pathlib import Path
 
@@ -29,14 +29,8 @@ from torch import nn
 from torch.utils.data import DataLoader
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_cosine_schedule_with_warmup
 
+from textclean import clean_for_model
 from train import LABELS, ROOT, load_jsonl, metrics, predict, to_example
-
-WS = re.compile(r"\s+")
-
-
-def clean(t: str) -> str:
-    # Must match the browser worker (transformers.js splits space runs differently).
-    return WS.sub(" ", t).strip()
 
 
 def build_student(teacher, blocks: list[int]):
@@ -55,9 +49,9 @@ def build_student(teacher, blocks: list[int]):
     return student
 
 
-def corpus(exclude: set[str]) -> list[str]:
+def corpus(pattern: str, exclude: set[str]) -> list[str]:
     seen, out = set(), []
-    for fp in sorted(glob.glob(str(ROOT / "data" / "raw" / "*_2026*.jsonl"))):
+    for fp in sorted(glob.glob(str(ROOT / "data" / "raw" / pattern))):
         with open(fp, encoding="utf-8") as f:
             for line in f:
                 try:
@@ -67,7 +61,7 @@ def corpus(exclude: set[str]) -> list[str]:
                 t = r.get("text")
                 if r.get("event") or not t or len(t) > 300:
                     continue
-                t = clean(t)
+                t = clean_for_model(t)
                 k = t.lower()
                 if k in seen or t in exclude:
                     continue
@@ -82,15 +76,15 @@ def main(a):
     tok = AutoTokenizer.from_pretrained(a.teacher)
     teacher = AutoModelForSequenceClassification.from_pretrained(a.teacher).cuda().eval()
     gold = load_jsonl("data/gold.jsonl")
-    gold_texts = {clean(g["text"]) for g in gold}
+    gold_texts = {clean_for_model(g["text"]) for g in gold}
     labeled = []
     for pat in ["data/silver*.jsonl", "data/synth_v*.jsonl"]:
         for r in load_jsonl(pat):
             e = to_example(r)
             if e and all(m > 0 for m in e[2]):
-                labeled.append((clean(e[0]), e[1]))
+                labeled.append((e[0], e[1]))
     labeled = [x for x in labeled if x[0] not in gold_texts]
-    unl = corpus(gold_texts)
+    unl = corpus(a.raw_glob, gold_texts)
     if a.max_unlabeled:
         random.shuffle(unl)
         unl = unl[: a.max_unlabeled]
@@ -120,6 +114,8 @@ def main(a):
     bce = nn.BCEWithLogitsLoss()
     gold_ex = [e for e in map(to_example, gold) if e]
     out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "args.json").write_text(json.dumps(vars(a), indent=1))
     best = -1
     step = 0
     t0 = time.time()
@@ -139,7 +135,7 @@ def main(a):
             step += 1
             if step % 500 == 0:
                 print(f"ep {ep} step {step}/{steps} loss {loss.item():.4f} {(time.time()-t0)/step*1000:.0f}ms/step", flush=True)
-        gm = metrics(predict(student, tok, [clean(e[0]) for e in gold_ex]), gold_ex)
+        gm = metrics(predict(student, tok, [e[0] for e in gold_ex]), gold_ex)
         score = float(np.mean([v["ap"] for v in gm.values()]))
         print(f"== epoch {ep} GOLD mAP {score:.3f}", json.dumps({k: v["ap"] for k, v in gm.items()}), flush=True)
         if score > best:
@@ -159,4 +155,5 @@ if __name__ == "__main__":
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--label-mix", type=float, default=0.5)
     ap.add_argument("--max-unlabeled", type=int, default=0)
+    ap.add_argument("--raw-glob", default="*.jsonl", help="collector files in data/raw/ (the *_channels sidecars are .json)")
     main(ap.parse_args())

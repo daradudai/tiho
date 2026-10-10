@@ -125,6 +125,71 @@ describe('InferenceEngine', () => {
     await tick();
   });
 
+  it('forgets cached scores when another student is loaded (6-layer on WebGPU → 3-layer on WASM)', async () => {
+    const out: WorkerOut[] = [];
+    let gpuOk = true;
+    const six = (seqs: number[][]) => new Float32Array(seqs.length * K).fill(0.45);
+    const e = new InferenceEngine({
+      post: (m) => out.push(m),
+      load: async (opts) =>
+        opts.device === 'wasm'
+          ? fakeModel({ variant: 'uint8', version: 'v2-3L', thresholds: LABELS.map(() => 0.34) })
+          : fakeModel({
+              backend: 'webgpu',
+              variant: 'q8',
+              version: 'v2-6L',
+              run: async (seqs) => {
+                if (!gpuOk) throw new Error('device lost');
+                return six(seqs);
+              },
+            }),
+    });
+    e.init({ device: 'auto', tuning: { maxWaitMs: 0 } });
+    await e.classify(1, [{ id: 'kekw', text: 'KEKW' }]);
+    gpuOk = false;
+    await e.classify(2, [{ id: 'a', text: 'x' }]);
+    await e.classify(3, [{ id: 'b', text: 'y' }]);
+    await until(() => e.getStatus().state === 'ready' && e.getStatus().version === 'v2-3L');
+    await e.classify(4, [{ id: 'kekw', text: 'KEKW' }]);
+    const r = out.filter((m) => m.type === 'scores') as Extract<WorkerOut, { type: 'scores' }>[];
+    expect(r[0]!.scores[0]![1]).toBeCloseTo(0.45); // 6-layer
+    expect(r.at(-1)!.id).toBe(4);
+    expect(r.at(-1)!.scores[0]![1]).toBeCloseTo(6 / 100); // scored again by the 3-layer, not the 6-layer's 0.45 from the cache
+  });
+
+  it('runs a batch again when the model is replaced during its forward pass', async () => {
+    const out: WorkerOut[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const e = new InferenceEngine({
+      post: (m) => out.push(m),
+      load: async (opts) =>
+        opts.device === 'wasm'
+          ? fakeModel({ variant: 'uint8', version: 'v2-3L' })
+          : fakeModel({
+              backend: 'webgpu',
+              version: 'v2-6L',
+              run: async (seqs) => {
+                await gate;
+                return new Float32Array(seqs.length * K).fill(0.9);
+              },
+            }),
+    });
+    e.init({ device: 'webgpu', tuning: { maxWaitMs: 0 } });
+    await until(() => e.getStatus().state === 'ready');
+    const p = e.classify(1, [{ id: 'a', text: 'x' }]);
+    await tick();
+    e.init({ device: 'wasm' }); // "Use the GPU" switched off mid-pass
+    await until(() => e.getStatus().version === 'v2-3L');
+    release();
+    await p;
+    const r = out.find((m) => m.type === 'scores') as Extract<WorkerOut, { type: 'scores' }>;
+    expect(r.scores[0]![0]).toBeCloseTo(3 / 100); // the 3-layer's answer, never the old model's 0.9
+    await e.classify(2, [{ id: 'a', text: 'x' }]);
+    const again = out.filter((m) => m.type === 'scores').at(-1) as Extract<WorkerOut, { type: 'scores' }>;
+    expect(again.scores[0]![0]).toBeCloseTo(3 / 100); // and the cache holds that one too
+  });
+
   it('disposes the model after idleDisposeMs and reloads on demand', async () => {
     let now = 0;
     let loads = 0;

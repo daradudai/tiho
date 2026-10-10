@@ -47,10 +47,12 @@ button:disabled {
   background: var(--surface-2);
   box-shadow: inset 0 0 0 1px var(--line);
 }
+/* An outline, not a box-shadow: component shadows (toggles, presets, chip
+   buttons) would override a shadow ring, never an outline. It follows each
+   control's own radius. */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--focus);
-  border-radius: var(--r-sm);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 a {
   color: var(--accent);
@@ -320,7 +322,7 @@ p {
   transform: scale(1.12);
 }
 .k-slider input:focus-visible {
-  box-shadow: none;
+  outline: none; /* the ring goes on the thumb */
 }
 .k-slider input:focus-visible::-webkit-slider-thumb {
   box-shadow: var(--focus);

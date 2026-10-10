@@ -51,7 +51,7 @@ export interface Verdict {
   /** Primary category used for styling and counters. */
   category: Category;
   action: Action;
-  /** Short human readable reason, e.g. "toxic 0.94", "wave ×37", "link". */
+  /** Short reason, shown as is on hover and in the log: "toxic · 94%", "wave ×37", "filter: backseating", "link". */
   reason: string;
   /** Where the decision came from. */
   source: 'rule' | 'model' | 'engine' | 'cache' | 'user';

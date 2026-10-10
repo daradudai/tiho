@@ -7,6 +7,9 @@
 // - One forward pass at a time; items that arrive meanwhile are collected and
 //   flushed as soon as the engine is free (if they already waited long enough)
 //   — the batch size adapts to load by itself.
+// - Overload: with more queued than one pass takes, the newest go first (their
+//   rows are the ones on screen), and items nobody asked for within `maxAgeMs`
+//   are dropped at flush time instead of making every later answer late too.
 // - Optional result cache in front (LRU of key → result).
 //
 // Pure: timers / clock are injectable so it is unit-testable.
@@ -24,6 +27,8 @@ export interface BatcherOptions<R> {
   cache?: ResultCache<R> | null;
   /** Reject new unique items while this many are queued (backpressure). */
   maxQueue?: number;
+  /** Drop queued items last requested longer ago than this, at flush time (0 = never). */
+  maxAgeMs?: number;
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (h: unknown) => void;
@@ -32,7 +37,10 @@ export interface BatcherOptions<R> {
 
 interface Slot<R> {
   text: string;
+  /** First request: the maxWaitMs clock. */
   at: number;
+  /** Latest request: the maxAgeMs clock. */
+  last: number;
   waiters: Array<{ resolve: (r: R) => void; reject: (e: unknown) => void }>;
 }
 
@@ -59,6 +67,8 @@ export class DynamicBatcher<R> {
   joined = 0;
   flushes = 0;
   itemsRun = 0;
+  /** Dropped unanswered after maxAgeMs. */
+  expired = 0;
 
   constructor(private opts: BatcherOptions<R>) {
     this.now = opts.now ?? (() => performance.now());
@@ -86,11 +96,13 @@ export class DynamicBatcher<R> {
     const slot = this.slots.get(key);
     if (slot) {
       this.joined++;
+      slot.last = this.now();
       return new Promise<R>((resolve, reject) => slot.waiters.push({ resolve, reject }));
     }
     if (this.opts.maxQueue && this.queue.length >= this.opts.maxQueue) return Promise.reject(new OverloadedError());
     return new Promise<R>((resolve, reject) => {
-      this.slots.set(key, { text, at: this.now(), waiters: [{ resolve, reject }] });
+      const at = this.now();
+      this.slots.set(key, { text, at, last: at, waiters: [{ resolve, reject }] });
       this.queue.push(key);
       this.schedule();
     });
@@ -148,10 +160,30 @@ export class DynamicBatcher<R> {
     }
   }
 
+  /** Reject queued items nobody asked for within maxAgeMs: by now their rows fell back to rules or scrolled away. */
+  private dropStale(): void {
+    const { maxAgeMs } = this.opts;
+    if (!maxAgeMs || !this.queue.length) return;
+    const cutoff = this.now() - maxAgeMs;
+    if (this.slots.get(this.queue[0]!)!.at >= cutoff) return; // the oldest is recent enough, so is the rest
+    const err = new OverloadedError();
+    this.queue = this.queue.filter((k) => {
+      const s = this.slots.get(k)!;
+      if (s.last >= cutoff) return true;
+      this.slots.delete(k);
+      this.expired++;
+      s.waiters.forEach((w) => w.reject(err));
+      return false;
+    });
+  }
+
   private async flush(): Promise<void> {
-    if (this.running || !this.queue.length) return;
+    if (this.running) return;
+    this.dropStale();
+    if (!this.queue.length) return;
     this.running = true;
-    const keys = this.queue.splice(0, this.opts.maxBatch);
+    // newest first: under load these are the rows on screen, older ones may expire
+    const keys = this.queue.splice(Math.max(0, this.queue.length - this.opts.maxBatch));
     const texts = keys.map((k) => this.slots.get(k)!.text);
     const t0 = this.now();
     try {

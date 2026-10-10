@@ -278,6 +278,7 @@
   mask-image: linear-gradient(transparent, #000 56px);
 }
 .ob-demo-row {
+  flex: none; /* the list overflows at the top: never squeeze a row (the pill row has min-height 0) */
   padding: 5px 20px;
   transition:
     opacity 300ms var(--ease),

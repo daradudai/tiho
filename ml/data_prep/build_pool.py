@@ -2,6 +2,7 @@
 
 Also attaches moderator weak labels: a message deleted by a mod (CLEARMSG) or
 sent shortly before its author got timed out/banned (CLEARCHAT) gets "mod": 1.
+Gold texts (data/gold.jsonl, once it exists) never enter a pool.
 
     python data_prep/build_pool.py --per-channel 4000 --out data/pool.jsonl
 """
@@ -34,6 +35,10 @@ def main(per_channel: int, out: Path, seed: int, pattern: str):
     norm_count: dict[str, int] = defaultdict(int)
     deleted_ids: set[str] = set()
     bans: dict[tuple[str, str], list[int]] = defaultdict(list)
+    gold: set[str] = set()  # eval only: gold texts and their near-copies stay out of every pool
+    if (ROOT / "data" / "gold.jsonl").exists():
+        with open(ROOT / "data" / "gold.jsonl", encoding="utf-8") as f:
+            gold.update(norm(json.loads(l)["text"]) for l in f)
     files = sorted(glob.glob(str(ROOT / "data" / "raw" / pattern)))
     msgs = []
     for fp in files:
@@ -63,7 +68,7 @@ def main(per_channel: int, out: Path, seed: int, pattern: str):
                     break
         if mod:
             r["mod"] = 1
-        if n in seen:
+        if n in seen or n in gold:
             continue
         seen.add(n)
         by_ch[r["ch"]].append(r)

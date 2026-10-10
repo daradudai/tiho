@@ -169,7 +169,8 @@ export class WaveDetector {
 
     if (c.isWave) {
       let role: WaveHit['role'] = 'member';
-      if (headAlive && !headAlive(c.headKey)) {
+      // the head seen again (its row re-mounted) stays the head
+      if (c.headKey === msgKey || (headAlive && !headAlive(c.headKey))) {
         c.headKey = msgKey;
         role = 'head';
       }

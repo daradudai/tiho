@@ -1,16 +1,34 @@
-import { DEFAULT_SETTINGS } from '../../core/settings';
+import { DEFAULT_SETTINGS, type Settings } from '../../core/settings';
 import type { Platform } from '../../core/types';
 import { Mark } from '../brand';
 import { Icon, PlatformGlyph } from '../icons';
 import { Button, Card, Row, Slider, Toggle, modelStatus, settings, updateSettings } from '../kit/kit';
-import { BACKEND_LABEL, modelSummary, prettyModel } from '../model-status';
+import { BACKEND_LABEL, modelLayers, modelProblem, modelSummary, prettyModel } from '../model-status';
 import { strictWord } from '../format';
+import { REPO_URL } from './filter-presets';
 
 const SITES: { id: Platform; name: string }[] = [
   { id: 'youtube', name: 'YouTube' },
   { id: 'twitch', name: 'Twitch' },
   { id: 'kick', name: 'Kick' },
 ];
+
+/**
+ * What "Reset filters to defaults" restores: how chat is filtered. Where
+ * (sites), whether (on / off), how Hush looks (bar, decorations, GPU), rules
+ * and the engine stay as they are.
+ */
+export function filterDefaults(): Partial<Settings> {
+  const d = DEFAULT_SETTINGS;
+  return {
+    preset: d.preset,
+    actions: { ...d.actions },
+    strictness: d.strictness,
+    collapseWaves: d.collapseWaves,
+    holdMs: d.holdMs,
+    trustPrivileged: d.trustPrivileged,
+  };
+}
 
 export function SettingsTab() {
   const s = settings.value;
@@ -65,10 +83,10 @@ export function SettingsTab() {
       <ModelCard />
 
       <div class="sp-foot-actions">
-        <Button variant="ghost" size="sm" icon="refresh" onClick={() => set({ ...DEFAULT_SETTINGS, rules: s.rules, engine: s.engine })}>
+        <Button variant="ghost" size="sm" icon="refresh" onClick={() => set(filterDefaults())}>
           Reset filters to defaults
         </Button>
-        <a class="sp-gh" href="https://github.com/" target="_blank" rel="noreferrer">
+        <a class="sp-gh" href={REPO_URL} target="_blank" rel="noreferrer">
           <Icon name="github" size={13} /> Open source
         </a>
       </div>
@@ -76,9 +94,14 @@ export function SettingsTab() {
   );
 }
 
+/** The two students of the shipped model folder (docs/MODEL_CARD.md), by layer count: parameters (M) and file size (MB). */
+const STUDENTS: Record<number, { params: number; mb: number }> = { 6: { params: 110, mb: 113 }, 3: { params: 104, mb: 105 } };
+
 function ModelCard() {
   const m = modelStatus.value;
   const sum = m ? modelSummary(m) : null;
+  const layers = modelLayers(m);
+  const student = layers ? STUDENTS[layers] : undefined;
   let version = '';
   try {
     version = chrome.runtime.getManifest().version;
@@ -93,7 +116,7 @@ function ModelCard() {
         </div>
         <div>
           <h3>{prettyModel(m?.modelId)}</h3>
-          <p>{m?.modelId ?? 'hush-lite · mmBERT-small, fine-tuned for live chat'}</p>
+          <p>{m?.modelId ?? 'hush-lite · mmBERT-small, distilled for live chat'}</p>
         </div>
         {sum && <span class={`sp-tone sp-tone-${sum.tone}`}>{m!.state === 'ready' ? BACKEND_LABEL[m!.backend] ?? m!.backend : sum.title}</span>}
       </div>
@@ -101,6 +124,14 @@ function ModelCard() {
         <div class="sp-model-prog">
           <span style={{ width: `${Math.round((m.progress ?? 0) * 100)}%` }} />
         </div>
+      )}
+      {m?.state === 'error' && (
+        <details class="sp-setup sp-model-err">
+          <summary>
+            <Icon name="info" size={13} /> {modelProblem(m.error)} · rules still filter chat
+          </summary>
+          {m.error && <code>{m.error}</code>}
+        </details>
       )}
       <dl class="sp-model-grid">
         <div>
@@ -112,8 +143,17 @@ function ModelCard() {
           <dd>Toxic · scam · spam · noise · questions · positive · negative</dd>
         </div>
         <div>
+          <dt>Model</dt>
+          <dd>
+            Adaptive: 6 layers on the GPU, 3 on the CPU, distilled from 22{layers ? ` · this device runs ${layers}` : ''}
+          </dd>
+        </div>
+        <div>
           <dt>Size</dt>
-          <dd>≈ 140 M parameters · one-time download, cached</dd>
+          <dd>
+            {student ? `≈ ${student.params} M parameters · ${student.mb} MB` : '≈ 104–110 M parameters · 105–113 MB'} + 14 MB tokenizer, bundled or
+            downloaded once
+          </dd>
         </div>
         <div>
           <dt>Version</dt>

@@ -41,7 +41,7 @@ def test_lru_ttl(monkeypatch):
 
 async def test_concurrency_limit(fake):
     fake.delay = 0.02
-    s = Scheduler(fake, max_inflight=3)
+    s = Scheduler(fake, max_inflight=3, adaptive=False)
     s.start()
     futs = [s.submit(f"k{i}", body(i)) for i in range(12)]
     await asyncio.gather(*futs)
@@ -155,6 +155,7 @@ async def test_adaptive_concurrency_shrinks_when_slow(fake):
     fake.delay = 0.16
     s = Scheduler(fake, max_inflight=8)
     s.start()
+    s.limit = 8
     for wave in range(4):  # answers take ~80% of their 200 ms budget
         dl = time.monotonic() + 0.2
         await asyncio.gather(*(s.submit(f"k{wave}-{i}", body(i), deadline=dl) for i in range(8)), return_exceptions=True)
@@ -163,14 +164,33 @@ async def test_adaptive_concurrency_shrinks_when_slow(fake):
     await s.stop()
 
 
-async def test_adaptive_concurrency_grows_back(fake):
-    fake.delay = 0.005
-    s = Scheduler(fake, max_inflight=6)
+# (the fake's delays are long enough that Windows' 15.6 ms timer ticks do not look like queueing)
+
+async def test_adaptive_concurrency_starts_low_and_grows_when_calls_overlap(fake):
+    fake.delay = 0.1  # calls run side by side: several in flight are as fast as one
+    s = Scheduler(fake, max_inflight=8)
     s.start()
-    s.limit = 1
-    await asyncio.gather(*(s.submit(f"k{i}", body(i)) for i in range(60)))
-    assert s.limit > 1
-    assert fake.peak <= 6
+    assert s.limit == 2
+    await s.submit("alone", body(0))
+    await asyncio.gather(*(s.submit(f"k{i}", body(i)) for i in range(80)))
+    assert s.limit > 4
+    assert fake.peak <= 8
+    await s.stop()
+
+
+async def test_adaptive_concurrency_shrinks_when_calls_queue_in_the_backend(fake):
+    """llama.cpp runs decision requests one at a time: more in flight only queues inside it."""
+    fake.delay = 0.05
+    fake.serial = True
+    s = Scheduler(fake, max_inflight=8)
+    s.start()
+    await s.submit("alone", body(0))
+    s.limit = 8
+    await asyncio.gather(*(s.submit(f"k{i}", body(i)) for i in range(40)))  # no deadline: throughput only
+    assert s.limit == 2
+    fake.peak = 0
+    await asyncio.gather(*(s.submit(f"n{i}", body(i)) for i in range(12)))
+    assert fake.peak == 2  # and it does not grow back
     await s.stop()
 
 

@@ -2,15 +2,15 @@
 // (what Hush does · pick your vibe · model download), privacy, sites, tips.
 
 import type { ComponentChildren } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { PRESETS, type PresetId } from '../../core/settings';
 import type { Action, Category } from '../../core/types';
 import { BUBBLE_PATH, WAVE_CALM, WAVE_EXCITED, WAVE_FLAT, WAVE_TURBULENT } from '../brand';
-import { decorationCss } from '../decorations';
+import { decorationCss, pillRuns } from '../decorations';
 import { pct } from '../format';
 import { Icon, PlatformGlyph, type IconName } from '../icons';
 import { Kbd, initModelStatus, initSettings, initTheme, modelStatus, settings, updateSettings } from '../kit/kit';
-import { BACKEND_LABEL } from '../model-status';
+import { BACKEND_LABEL, modelLayers, modelProblem } from '../model-status';
 import { CATEGORY_META, CHIP_CATEGORIES, PRESET_META, PRESET_ORDER } from '../tokens';
 import './onboarding.css';
 
@@ -97,7 +97,7 @@ export function OnboardingApp() {
           <PresetPicker />
         </Step>
 
-        <Step n={3} title="Get the model" sub="A one-time download. After that Hush works offline and starts instantly.">
+        <Step n={3} title="Get the model" sub="Release builds include it; otherwise it downloads once. After that Hush works offline.">
           <ModelStep />
         </Step>
       </section>
@@ -206,7 +206,7 @@ const DEMO: DemoMsg[] = [
   { user: 'mira_lux', color: '#da70d6', text: 'what sensitivity do you play on?', c: 'question', r: 'question · 96%' },
   { user: 'free_skins', color: '#9acd32', text: 'FREE SKINS → csgo-drop .win/claim', c: 'scam', r: 'scam · 98%' },
   { user: 'ana_rs', color: '#00bfff', text: 'jajaja el último round 😂', c: 'positive', r: 'positive · 84%' },
-  { user: 'spamton', color: '#daa520', text: 'POGGERS POGGERS POGGERS POGGERS POGGERS', c: 'spam', r: 'spam · flood' },
+  { user: 'spamton', color: '#daa520', text: 'POGGERS POGGERS POGGERS POGGERS POGGERS', c: 'spam', r: 'spam · 97%' },
   { user: 'Sven_DE', color: '#e05555', text: 'warum spielt er heute nicht ranked?', c: 'question', r: 'question · 92%' },
   { user: 'quietfox', color: '#2e8b57', text: 'chat is so calm today, love it', c: 'positive', r: 'positive · 88%' },
 ];
@@ -219,6 +219,8 @@ function ChatDemo({ theme }: { theme: 'dark' | 'light' }) {
     document.head.appendChild(el);
     return () => el.remove();
   }, [theme]);
+  // Flips by itself until the viewer touches the toggle; from then on their choice stays.
+  const stopAuto = useRef(() => {});
   useEffect(() => {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
       setHushed(true);
@@ -226,20 +228,33 @@ function ChatDemo({ theme }: { theme: 'dark' | 'light' }) {
     }
     const first = setTimeout(() => setHushed(true), 900);
     const id = setInterval(() => setHushed((h) => !h), 3600);
-    return () => {
+    stopAuto.current = () => {
       clearTimeout(first);
       clearInterval(id);
     };
+    return () => stopAuto.current();
   }, []);
   const act = (m: DemoMsg): Action => (!hushed ? 'show' : (PRESETS.chill[m.c] as Action));
+  const acts = DEMO.map(act);
+  const runs = pillRuns(acts); // collapsed rows draw their "N hidden · show" pill only with a run mark
   return (
     <div class="ob-demo" data-theme={theme} data-hushed={hushed ? '' : undefined}>
       <div class="ob-demo-head">
         <span>Stream chat</span>
-        <span class="ob-demo-toggle" onClick={() => setHushed(!hushed)} role="button" tabIndex={0}>
+        <button
+          type="button"
+          class="ob-demo-toggle"
+          aria-pressed={hushed}
+          aria-label="With Hush"
+          onFocus={() => stopAuto.current()}
+          onClick={() => {
+            stopAuto.current();
+            setHushed(!hushed);
+          }}
+        >
           <span class={!hushed ? 'is-on' : ''}>Before</span>
           <span class={hushed ? 'is-on' : ''}>With Hush</span>
-        </span>
+        </button>
       </div>
       <div class="ob-demo-bar">
         <svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true">
@@ -255,8 +270,8 @@ function ChatDemo({ theme }: { theme: 'dark' | 'light' }) {
         <span class="ob-demo-calm">{hushed ? '38% hushed' : 'unfiltered'}</span>
       </div>
       <div class="ob-demo-list">
-        {DEMO.map((m) => (
-          <div class="ob-demo-row" data-hush-c={m.c} data-hush-a={act(m)} data-hush-r={m.r}>
+        {DEMO.map((m, i) => (
+          <div class="ob-demo-row" data-hush-c={m.c} data-hush-a={acts[i]} data-hush-r={m.r} data-hush-run={runs[i]}>
             <span>
               <b style={{ color: m.color }}>{m.user}</b>: {m.text}
             </span>
@@ -336,12 +351,13 @@ function ModelStep() {
           : state === 'error'
             ? 'Could not load the model'
             : 'Starts when you open a stream';
+  const layers = modelLayers(m);
   const sub =
     state === 'ready'
-      ? 'Cached on this device. Hush now works offline.'
+      ? `${layers ? `${layers}-layer model, picked for ${m!.backend === 'webgpu' ? 'your GPU' : 'your CPU'}. ` : ''}Stored on this device; Hush works offline.`
       : state === 'error'
-        ? `${m?.error ?? 'Unknown error'} — rules keep filtering meanwhile.`
-        : 'About 140 MB, once. Rules already filter while it downloads.';
+        ? `${modelProblem(m?.error)}. Rules keep filtering chat meanwhile.`
+        : 'About 125 MB if it has to be downloaded, once. Rules already filter meanwhile.';
   return (
     <div class="ob-model" data-state={state}>
       <div class="ob-model-ico">{state === 'ready' ? <Icon name="check" size={18} strokeWidth={2.2} /> : <Icon name="download" size={18} />}</div>

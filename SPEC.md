@@ -168,7 +168,7 @@ cache key is the normalized text; the model sees the original (lightly cleaned).
   category with live counters; click chip cycles show/dim/collapse/hide. Expands to a
   mini dashboard (msgs/s sparkline, vibe trend, top waves).
 - **Message decorations**: left accent tint per category, `?` glow for questions,
-  collapsed pill "3 hidden · show", hover tooltip with reason ("toxic 0.94", "wave ×37").
+  collapsed pill "3 hidden · show", hover tooltip with reason ("toxic · 94%", "wave ×37").
 - **Popup**: on/off per site, preset, model status, open side panel.
 - **Side panel**: dashboard (stats, vibe timeline), Questions inbox, filtered log with
   reasons + "not spam" feedback, rules editor, Engine connection, model details.

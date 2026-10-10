@@ -10,11 +10,11 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, AsyncGenerator, AsyncIterator, Callable
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -28,6 +28,8 @@ from .service import ClassifyService, Filter, Msg
 
 MAX_MESSAGES = 256
 MAX_FILTERS = 32
+SUPERVISE_INTERVAL = 2.0  # seconds between checks of the backend
+RESTART_WINDOW = 600.0  # max_restarts llama-server launches per this many seconds
 
 # Chrome / Edge / Brave extension ids are 32 chars a-p; Firefox uses a UUID.
 DEFAULT_ORIGIN_RE = (
@@ -53,7 +55,8 @@ class EngineConfig:
     trusted_hosts: list[str] = field(default_factory=lambda: ["127.0.0.1", "localhost"])
     device: str = "unknown"
     ready_timeout: float = 900.0
-    max_restarts: int = 3
+    max_restarts: int = 3  # per RESTART_WINDOW
+    restart_backoff: float = 15.0  # wait before retrying a failed restart, doubled each time
 
 
 # --- request models -----------------------------------------------------------------
@@ -80,6 +83,7 @@ class ClassifyIn(BaseModel):
     base: bool = False
     deadline_ms: int | None = Field(default=None, ge=0, le=120_000)
     context: str | None = Field(default=None, max_length=300)
+    stream: bool = False  # NDJSON: one line per message as soon as it is ready, then {"done": true, ...}
 
 
 # --- engine ---------------------------------------------------------------------------
@@ -155,8 +159,41 @@ class Engine:
         self.status, self.detail = "ready", ""
         self._log(
             f"ready: model={self.info.model} slots={self.info.slots} ctx/slot={self.info.n_ctx_slot} "
-            f"inflight={self.scheduler.max_inflight} prompt_budget={self.service.budget}"
+            f"inflight={self.scheduler.limit}..{self.scheduler.max_inflight} prompt_budget={self.service.budget}"
         )
+
+    async def _relaunch(self, restarts: list[float]) -> bool:
+        """Restart a crashed llama-server, retrying failed launches (e.g. no VRAM while a game
+        holds it) with backoff. False, with status "error", once max_restarts are used up."""
+        assert self.process is not None
+        failures = 0
+        while True:
+            now = time.monotonic()
+            restarts[:] = [t for t in restarts if now - t < RESTART_WINDOW]
+            code = self.process.proc.returncode if self.process.proc else None
+            if len(restarts) >= self.cfg.max_restarts:
+                self.process.stop()  # a launch that timed out may still be loading
+                self.status = "error"
+                self.detail = f"llama-server keeps crashing (exit {code}); see {self.process.log_path}"
+                self._log(self.detail + "\n" + await asyncio.to_thread(self.process.log_tail))
+                return False
+            if failures:
+                delay = self.cfg.restart_backoff * 2 ** (failures - 1)
+                self.status = "backend_down"
+                self.detail = f"llama-server did not come back (exit {code}); retrying in {delay:.0f} s"
+                await asyncio.sleep(delay)
+            else:
+                self._log(f"llama-server exited (code {code}); restarting\n{await asyncio.to_thread(self.process.log_tail, 10)}")
+            restarts.append(time.monotonic())
+            self.process.stop()
+            try:
+                await self._launch()
+            except Exception as e:  # noqa: BLE001 - counted, retried until max_restarts
+                failures += 1
+                self._log(f"restarting llama-server failed: {e}")
+                continue
+            self.status, self.detail = "ready", ""
+            return True
 
     async def _run(self) -> None:
         restarts: list[float] = []
@@ -167,21 +204,10 @@ class Engine:
                 await self._wait_backend()
             await self._configure()
             while True:
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(SUPERVISE_INTERVAL)
                 if self.process and not self.process.alive:
-                    now = time.monotonic()
-                    restarts = [t for t in restarts if now - t < 600]
-                    code = self.process.proc.returncode if self.process.proc else None
-                    if len(restarts) >= self.cfg.max_restarts:
-                        self.status = "error"
-                        self.detail = f"llama-server keeps crashing (exit {code}); see {self.process.log_path}"
-                        self._log(self.detail + "\n" + self.process.log_tail())
+                    if not await self._relaunch(restarts):
                         return
-                    restarts.append(now)
-                    self._log(f"llama-server exited (code {code}); restarting\n{self.process.log_tail(10)}")
-                    self.process.stop()
-                    await self._launch()
-                    self.status = "ready"
                     continue
                 h = await self.backend.health()
                 if h == "ok":
@@ -273,6 +299,12 @@ def _error(code: str, message: str, status: int) -> JSONResponse:
     return JSONResponse({"error": {"code": code, "message": message}}, status_code=status)
 
 
+async def _ndjson(lines: AsyncGenerator[dict[str, Any], None]) -> AsyncIterator[bytes]:
+    async with contextlib.aclosing(lines):
+        async for line in lines:
+            yield json.dumps(line, separators=(",", ":")).encode() + b"\n"
+
+
 def create_app(engine: Engine) -> FastAPI:
     cfg = engine.cfg
     pattern = "^(" + DEFAULT_ORIGIN_RE + ("|" + "|".join(re.escape(o) for o in cfg.allow_origins) if cfg.allow_origins else "") + ")$"
@@ -336,13 +368,14 @@ def create_app(engine: Engine) -> FastAPI:
     async def classify(req: ClassifyIn):
         if not engine.ready:
             return not_ready()
-        return await engine.service.classify(
+        args = (
             [Msg(m.id, m.text, m.platform, m.author, m.channel) for m in req.messages],
             [Filter(f.id, f.question) for f in req.filters],
-            base=req.base,
-            deadline_ms=req.deadline_ms,
-            context=req.context,
         )
+        kwargs: dict[str, Any] = dict(base=req.base, deadline_ms=req.deadline_ms, context=req.context)
+        if req.stream:
+            return StreamingResponse(_ndjson(engine.service.classify_stream(*args, **kwargs)), media_type="application/x-ndjson")
+        return await engine.service.classify(*args, **kwargs)
 
     @app.post("/v1/systemone")
     async def systemone(request: Request):

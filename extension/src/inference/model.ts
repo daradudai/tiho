@@ -5,14 +5,16 @@
 // for the session: fixed I/O (input_ids, attention_mask → logits), so we get
 // full control over file choice, session options, caching and progress.
 //
-// Files come from the bundled copy (dev) or a remote base URL (prod) and are
-// kept in Cache Storage keyed by URL + model version.
+// Files come from the bundled copy or, in builds made with WXT_HUSH_MODEL_URL,
+// a remote base URL. Remote files must match the hashes pinned in the build
+// (integrity.ts) and are kept in Cache Storage keyed by URL + hash.
 
 import * as ort from 'onnxruntime-web/webgpu';
 import { PreTrainedTokenizer, env as tjsEnv } from '@huggingface/transformers';
 import { LABELS } from '../core/types';
-import { MODEL_CACHE, ORT_MJS, ORT_WASM, VARIANT_PREFERENCE, type Device } from './config';
+import { MODEL_CACHE, ORT_MJS, ORT_WASM, VARIANT_PREFERENCE, type Device, type FilePin } from './config';
 import { webgpuInfo } from './gpu';
+import { pinFor, verifyPin } from './integrity';
 
 export interface HushModelConfig {
   labels: string[];
@@ -47,6 +49,8 @@ export interface LoadOptions {
   device: Device | 'auto';
   variant?: string;
   threads: number;
+  /** Expected sha256 + size of every file of an http(s) base, by path relative to it (REMOTE_MODEL_PINS). */
+  pins?: Record<string, FilePin> | null;
   onProgress?: (p: LoadProgress) => void;
   /** Called when a backend/variant attempt fails and we fall back. */
   onFallback?: (what: string, err: unknown) => void;
@@ -80,10 +84,14 @@ async function openCache(): Promise<Cache | null> {
   }
 }
 
-/** GET with progress; Cache Storage for http(s) sources keyed by `cacheKey`. */
+/**
+ * GET with progress; Cache Storage for http(s) sources keyed by `cacheKey`.
+ * A pinned file is checked before it is cached or used (its cache key carries the hash).
+ */
 async function fetchBytes(
   url: string,
   cacheKey: string | null,
+  pin: FilePin | null,
   onBytes?: (loaded: number, total: number) => void,
   expectedSize = 0,
 ): Promise<Uint8Array> {
@@ -132,6 +140,7 @@ async function fetchBytes(
       }
     }
   }
+  await verifyPin(url, bytes, pin);
   if (cache) {
     try {
       await cache.put(
@@ -147,35 +156,38 @@ async function fetchBytes(
   return bytes;
 }
 
-async function fetchJson<T>(url: string, cacheKey: string | null): Promise<T> {
-  // Small files: network first (picks up a new model version), cache as offline fallback.
+async function fetchJson<T>(url: string, cacheKey: string | null, pin: FilePin | null): Promise<T> {
+  // Small files: network first, cache as offline fallback (both checked against the pin).
+  const parse = async (bytes: Uint8Array) => {
+    await verifyPin(url, bytes, pin);
+    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+  };
   try {
     const res = await fetch(url, { cache: 'no-cache' });
     if (!res.ok) throw new Error(`GET ${url}: ${res.status}`);
-    const text = await res.text();
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const json = await parse(bytes);
     if (cacheKey && isHttp(url)) {
       const cache = await openCache();
-      await cache?.put(cacheKey, new Response(text, { headers: { 'content-type': 'application/json' } })).catch(() => {});
+      await cache?.put(cacheKey, new Response(bytes, { headers: { 'content-type': 'application/json' } })).catch(() => {});
     }
-    return JSON.parse(text) as T;
+    return json;
   } catch (e) {
     if (cacheKey && isHttp(url)) {
       const hit = await (await openCache())?.match(cacheKey);
-      if (hit) return (await hit.json()) as T;
+      if (hit) return parse(new Uint8Array(await hit.arrayBuffer()));
     }
     throw e;
   }
 }
 
-/** Drop cached files of other model versions from this base. */
-async function pruneCache(base: string, version: string): Promise<void> {
+/** Drop cached model files of this base other than `keep` (other model versions). */
+async function pruneCache(base: string, keep: Set<string>): Promise<void> {
   const cache = await openCache();
   if (!cache) return;
   for (const req of await cache.keys()) {
     const u = req.url;
-    if (u.startsWith(base) && !u.endsWith('.json') && !u.includes(`v=${encodeURIComponent(version)}`)) {
-      await cache.delete(req);
-    }
+    if (u.startsWith(base) && !u.endsWith('.json') && !keep.has(u)) await cache.delete(req);
   }
 }
 
@@ -294,10 +306,10 @@ export class HushModel {
     // 1. locate the model (first base whose config.json loads)
     let base = '';
     let config: { hush?: HushModelConfig } | null = null;
-    let lastErr: unknown = null;
+    let lastErr: unknown = opts.bases.length ? null : 'no bundled model and no remote source in this build';
     for (const b of opts.bases) {
       try {
-        config = await fetchJson(b + 'config.json', b + 'config.json');
+        config = await fetchJson(b + 'config.json', b + 'config.json', pinFor(opts.pins, b, 'config.json'));
         base = b;
         break;
       } catch (e) {
@@ -307,9 +319,13 @@ export class HushModel {
     if (!config) throw new Error(`model not found (${String(lastErr)})`);
     const cfg = config.hush;
     if (!cfg?.files || !cfg.labels) throw new Error('config.json has no `hush` block (export with ml/export/export_onnx.py)');
-    const version = cfg.version ?? 'unversioned';
-    const keyFor = (file: string) => `${base}${file}?v=${encodeURIComponent(version)}`;
-    if (isHttp(base)) void pruneCache(base, version).catch(() => {});
+    const pinOf = (file: string) => pinFor(opts.pins, base, file);
+    // remote files are cached by content: a key never outlives the build that pinned it
+    const keyFor = (file: string, pin: FilePin | null) => (pin ? `${base}${file}?sha256=${pin.sha256}` : null);
+    if (isHttp(base)) {
+      const keep = new Set(Object.entries(opts.pins ?? {}).map(([f, p]) => keyFor(f, p)!));
+      void pruneCache(base, keep).catch(() => {});
+    }
 
     // 2. pick backend + file
     const gpu = opts.device === 'wasm' ? { ok: false, f16: false } : await webgpuInfo();
@@ -338,13 +354,14 @@ export class HushModel {
     // 3. tokenizer (parallel with the first model download)
     modelTotal = cfg.sizes?.[attempts[0]!.variant] ?? 0;
     const tokP = (async () => {
+      const tokPin = pinOf('tokenizer.json');
       const [tj, tc] = await Promise.all([
-        fetchBytes(base + 'tokenizer.json', keyFor('tokenizer.json'), (l, t) => {
+        fetchBytes(base + 'tokenizer.json', keyFor('tokenizer.json', tokPin), tokPin, (l, t) => {
           tokBytes = l;
           tokTotal = t;
           report('tokenizer.json');
         }),
-        fetchJson<Record<string, unknown>>(base + 'tokenizer_config.json', base + 'tokenizer_config.json'),
+        fetchJson<Record<string, unknown>>(base + 'tokenizer_config.json', base + 'tokenizer_config.json', pinOf('tokenizer_config.json')),
       ]);
       return new PreTrainedTokenizer(JSON.parse(new TextDecoder().decode(tj)), tc);
     })();
@@ -357,9 +374,11 @@ export class HushModel {
         if (!bytes) {
           modelBytes = 0;
           modelTotal = cfg.sizes?.[a.variant] ?? modelTotal;
+          const pin = pinOf(file);
           bytes = await fetchBytes(
             base + file,
-            keyFor(file),
+            keyFor(file, pin),
+            pin,
             (l, t) => {
               modelBytes = l;
               modelTotal = t;

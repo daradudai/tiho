@@ -39,7 +39,7 @@ const p = (f: EngineFilter, prob: number) => ({ [filterKey(f)]: prob });
 describe('policy: custom filters', () => {
   it('a firing filter applies its action with a readable reason', () => {
     const v = decide(vec(CLEAN, p(BACKSEAT, 0.93)), R(), null, ctxOf());
-    expect(v).toMatchObject({ category: 'clean', action: 'hide', reason: 'filter: Backseating', source: 'engine' });
+    expect(v).toMatchObject({ category: 'clean', action: 'hide', reason: 'filter: backseating', source: 'engine' });
   });
 
   it('below the threshold nothing changes', () => {
@@ -50,15 +50,21 @@ describe('policy: custom filters', () => {
   it('never weakens a stronger category action', () => {
     const hl: EngineFilter = { ...BACKSEAT, action: 'highlight' };
     const v = decide(vec(TOXIC, p(hl, 0.99)), R(), null, ctxOf([hl]));
-    expect(v).toMatchObject({ category: 'toxic', action: 'hide', reason: 'toxic 0.97' });
+    expect(v).toMatchObject({ category: 'toxic', action: 'hide', reason: 'toxic · 97%' });
     // …but highlights an otherwise shown message
     expect(decide(vec(CLEAN, p(hl, 0.99)), R(), null, ctxOf([hl])).action).toBe('highlight');
   });
 
   it('the strongest firing filter wins', () => {
     const v = decide(vec(CLEAN, { ...p(BACKSEAT, 0.6), ...p(SPOILER, 0.99) }), R(), null, ctxOf());
-    expect(v).toMatchObject({ action: 'hide', reason: 'filter: Backseating' });
+    expect(v).toMatchObject({ action: 'hide', reason: 'filter: backseating' });
     expect(decide(vec(CLEAN, p(SPOILER, 0.8)), R(), null, ctxOf()).reason).toBe('filter: spoil the story or the ending');
+    // sentence-case labels read as reason text, names keep their case
+    const named = (label: string) => ({ ...BACKSEAT, label });
+    const reasonOf = (f: EngineFilter) => decide(vec(CLEAN, p(f, 0.9)), R(), null, ctxOf([f])).reason;
+    expect(reasonOf(named('Begging for subs & raids'))).toBe('filter: begging for subs & raids');
+    expect(reasonOf(named('Elden Ring spoilers'))).toBe('filter: Elden Ring spoilers');
+    expect(reasonOf(named('GTA RP drama'))).toBe('filter: GTA RP drama');
   });
 
   it('user rules and protection come first', () => {
@@ -93,10 +99,26 @@ describe('policy: second opinion', () => {
   const engineSaysToxic = [0.92, 0.01, 0.01, 0.01, 0.01, 0.02, 0.8];
   const engineSaysClean = [0.02, 0.01, 0.01, 0.01, 0.01, 0.3, 0.05];
 
-  it('engine scores replace unsure local ones', () => {
-    expect(decide(vec(unsureToxic, undefined, engineSaysClean), R(), null, ctxOf([])).action).toBe('show');
-    const v = decide(vec([0.1, 0, 0, 0, 0, 0, 0], undefined, engineSaysToxic), R(), null, ctxOf([]));
-    expect(v).toMatchObject({ category: 'toxic', action: 'hide', reason: 'toxic 0.92', source: 'engine', scores: engineSaysToxic });
+  const THR = [0.22, 0.53, 0.22, 0.44, 0.52, 0.26, 0.1]; // 6-layer student
+
+  it('engine scores are averaged with unsure local ones, each against its own thresholds', () => {
+    // a borderline local call that the engine clearly rejects
+    expect(decide(vec(unsureToxic, undefined, engineSaysClean), R(), null, ctxOf([], {}, {}, THR)).action).toBe('show');
+    // both lean toxic: the engine is sure, the local model just below its threshold
+    const v = decide(vec([0.2, 0, 0, 0, 0, 0, 0], undefined, [0.99, 0, 0, 0, 0, 0, 0.5]), R(), null, ctxOf([], {}, {}, THR));
+    expect(v).toMatchObject({ category: 'toxic', action: 'hide', source: 'engine' });
+    expect(v.scores![0]).toBeGreaterThan(0.22);
+    expect(v.reason).toBe(`toxic · ${Math.round(v.scores![0]! * 100)}%`);
+  });
+
+  it("the engine's raw scores are never read against the local thresholds", () => {
+    // Clef-Flash's softmax on a clean message: above the student's toxic 0.22
+    // and spam 0.53, far below its own calibrated thresholds
+    const local = [0.1, 0.4, 0.05, 0.05, 0.05, 0.1, 0.05];
+    const engine = [0.25, 0.55, 0.05, 0.05, 0.02, 0.05, 0.03];
+    expect(decide(vec(local, undefined, engine), R(), null, ctxOf([], {}, {}, THR))).toMatchObject({ category: 'clean', action: 'show' });
+    // one fairly sure vote against a fairly sure one is not enough to hide
+    expect(decide(vec(local, undefined, engineSaysToxic), R(), null, ctxOf([], {}, {}, THR))).toMatchObject({ category: 'negative', action: 'show' });
   });
 
   it('local scores stand when second opinion is off', () => {

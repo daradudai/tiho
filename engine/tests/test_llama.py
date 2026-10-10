@@ -8,15 +8,17 @@ import sys
 import textwrap
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from hush_engine import app as app_module
 from hush_engine.app import Engine, EngineConfig, create_app
-from hush_engine.backend import LlamaBackend
+from hush_engine.backend import BackendError, LlamaBackend
 from hush_engine.gpu import PROFILES, Gpu, pick_profile
-from hush_engine.llama import LlamaProcess, build_argv, port_in_use
+from hush_engine.llama import LlamaProcess, build_argv, port_in_use, shown_argv
 
 from .conftest import free_port
 
@@ -63,20 +65,33 @@ def test_profiles():
 
 
 def test_argv():
-    argv = build_argv("llama-server", "m.gguf", 7379, PROFILES["24gb"], ["--flash-attn", "on"])
+    argv = build_argv("llama-server", "m.gguf", 7379, PROFILES["24gb"], ["--flash-attn", "on"], api_key="k3y")
     s = " ".join(argv)
     assert "--host 127.0.0.1" in s and "--port 7379" in s and "-ngl 99" in s
     assert "-np 8" in s and "-c 16384" in s and "-ub 2048" in s and "-b 2048" in s
+    assert "--api-key k3y" in s and "-lv 2" in s  # locked to us; no per-request info lines in the log
     assert argv[-2:] == ["--flash-attn", "on"]
+    assert "--api-key" not in build_argv("llama-server", "m.gguf", 7379, PROFILES["24gb"])
+    assert shown_argv(argv).count("k3y") == 0 and "--api-key ***" in shown_argv(argv)
 
 
 @pytest.mark.skipif(not REAL.exists(), reason="llama-server binary not present")
 def test_argv_flags_exist_in_real_binary():
     help_text = subprocess.run([str(REAL), "--help"], capture_output=True, text=True, timeout=60,
                                encoding="utf-8", errors="replace").stdout
-    for flag in build_argv(REAL, "m.gguf", 1, PROFILES["24gb"]):
+    for flag in build_argv(REAL, "m.gguf", 1, PROFILES["24gb"], api_key="k"):
         if flag.startswith("-"):
             assert flag in help_text, flag
+
+
+def test_log_tail_reads_only_the_end(tmp_path):
+    p = LlamaProcess(["llama-server"], free_port(), tmp_path / "llama.log")
+    assert p.log_tail() == ""  # no log yet
+    p.log_path.write_bytes(b"".join(f"line {i} {'x' * 60}\n".encode() for i in range(100_000)))  # ~7 MB
+    tail = p.log_tail(3, max_bytes=1000).splitlines()
+    assert [t.split()[1] for t in tail] == ["99997", "99998", "99999"]
+    assert len(p.log_tail(1000, max_bytes=1000).splitlines()) < 20  # never more than max_bytes
+    assert p.log_tail(1000, max_bytes=1000).splitlines()[0].startswith("line ")  # no cut-off first line
 
 
 def test_spawn_wait_stop(tmp_path):
@@ -140,10 +155,11 @@ def test_child_dies_with_parent(tmp_path):
 
 def test_managed_engine_end_to_end(tmp_path):
     """Engine in managed mode: starts the (fake) server, waits, serves, restarts it after a crash, stops it."""
-    p = fake_proc(tmp_path, "--ready-after", "0.5", "-np", "3", "-c", "3072")
+    key = "per-launch-key"
+    p = fake_proc(tmp_path, "--ready-after", "0.5", "-np", "3", "-c", "3072", "--api-key", key)
     cfg = EngineConfig(mode="managed", backend_url=p.url, ubatch=1024,
                        trusted_hosts=["testserver", "127.0.0.1"])
-    engine = Engine(cfg, LlamaBackend(p.url), p)
+    engine = Engine(cfg, LlamaBackend(p.url, api_key=key), p)
     with TestClient(create_app(engine)) as c:
         t0 = time.monotonic()
         while not c.get("/health").json()["ok"] and time.monotonic() - t0 < 20:
@@ -153,6 +169,10 @@ def test_managed_engine_end_to_end(tmp_path):
         assert h["decision_model"] == "Fake-Clef"
         r = c.post("/v1/classify", json={"messages": [{"id": 1, "text": "hi"}], "filters": [{"id": "a", "question": "Is it hi?"}]})
         assert r.json()["results"][0]["filters"]["a"] == 0.25
+        # anyone else (a web page) gets nothing but /health from the child
+        assert httpx.get(p.url + "/props", trust_env=False).status_code == 401
+        assert httpx.get(p.url + "/health", trust_env=False).status_code == 200
+        assert key not in p.log_path.read_text(encoding="utf-8")
         first_pid = p.proc.pid
         p.proc.kill()  # crash
         t0 = time.monotonic()
@@ -163,3 +183,96 @@ def test_managed_engine_end_to_end(tmp_path):
         assert p.alive and p.proc.pid != first_pid
         child = p.proc.pid
     assert not pid_alive(child)  # stopped with the app
+
+
+def test_attach_to_a_server_with_an_api_key(tmp_path):
+    import asyncio
+
+    p = fake_proc(tmp_path, "--ready-after", "0", "--api-key", "s3cret")
+    p.start()
+
+    async def info(key):
+        b = LlamaBackend(p.url, api_key=key)
+        try:
+            return await b.info()
+        finally:
+            await b.aclose()
+
+    try:
+        asyncio.run(p.wait_ready(timeout=20))
+        assert asyncio.run(info("s3cret")).model == "Fake-Clef"
+        for key in (None, "wrong"):
+            with pytest.raises(BackendError, match="--attach-key"):
+                asyncio.run(info(key))
+    finally:
+        p.stop()
+
+
+class StubProcess:
+    """LlamaProcess stand-in for the supervisor: `crash()` kills it; the next `fail` launches die while loading."""
+
+    def __init__(self, fail: int = 0) -> None:
+        self.fail = fail
+        self.starts = 0
+        self.proc: SimpleNamespace | None = None
+        self.log_path = Path("llama-server.log")
+
+    @property
+    def alive(self) -> bool:
+        return self.proc is not None and self.proc.returncode is None
+
+    def start(self) -> None:
+        self.starts += 1
+        self.proc = SimpleNamespace(pid=1000 + self.starts, returncode=None)
+
+    async def wait_ready(self, timeout: float) -> None:
+        if self.starts > 1 and self.fail > 0:  # e.g. out of VRAM while a game holds it
+            self.fail -= 1
+            self.proc.returncode = 1
+            raise RuntimeError("llama-server exited with code 1")
+
+    def crash(self) -> None:
+        self.proc.returncode = 3
+
+    def stop(self) -> None:
+        if self.alive:
+            self.proc.returncode = -1
+
+    def log_tail(self, n: int = 25) -> str:
+        return ""
+
+
+def supervise(fake, process: StubProcess, until, timeout: float = 5.0) -> Engine:
+    import asyncio
+
+    async def run() -> Engine:
+        engine = Engine(EngineConfig(mode="managed", restart_backoff=0.05, max_restarts=3), fake, process)
+        await engine.start()
+        try:
+            t0 = time.monotonic()
+            while not engine.ready:
+                await asyncio.sleep(0.01)
+            process.crash()
+            while not until(engine) and time.monotonic() - t0 < timeout:
+                await asyncio.sleep(0.01)
+            return engine
+        finally:
+            await engine.stop()
+
+    return asyncio.run(run())
+
+
+def test_supervisor_retries_a_failed_restart(fake, monkeypatch):
+    monkeypatch.setattr(app_module, "SUPERVISE_INTERVAL", 0.02)
+    p = StubProcess(fail=2)
+    engine = supervise(fake, p, lambda e: e.ready and p.starts == 4)
+    assert p.starts == 4  # first launch, two restarts that died while loading, one that worked
+    assert engine.status == "ready"
+
+
+def test_supervisor_gives_up_after_max_restarts(fake, monkeypatch):
+    monkeypatch.setattr(app_module, "SUPERVISE_INTERVAL", 0.02)
+    p = StubProcess(fail=99)
+    engine = supervise(fake, p, lambda e: e.status == "error")
+    assert engine.status == "error" and "keeps crashing" in engine.detail
+    assert p.starts == 1 + 3  # max_restarts launches, then no more

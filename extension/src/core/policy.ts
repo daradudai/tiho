@@ -9,8 +9,9 @@
 // Hush Engine (optional): its answers arrive after the local scores and are
 // attached to the same cached score vector (ScoreVector.engine). A custom
 // filter that fires applies its action when that is stronger than the
-// category's; with "second opinion" on, the engine's own scores replace the
-// local ones (it is only asked when the local model was unsure).
+// category's; with "second opinion" on, the engine's own scores (asked only
+// when the local model was unsure) are averaged with the local ones, each
+// measured against its own calibrated thresholds.
 
 import { Sig, type RuleResult } from './rules';
 import { activeFilters, filterKey, filterLabel, type EngineSettings, type Settings } from './settings';
@@ -44,16 +45,40 @@ const STRICT_SPAN = 3;
 
 const logit = (p: number) => Math.log(p / (1 - p));
 const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
+/** Probability kept away from 0 and 1, where logits are infinite. */
+const clampP = (p: number) => Math.min(0.999, Math.max(0.001, p));
+
+/** A model's threshold for label i, or 0.5 when it has none. */
+function baseThreshold(base: ArrayLike<number> | undefined | null, i: number): number {
+  const t = base && Number.isFinite(base[i]) ? base[i]! : 0.5;
+  return Math.min(0.99, Math.max(0.01, t));
+}
 
 export function effectiveThresholds(base: ArrayLike<number> | undefined | null, strictness: number): Float32Array {
   const out = new Float32Array(LABELS.length);
   const s = Number.isFinite(strictness) ? Math.min(1, Math.max(0, strictness)) : 0.5;
   for (let i = 0; i < LABELS.length; i++) {
-    let t = base && Number.isFinite(base[i]) ? base[i]! : 0.5;
-    t = Math.min(0.99, Math.max(0.01, t));
+    let t = baseThreshold(base, i);
     if (STRICT_LABELS.has(LABELS[i]!)) t = sigmoid(logit(t) + (0.5 - s) * STRICT_SPAN);
     out[i] = t;
   }
+  return out;
+}
+
+/**
+ * Thresholds for the Hush Engine's own scores (Clef-Flash on the base schema,
+ * the teacher's), aligned with LABELS. Calibrated like the students' (best
+ * F-beta, beta 0.7 for toxic, spam and scam: `best_threshold` in
+ * ml/train/evaluate.py) on ml/data/gold_teacher.jsonl against the gold labels.
+ * Its softmax puts clean messages at toxic 0.25 or spam 0.55 routinely, far
+ * above the students' thresholds.
+ */
+export const ENGINE_THRESHOLDS: readonly number[] = [0.85, 0.85, 0.65, 0.34, 0.31, 0.13, 0.15];
+
+/** Per-label logit shift that puts an engine score on the local model's scale (its threshold onto the local one). */
+function engineShift(base: ArrayLike<number> | undefined | null): Float32Array {
+  const out = new Float32Array(LABELS.length);
+  for (let i = 0; i < LABELS.length; i++) out[i] = logit(baseThreshold(base, i)) - logit(ENGINE_THRESHOLDS[i]!);
   return out;
 }
 
@@ -78,6 +103,7 @@ export const FILTER_THRESHOLD = 0.5;
 export interface PolicyFilter {
   key: string;
   action: Action;
+  /** As the reason shows it ("filter: backseating"). */
   label: string;
 }
 
@@ -87,8 +113,10 @@ export interface PolicyContext {
   collapseWaves: boolean;
   /** Enabled custom filters (empty when the engine is off). */
   filters: PolicyFilter[];
-  /** Engine scores replace local ones when present. */
+  /** Engine scores are averaged with the local ones when present. */
   refine: boolean;
+  /** Logit shift per label from the engine's calibrated thresholds to the local model's. */
+  engineShift: Float32Array;
 }
 
 export function policyContext(
@@ -100,8 +128,9 @@ export function policyContext(
     actions: settings.actions,
     thresholds: effectiveThresholds(baseThresholds, settings.strictness),
     collapseWaves: settings.collapseWaves,
-    filters: engine ? activeFilters(engine).map((f) => ({ key: filterKey(f), action: f.action, label: filterLabel(f) })) : [],
+    filters: engine ? activeFilters(engine).map((f) => ({ key: filterKey(f), action: f.action, label: lowerFirst(filterLabel(f)) })) : [],
     refine: !!engine?.enabled && engine.refineUncertain,
+    engineShift: engineShift(baseThresholds),
   };
 }
 
@@ -137,13 +166,32 @@ export function categorize(scores: ArrayLike<number>, sig: number, thr: Float32A
 /** Rules-only fallback when no model score is available. */
 function fallback(sig: number): { category: Category; reason: string } {
   if (sig & Sig.LINK) return { category: 'scam', reason: 'link' };
-  if (sig & Sig.REPEAT) return { category: 'spam', reason: 'repeats' };
-  if (sig & Sig.QUESTION_MARK) return { category: 'question', reason: '?' };
+  if (sig & Sig.REPEAT) return { category: 'spam', reason: 'repeat' };
+  if (sig & Sig.QUESTION_MARK) return { category: 'question', reason: 'question mark' };
   return { category: 'clean', reason: '' };
 }
 
-function fmt(label: string, score: number): string {
-  return `${label} ${score.toFixed(2)}`;
+/** The rule signal that can carry a label over its threshold, as reason text. */
+function signalWords(category: Category, sig: number): string {
+  if (category === 'scam') return sig & Sig.LINK ? 'link' : sig & Sig.SCAM_WORDS ? 'scam words' : '';
+  if (category === 'spam') return sig & Sig.REPEAT ? 'repeat' : sig & Sig.CAPS ? 'caps' : '';
+  return '';
+}
+
+/**
+ * Reason for a model call, as the hover chip and the log show it: "toxic · 94%"
+ * (the raw probability, capped at 99%), or the rule signal that carried the
+ * label over its threshold when the score alone did not ("scam · link").
+ */
+function modelReason(c: Categorized, sig: number, thr: Float32Array): string {
+  if (c.category === 'clean') return '';
+  const why = c.score < thr[LABEL_INDEX[c.category]]! ? signalWords(c.category, sig) : '';
+  return `${c.category} · ${why || `${Math.min(99, Math.round(c.score * 100))}%`}`;
+}
+
+/** Sentence-case label as reason text: "Backseating" → "backseating"; names keep their case ("Elden Ring spoilers"). */
+function lowerFirst(label: string): string {
+  return /^\p{Lu}\p{Ll}*(?:\s+[^\p{Lu}\s]|$)/u.test(label) ? label.replace(/^\p{Lu}/u, (ch) => ch.toLowerCase()) : label;
 }
 
 /**
@@ -169,8 +217,8 @@ export function decide(
   const engine = engineOpinion(local);
   let scores = local;
   let source = from;
-  if (engine?.base && ctx.refine) {
-    scores = engine.base;
+  if (local && engine?.base && ctx.refine) {
+    scores = secondOpinion(local, engine.base, ctx.engineShift);
     source = 'engine';
   }
 
@@ -193,7 +241,7 @@ export function decide(
   } else if (scores) {
     const c = categorize(scores, rule.sig, ctx.thresholds);
     category = c.category;
-    reason = category === 'clean' ? '' : fmt(category, c.score);
+    reason = modelReason(c, rule.sig, ctx.thresholds);
     src = source;
     action = ctx.actions[category];
   } else {
@@ -230,6 +278,23 @@ export function decide(
   return v;
 }
 
+/**
+ * Local and engine scores averaged in logit space, the engine's first moved
+ * onto the local scale (engineShift): a label is on when the two calibrated
+ * margins together clear the local threshold. On the gold set's unsure
+ * messages, the engine's raw scores against the local thresholds hid about
+ * five times as many clean messages as the local model. The average hid fewer
+ * clean ones and caught more bad ones than the 6-layer student alone, and came
+ * out about even with the 3-layer one.
+ */
+function secondOpinion(local: ArrayLike<number>, engine: ArrayLike<number>, shift: Float32Array): number[] {
+  const out = new Array<number>(LABELS.length);
+  for (let i = 0; i < LABELS.length; i++) {
+    out[i] = sigmoid((logit(clampP(local[i] ?? 0)) + logit(clampP(engine[i] ?? 0)) + shift[i]!) / 2);
+  }
+  return out;
+}
+
 /** The firing filter with the strongest action (most confident among equals). */
 function firingFilter(probs: Record<string, number>, filters: PolicyFilter[]): PolicyFilter | null {
   let best: PolicyFilter | null = null;
@@ -260,8 +325,7 @@ export function isUnsure(scores: ArrayLike<number>, ctx: Pick<PolicyContext, 'ac
     const a = ctx.actions[l];
     if (SEVERITY[a] < SEVERITY.dim || a === ctx.actions.clean) continue;
     const i = LABEL_INDEX[l];
-    const p = Math.min(0.999, Math.max(0.001, scores[i] ?? 0));
-    if (Math.abs(logit(p) - logit(ctx.thresholds[i]!)) < UNSURE_LOGIT) return true;
+    if (Math.abs(logit(clampP(scores[i] ?? 0)) - logit(ctx.thresholds[i]!)) < UNSURE_LOGIT) return true;
   }
   return false;
 }

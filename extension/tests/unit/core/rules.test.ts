@@ -103,6 +103,14 @@ describe('rules: decided categories', () => {
     expect(d.evaluate(m, normalize(m.text), 1, false).cat).toBeUndefined();
     expect(d.evaluate(m, normalize(m.text), 2, true).cat).toBe('spam');
   });
+
+  it('the same message seen again (same key) is no repeat; a later copy still is', () => {
+    const d = engine();
+    const m = msg('hello there friends', { author: 'x' });
+    expect(ev(d, m, 0).cat).toBeUndefined();
+    expect(ev(d, m, 5000).cat).toBeUndefined(); // its row re-mounted
+    expect(ev(d, msg('hello there friends', { author: 'x' }), 6000).cat).toBe('spam');
+  });
 });
 
 describe('rules: links and scams', () => {
@@ -160,6 +168,29 @@ describe('rules: signals and protection', () => {
     expect(m1.sig & Sig.MENTIONS_VIEWER).toBeTruthy();
     expect(ev(e, msg('@MeViewer you there?')).protect).toBe(true);
     expect(ev(e, msg('@MeViewerX you there?')).protect).toBe(false);
+  });
+
+  it("the viewer's own messages are protected and never a repeat", () => {
+    const e = engine();
+    e.setViewer(['dobi_kr', '도비']);
+    const own = (text: string, t = 0) => ev(e, msg(text, { author: '도비', authorId: 'dobi_kr' }), t);
+    expect(own('when is the next stream?').protect).toBe(true);
+    expect(own('when is the next stream?', 1000).sig & Sig.OWN).toBeTruthy();
+    expect(own('when is the next stream?', 2000).cat).toBeUndefined(); // asked again: not spam
+    expect(own('!uptime').protect).toBe(true);
+    expect(ev(e, msg('nice', { author: 'Dobi_KR' })).protect).toBe(true); // login, any case
+    expect(ev(e, msg('nice', { author: 'someone' })).protect).toBe(false);
+  });
+
+  it('mentions by any of the viewer names are protected', () => {
+    const e = engine();
+    e.setViewer(['dobi_kr', '@도비']);
+    expect(ev(e, msg('@도비 you are trash', { mentions: ['도비'] })).sig & Sig.MENTIONS_VIEWER).toBeTruthy();
+    expect(ev(e, msg('@도비 you are trash')).protect).toBe(true); // found in the text
+    expect(ev(e, msg('@DOBI_KR hi')).protect).toBe(true);
+    expect(ev(e, msg('@도비야 hi')).protect).toBe(false);
+    e.setViewer(null);
+    expect(ev(e, msg('@도비 hi', { mentions: ['도비'] })).protect).toBe(false);
   });
 
   it('trustPrivileged=false removes privileged protection', () => {

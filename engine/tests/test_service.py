@@ -10,6 +10,8 @@ from hush_engine.backend import InvalidRequest
 from hush_engine.scheduler import Scheduler
 from hush_engine.service import ClassifyService, Filter, Msg
 
+from .conftest import FakeBackend
+
 pytestmark = pytest.mark.anyio
 
 FILTERS = [
@@ -100,6 +102,40 @@ async def test_deadline_returns_partial(fake):
     await asyncio.sleep(0.4)  # the in-flight one still lands in the cache
     out2 = await svc.classify([Msg(i, f"msg {i}") for i in range(5)], FILTERS[:1], deadline_ms=5000)
     assert sum(1 for r in out2["results"] if r.get("cached")) >= 1
+    await svc.scheduler.stop()
+
+
+class StuckOn(FakeBackend):
+    """Never answers about a text that contains "stuck"."""
+
+    async def systemone(self, body):
+        if "stuck" in body["state"]:
+            await asyncio.Event().wait()
+        return await super().systemone(body)
+
+
+async def test_stream_yields_each_result_when_ready():
+    svc = make(StuckOn())
+    msgs = [Msg("s", "stuck"), Msg("a", "hello"), Msg("b", "hi")]
+    t0 = time.monotonic()
+    got = [(time.monotonic() - t0, line) async for line in svc.classify_stream(msgs, FILTERS[:1], deadline_ms=400)]
+    assert [line.get("id") for _, line in got] == ["a", "b", "s", None]  # in the order they are ready
+    assert got[1][0] < 0.2  # long before the deadline the stuck one runs into
+    assert set(got[0][1]["filters"]) == {"backseat"}
+    assert got[2][1] == {"id": "s", "error": "expired"} and got[2][0] >= 0.35
+    assert got[3][1]["done"] is True and got[3][1]["expired"] == 1
+    out = await svc.classify(msgs[:2], FILTERS[:1], deadline_ms=200)  # the plain response keeps request order
+    assert [r["id"] for r in out["results"]] == ["s", "a"] and out["expired"] == 1
+    await svc.scheduler.stop()
+
+
+async def test_stream_closed_early_cancels_the_rest():
+    svc = make(StuckOn())
+    lines = svc.classify_stream([Msg("s", "stuck"), Msg("a", "hello")], FILTERS[:1], deadline_ms=0)
+    assert (await lines.__anext__())["id"] == "a"
+    await lines.aclose()  # the client went away
+    await asyncio.sleep(0.05)
+    assert not [t for t in asyncio.all_tasks() if getattr(t.get_coro(), "__name__", "") == "_message"]
     await svc.scheduler.stop()
 
 

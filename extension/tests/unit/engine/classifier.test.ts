@@ -108,13 +108,7 @@ describe('runtime with engine answers', () => {
       now: () => 0,
       onScores: (ids) => runtime.onScores(ids),
       onFailed: (ids) => runtime.onFailed(ids),
-      // Re-run policy for rows showing these texts: the runtime's own hook when it has one,
-      // otherwise re-applying unchanged settings re-decides every live row.
-      onRescored: (ids) => {
-        const r = runtime as unknown as { onRescored?: (ids: string[]) => void };
-        if (r.onRescored) r.onRescored(ids);
-        else runtime.setSettings(settings);
-      },
+      onRescored: (ids) => runtime.onRescored(ids),
       onStatus: (s) => runtime.setModelStatus(s),
     });
     runtime = rt = new HushRuntime({ adapter: adapter(), settings, classifier, now: () => 0, raf: () => 1, caf: () => {}, storeIntervalMs: 0, tickMs: 3_600_000 });
@@ -145,9 +139,9 @@ describe('runtime with engine answers', () => {
     port.emit({ type: 'engine', batchId: req!.batchId, ids: req!.items.map((x) => x.id), filters: { [KEY]: [0.94] } });
     await frame();
     expect(a.getAttribute('data-hush-a')).toBe('hide');
-    expect(a.getAttribute('data-hush-r')).toBe('filter: Backseating');
+    expect(a.getAttribute('data-hush-r')).toBe('filter: backseating');
     const v = runtime.store.filtered.value[0]?.verdict;
-    expect(v).toMatchObject({ action: 'hide', reason: 'filter: Backseating', source: 'engine' });
+    expect(v).toMatchObject({ action: 'hide', reason: 'filter: backseating', source: 'engine' });
 
     // the same text again is decided from the cache, engine answer included
     const b = row('m2', 'bro jump on the left ledge');

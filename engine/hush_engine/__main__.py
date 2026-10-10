@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import os
+import secrets
 import shlex
 import sys
 from pathlib import Path
@@ -24,6 +25,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--version", action="version", version=f"hush-engine {__version__}")
     ap.add_argument("--attach", metavar="URL", help="use an already running llama-server (e.g. http://127.0.0.1:7378) instead of starting one")
+    ap.add_argument("--attach-key", metavar="KEY", help="API key of that llama-server (its --api-key); start it with one, "
+                    "or any web page you visit can use it")
     ap.add_argument("--host", default="127.0.0.1", help="interface to bind; keep it on loopback")
     ap.add_argument("--port", type=int, default=7377)
 
@@ -82,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     process = None
     ubatch = None
     max_inflight = a.max_inflight
+    api_key = a.attach_key
 
     if a.attach:
         mode, backend_url = "attach", a.attach.rstrip("/")
@@ -119,7 +123,9 @@ def main(argv: list[str] | None = None) -> int:
                 log(f"WARNING: {gpus[0].free_mb} MiB VRAM free, ~{int(need_mb)} MiB needed for {model_filename(quant)}; "
                     "llama.cpp will offload fewer layers (slower). Close GPU-heavy apps or use --quant Q4_K_M.")
         posix = os.name != "nt"
-        argv = build_argv(Path(exe).resolve(), Path(model).resolve(), a.llama_port, profile, shlex.split(a.llama_args, posix=posix))
+        api_key = secrets.token_urlsafe(32)  # new every run, known only to us and the child
+        argv = build_argv(Path(exe).resolve(), Path(model).resolve(), a.llama_port, profile, shlex.split(a.llama_args, posix=posix),
+                          api_key=api_key)
         process = LlamaProcess(argv, a.llama_port, a.log_dir / "llama-server.log")
         backend_url = process.url
         ubatch = profile.ubatch
@@ -146,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         adaptive=not a.fixed_concurrency,
         device=device,
     )
-    backend = LlamaBackend(backend_url, max_connections=max(64, (max_inflight or 16) * 2))
+    backend = LlamaBackend(backend_url, max_connections=max(64, (max_inflight or 16) * 2), api_key=api_key)
     engine = Engine(cfg, backend, process)
     app = create_app(engine)
     log(f"v{__version__} {mode} mode, backend {backend_url}, device {device}")

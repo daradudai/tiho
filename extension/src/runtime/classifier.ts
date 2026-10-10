@@ -1,6 +1,9 @@
 // Content-script side of inference: one long-lived Port per frame to the
 // background, per-frame micro-batching, in-flight dedup and a bounded LRU of
 // scores keyed by normalized text. Rules-only when no model is available.
+// The LRU holds one model's scores: when another one is loaded (the 3-layer
+// student after a lost GPU, say) it starts empty, since the new thresholds
+// would misread the old scores.
 //
 // Hush Engine answers arrive later as an `engine` follow-up for ids that
 // already have scores; they are attached to the cached score vectors in place
@@ -51,7 +54,16 @@ export interface ClassifierOptions {
   /** Hush Engine answers were attached to the cached scores of these ids (verdicts may change). */
   onRescored?(ids: string[]): void;
   onStatus?(s: ModelStatus): void;
+  /** The page is in a background tab (default: document.visibilityState). */
+  hidden?: () => boolean;
 }
+
+/** Identity of the loaded model ('' when none is): scores of different models are not comparable. */
+export function modelKey(s: ModelStatus | null | undefined): string {
+  return s?.state === 'ready' && s.modelId ? `${s.modelId}@${s.version ?? ''}` : '';
+}
+
+const pageHidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
 
 const LAT_RING = 256;
 
@@ -77,6 +89,8 @@ export class ClassifierClient {
   private batches = new Map<number, { ids: string[]; at: number }>();
   private seq = 1;
   private transport: ClassifierTransport | null = null;
+  /** Model the cached scores came from (modelKey). */
+  private model = '';
   private retryAt = 0;
   private backoff = 500;
   private readonly batchMax: number;
@@ -141,6 +155,7 @@ export class ClassifierClient {
       return;
     }
     const now = this.now();
+    const hidden = (this.opts.hidden ?? pageHidden)();
     const q = this.queue;
     this.queue = [];
     for (let i = 0; i < q.length; i += this.batchMax) {
@@ -148,7 +163,7 @@ export class ClassifierClient {
       const batchId = this.seq++;
       this.batches.set(batchId, { ids: items.map((x) => x.id), at: now });
       try {
-        t.post({ type: 'classify', batchId, items });
+        t.post(hidden ? { type: 'classify', batchId, items, hidden } : { type: 'classify', batchId, items });
         this.sent += items.length;
       } catch {
         this.drop(batchId);
@@ -178,6 +193,11 @@ export class ClassifierClient {
   }
 
   setStatus(s: ModelStatus): void {
+    const model = modelKey(s);
+    if (model && model !== this.model) {
+      this.cache.clear();
+      this.model = model;
+    }
     this.status = s;
     this.opts.onStatus?.(s);
   }

@@ -95,8 +95,8 @@ describe('normalize', () => {
 });
 
 describe('cleanForModel', () => {
-  it('keeps case and script, removes invisibles, caps runs', () => {
-    expect(cleanForModel('Soooooooooo​ GOOD  \n !!!!!!!')).toBe('Soooo GOOD !!!!');
+  it('keeps case, script and character runs (as in training), removes invisibles', () => {
+    expect(cleanForModel('Soooooooooo​ GOOD  \n !!!!!!!')).toBe('Soooooooooo GOOD !!!!!!!');
     expect(cleanForModel('Здравей')).toBe('Здравей');
     expect(cleanForModel('KEKW \u{E0000}')).toBe('KEKW');
   });

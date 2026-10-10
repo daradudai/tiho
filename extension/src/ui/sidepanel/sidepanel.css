@@ -544,7 +544,7 @@ body {
 .sp-q-body {
   display: flex;
   flex-direction: column;
-  text-align: left;
+  text-align: start; /* each dir="auto" text aligns to its own start (Arabic, Hebrew: right) */
   border-radius: 6px;
 }
 .sp-q-go {
@@ -570,16 +570,46 @@ body {
 .sp-q {
   align-items: center;
 }
+/* Log row: meta line, text, actions. The tools come after the text in the DOM
+   (read after it, reached by Tab) and sit at the end of the meta line, in
+   place of the time, while the row is hovered, holds focus or asks. */
+.sp-log-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: start;
+}
+.sp-log-body > * {
+  grid-column: 1 / -1;
+}
+/* Out of sight but focusable (not display:none): tabbing onto a tool shows them all. */
 .sp-log-tools {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-left: auto;
 }
 .sp-log:hover .sp-log-tools,
 .sp-log:focus-within .sp-log-tools,
 .sp-log[data-ask] .sp-log-tools {
-  display: inline-flex;
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip-path: none;
+  grid-column: 2;
+  grid-row: 1;
+  margin-left: 8px;
+}
+.sp-log:hover .sp-log-body > .sp-q-meta,
+.sp-log:focus-within .sp-log-body > .sp-q-meta,
+.sp-log[data-ask] .sp-log-body > .sp-q-meta {
+  grid-column: 1;
 }
 .sp-log:hover .sp-log-t,
 .sp-log:focus-within .sp-log-t,
@@ -715,11 +745,23 @@ body {
   color: var(--c);
   background: color-mix(in srgb, var(--c) 13%, transparent);
   white-space: nowrap;
+  /* a long reason (a custom filter's name, a regex) gives way first: the author keeps its name */
+  flex: 0 8 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+}
+.sp-reason > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .sp-log-act {
+  flex: none;
   white-space: nowrap;
 }
 .sp-log-t {
+  flex: none;
   margin-left: auto;
   white-space: nowrap;
 }
@@ -760,6 +802,9 @@ body {
   color: var(--text);
   background: var(--surface-3);
   box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.sp-filter:focus-visible {
+  outline-offset: -2px; /* the scroller would clip a ring outside the pill */
 }
 
 .sp-toast {
@@ -1251,6 +1296,15 @@ body {
   border-radius: 4px;
   background: var(--track);
   overflow: hidden;
+}
+.sp-model-err {
+  margin-top: 12px;
+}
+.sp-model-err code {
+  display: block;
+  margin-top: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .sp-model-prog span {
   display: block;

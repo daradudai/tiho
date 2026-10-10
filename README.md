@@ -47,7 +47,7 @@
 - **Surfaces questions.** Real questions get a soft highlight and collect in an inbox in the side panel, so the one person asking something does not drown in emotes.
 - **Reads the room.** A slim bar above chat shows how much was hushed, messages per second and a **vibe meter** (positive vs. negative over the last few minutes).
 - **Four presets, full control.** Raw, Chill, Focus, Questions. Click a category chip to cycle show / dim / fold / hide, or set each category exactly in the side panel. A strictness slider moves every threshold at once.
-- **Any language.** The model is [mmBERT](https://huggingface.co/jhu-clsp/mmBERT-small), pre-trained on 1800+ languages, fine-tuned on real chat from Twitch, YouTube and Kick channels in about 30 stream languages. Quality is measured for the ten biggest of them (see the [model card](docs/MODEL_CARD.md#evaluation)). Rules see through leetspeak and lookalike letters (`fr33 r0bux` reads as `free robux`).
+- **Any language.** The model is [mmBERT](https://huggingface.co/jhu-clsp/mmBERT-small), pre-trained on 1800+ languages, fine-tuned on real chat from Twitch, YouTube and Kick channels in about 30 stream languages. Quality is measured for the 13 of them with at least 40 messages in the test set, German included (see the [model card](docs/MODEL_CARD.md#evaluation)). Rules see through leetspeak and lookalike letters (`fr33 r0bux` reads as `free robux`).
 - **Your rules first.** Word, regex and user rules (block, allow or highlight) run before the model, in microseconds. "Not spam" in the log adds an allow rule.
 - **Never hides by default:** the broadcaster, moderators and VIPs, paid messages (Super Chats, Bits, Kicks), and messages that mention you (on Twitch and YouTube, where Hush can tell who you are).
 - **Private.** Every message is classified on your device, on the GPU through WebGPU or on the CPU through WebAssembly. No account, no analytics, no server. See [PRIVACY.md](PRIVACY.md).
@@ -86,14 +86,13 @@ npm run build          # output: extension/.output/chrome-mv3
 
 Then load `extension/.output/chrome-mv3` as above.
 
-**The model is not in git** (it is ~120 MB per file). The build bundles whatever is in `extension/public/models/hush-lite/`:
+**The model is not in git** (105 to 113 MB per file). The build bundles whatever is in `extension/public/models/hush-lite/`:
 
-- **Bundled (recommended).** Put the model folder there before you build. Copy `models/hush-lite/` out of a release zip, or export your own checkpoint with [`ml/export/export_onnx.py`](ml/README.md#9-export). By default only the two files the extension uses are bundled (`onnx/model_quantized.onnx` for WebGPU, `onnx/model_uint8.onnx` for WASM) plus the tokenizer and config.
-- **Downloaded.** If the folder is missing, the extension fetches the model on first use from `REMOTE_MODEL_URL` in [`src/inference/config.ts`](extension/src/inference/config.ts) (override at build time with `WXT_HUSH_MODEL_URL`). It downloads one model file (about 120 MB) plus the tokenizer (13.7 MB) and keeps them in the browser's Cache Storage. Until the model is ready, the Tier-0 rules filter on their own.
+- **Bundled (recommended).** Put the model folder there before you build. Copy `models/hush-lite/` out of a release zip, or export your own students and combine them as described in [ml/README.md](ml/README.md#9-export). By default only the two files the extension uses are bundled, the 6-layer `onnx/model_quantized.onnx` for WebGPU and the 3-layer `onnx/model_uint8_3L.onnx` for WASM, plus the tokenizer and config.
+- **Downloaded.** If the folder is missing, the extension fetches the model on first use from `REMOTE_MODEL_URL` in [`src/inference/config.ts`](extension/src/inference/config.ts) (override at build time with `WXT_HUSH_MODEL_URL`). It downloads only the file for its backend (112.5 MB on WebGPU, 105.3 MB on the CPU) plus the tokenizer (13.7 MB) and keeps them in the browser's Cache Storage. Until the model is ready, the Tier-0 rules filter on their own.
 
-<!-- TODO(lead): the default REMOTE_MODEL_URL (huggingface.co/hush-chat/hush-lite) is not published yet. Remove this comment and the sentence below once it is. -->
 > [!NOTE]
-> The default download location (`huggingface.co/hush-chat/hush-lite`) is not published yet. For now, bundle the model or point `WXT_HUSH_MODEL_URL` at your own copy.
+> Release zips bundle the model, so they never download it. A Hugging Face mirror at the default `REMOTE_MODEL_URL` (`huggingface.co/hush-chat/hush-lite`) is planned but not published yet; until then, a build without the model folder filters with rules only, unless you point `WXT_HUSH_MODEL_URL` at your own copy.
 
 Build switches and dev workflow: [extension/README.md](extension/README.md).
 
@@ -104,10 +103,10 @@ The in-browser model knows seven fixed categories. **Hush Engine** adds filters 
 - Best on an NVIDIA GPU: 7.5 GB of VRAM runs the 6 GiB `Q4_K_M` model, 14 GB or more the 9 GiB `Q8_0`. Without NVIDIA it uses llama.cpp's Vulkan build (Windows, Linux) or the regular build (macOS); with too little VRAM, llama.cpp offloads to the CPU and it gets slow.
 - Windows: `cd engine` then `.\start.ps1`. Linux, macOS or Git Bash: `./start.sh`. The first run creates a Python virtual environment (needs Python 3.10+), downloads llama.cpp and the model (resumable, SHA-256 verified) and starts both.
 - Binds to `127.0.0.1` only and accepts requests only from extension and localhost origins.
-- Turn it on in **Side panel → Rules → Custom AI filters**. The extension's background worker sends the engine the messages that reached the in-browser model: your custom filters are asked about each of them, the second opinion only where the in-browser model was unsure. Answers arrive a moment after the local verdict and update it; answers that come too late for a live chat are dropped.
-- One RTX 3090 answers about 10 messages per second with 3 filters, so in a very busy chat the engine keeps up with only part of it. Repeats and waves are cached.
-
-<!-- TODO(lead): the extension side of this (src/engine-client, background routing) was in progress when this was written. Check the bullet above against what shipped; if routing did not land, replace it with a note that the extension only shows engine status and stores filters for now. -->
+- Turn it on in **Side panel → Rules → Custom AI filters**. There you can also test a filter on a sample message and give each channel a short stream context ("Elden Ring, first playthrough") that the engine sees with every question.
+- The extension's background worker sends the engine each text right after the in-browser model has scored it, so only messages that reached the model (not those decided by rules or answered from the tab's own cache). Every custom filter is asked about every such text. The second opinion is asked only where the in-browser model was close to a threshold that would dim, fold or hide something. Its scores are then averaged with the local ones, each against thresholds calibrated for its own model, so it settles close calls instead of overruling the in-browser model. On the gold set's close calls, next to the 6-layer model this hid fewer clean messages and caught more bad ones than the model alone; next to the 3-layer model the two come out about even.
+- Answers arrive a moment after the local verdict and update the message where it is, even if it is already on screen. A filter that fires can highlight, dim, fold or hide a message; it never makes a verdict milder. Each text has 2.5 seconds: answers that would come later are dropped, and under load the newest messages are asked first.
+- One RTX 3090 answers about 10 messages per second with 3 filters, so in a very busy chat the engine keeps up with only part of it. Each text is asked once: answers are cached in the extension and in the engine, so repeats and waves cost nothing.
 
 Full details (requirements per GPU, API, scheduling, security): [engine/README.md](engine/README.md).
 
@@ -132,8 +131,8 @@ flowchart LR
 
 1. **One observer per chat.** A content script watches only the chat list. Each platform adapter turns a DOM row into a plain message: author, roles, text with emotes as their codes, mentions, paid flag. Adapters were checked against the live sites (Twitch also with 7TV, and Kick's virtualized list) and are tested against saved HTML fixtures.
 2. **Tier 0, in microseconds.** Text is normalized (Unicode, zero-width and zalgo characters, homoglyphs, leetspeak, repeated characters). Rules decide the obvious cases on their own (your rules, `!commands`, floods, duplicates, emote-only lines, known scam patterns) and add signals for the rest (untrusted links, caps, repeats). A SimHash index finds waves across users in a sliding window.
-3. **The model, off the page.** Messages that still need an opinion are batched once per frame and sent to the background service worker, which forwards them to one offscreen document shared by all tabs. Its worker runs **Hush Lite**, a 9-layer distilled mmBERT with seven sigmoid outputs: `toxic, spam, scam, noise, question, positive, negative`. It batches dynamically, groups texts of similar length, dedups, and caches 20k results. Repeats and waves never reach the model twice.
-4. **Policy.** Scores are compared with per-label thresholds calibrated on the gold evaluation set and shifted by your strictness setting. The category with the highest priority wins (toxic > scam > spam > noise > question > negative > positive) and maps to your action for it. Privileged authors, paid messages and mentions of you are capped at show or highlight.
+3. **The model, off the page.** Messages that still need an opinion are batched once per frame and sent to the background service worker, which forwards them to one offscreen document shared by all tabs. Its worker runs **Hush Lite**, a distilled mmBERT with seven sigmoid outputs (`toxic, spam, scam, noise, question, positive, negative`), in the size that suits the device: 6 layers on the GPU through WebGPU, 3 layers on the CPU through WebAssembly. It batches dynamically, groups texts of similar length, dedups, and caches 20k results. Repeats and waves never reach the model twice.
+4. **Policy.** Scores are compared with per-label thresholds calibrated on the gold evaluation set (for each model size separately) and shifted by your strictness setting. The category with the highest priority wins (toxic > scam > spam > noise > question > negative > positive) and maps to your action for it. Privileged authors, paid messages, your own messages and mentions of you are capped at show or highlight.
 5. **No flash, no jank.** When a category you hide depends on the model, new rows stay invisible until they have a verdict, for at most 250 ms (configurable). If the model is late, the message shows and is re-checked when its score lands. All writes happen in one pass per animation frame, as attributes only, styled by one injected stylesheet. Hush never reads layout in the hot path.
 
 More: [docs/architecture.md](docs/architecture.md).
@@ -154,24 +153,28 @@ Ranges cover the Twitch and YouTube skins. Under ×4 throttling the mock page ha
 
 In a 5-minute soak at 100 msg/s the page heap grew 1.4 MB (6.6 → 8.0 MB; the score cache sits at its 5,000-entry cap from 90 s on) and no frame took over 33 ms. These runs simulate inference latency (25 ms + 0.4 ms per item); with the real extension and the model on WASM, a 50 msg/s smoke test measured p50 10 to 30 ms and p95 about 60 ms from row insert to verdict, with no long tasks.
 
-**Model speed** (worker only, no cache, 4,000 real chat lines). Measured with the earlier 22-layer v2 model; the shipped 9-layer model does about 40% of the compute per token and has not been benchmarked yet.
+**Model speed** (inference worker in Playwright's Chromium, no cache, real chat lines). Messages per second at batch 32 / 64; the stream column offers 150 msg/s on WebGPU and reports latency p50 / p95. Bold is what ships:
 
-| Backend | File | Batch 1 | Batch 32 | Simulated stream |
-|---|---|---|---|---|
-| WebGPU | `q8` | 46 msg/s, p50 21.5 ms | 564 msg/s, p50 58.5 ms | 150 msg/s offered → 142 handled, p95 53 ms |
-| WASM, 4 threads | `uint8` | 70 msg/s, p50 12.7 ms | 115 msg/s | 60 msg/s offered → 56 handled, p95 136 ms |
+| Model | WebGPU `q8`, B32 / B64 | WebGPU stream | WASM `uint8`, 4 threads, B32 / B64 | WASM 1 thread, B32 | WASM 8 threads, B64 |
+|---|---|---|---|---|---|
+| 22 layers (v2) | 1,099 / 1,454 | 26.7 / 34.6 ms | 157 / 146 | 47 | 170 |
+| 9 layers | 1,774 / 2,306 | 21.0 / 24.0 ms | 342 / 347 | 115 | 490 |
+| **6 layers** (WebGPU) | **1,986 / 2,811** | **20.4 / 23.1 ms** | 497 / 452 | 173 | 703 |
+| **3 layers** (CPU) | 2,188 / 3,189 | 19.0 / 21.0 ms | **968 / 968** | **319** | **1,373** |
+
+Loading a model from the extension's own files takes 1.3 to 1.9 s.
 
 Honest caveats:
 
-- The GPU was 95 to 100% busy with other work during the WebGPU runs, so those numbers mostly measure waiting for the GPU. They need an idle-GPU re-run before anyone quotes them.
-- On the CPU path the 22-layer model could not reach the 300 msg/s goal. That is why the shipped model is a 9-layer distillation with the same quality on the gold set (see below).
-- In real chats a large share of messages never reaches the model: Tier-0 rules decide them, or the cache already knows the text. In the stress runs at 200 msg/s, about 35% of messages were decided by rules or cache.
+- These are quick-mode runs on the machine above while other jobs were running, so treat them as a floor rather than a ceiling. The method, and older and more detailed tables for the 22-layer model, are in the [inference benchmark](extension/tests/bench/RESULTS.md).
+- Real chats rarely go above 150 msg/s, and many messages never reach the model: Tier-0 rules decide them, or the cache already knows the text (about 35% of messages in the stress runs at 200 msg/s). Either path has a lot of headroom.
+- The 22-layer model could not reach the 300 msg/s goal on a 4-thread CPU. That is why the model is adaptive: the 3-layer student does about 970 msg/s there, with nearly the same quality on the gold set (see below).
 
 ## The model
 
-**Hush Lite v2-9L**: [jhu-clsp/mmBERT-small](https://huggingface.co/jhu-clsp/mmBERT-small) (ModernBERT architecture), cut to 9 of 22 layers and distilled. 116M parameters, 98M of them in the 256k-token embedding table. Seven independent sigmoid outputs, max 64 tokens. MIT license.
+**Hush Lite v2-6L + v2-3L**, an adaptive pair. [jhu-clsp/mmBERT-small](https://huggingface.co/jhu-clsp/mmBERT-small) (ModernBERT architecture) was fine-tuned as a 22-layer model (v2) and then distilled into two students on 600k+ unlabeled real chat messages. WebGPU runs the 6-layer student, the CPU (WASM) the 3-layer one. They share one tokenizer, and each browser loads only one of them. The 6-layer student has 110M parameters and the 3-layer one 104M, but 98M of either is the 256k-token embedding table: what shrinks is the compute per message, with 6 or 3 encoder layers instead of 22. Seven independent sigmoid outputs, max 64 tokens. MIT license.
 
-Gold set: 2,000 real chat messages from all three platforms, never used for training, labeled by two independent Claude annotators that could not see each other's labels, plus a third that settled disagreements (the two agreed on all seven labels for 92% of messages). Scores are average precision (AP) per label, macro-averaged:
+Gold set: 2,000 real chat messages from all three platforms, kept out of training by exact text match (v2 still saw 10 very short ones, such as `boo` and `KEKW KEKW KEKW`, in public and synthetic data), labeled by two independent Claude annotators that could not see each other's labels, plus a third that settled disagreements (the two agreed on all seven labels for 92% of messages). Scores are average precision (AP) per label, macro-averaged:
 
 | Model | Macro AP |
 |---|---|
@@ -179,28 +182,34 @@ Gold set: 2,000 real chat messages from all three platforms, never used for trai
 | Student v0 (teacher labels + public data) | 0.627 |
 | v1 (+ 12k silver labels) | 0.778 |
 | v2 (+ 5.8k active-learning labels), 22 layers | 0.816 |
-| **v2-9L** (9 layers, distilled on 551k unlabeled real messages), **shipped** | **0.822** |
-| v2-6L (6 layers) | TODO(lead) |
+| v2-9L (9 layers, distilled) | 0.822 |
+| **v2-6L** (6 layers, distilled), **shipped for WebGPU** | **0.822** |
+| **v2-3L** (3 layers, distilled), **shipped for the CPU** | **0.815** |
+
+Per label, on the text exactly as the extension feeds it to the model:
 
 | | toxic | spam | scam | noise | question | positive | negative |
 |---|---|---|---|---|---|---|---|
-| v2-9L AP | 0.632 | 0.910 | 0.883 | 0.933 | 0.938 | 0.778 | 0.680 |
+| v2-6L AP | 0.623 | 0.910 | 0.894 | 0.931 | 0.940 | 0.782 | 0.674 |
+| v2-3L AP | 0.618 | 0.902 | 0.882 | 0.930 | 0.935 | 0.771 | 0.663 |
 
-The best epoch of each run was also picked on the gold set, so these AP numbers are slightly optimistic. At the shipped thresholds (calibrated on one half of the gold set, scored on the other): macro F1 0.74, scam precision 0.88, spam precision 0.94, question F1 0.91, **toxic precision 0.61 at recall 0.44**. Thresholds for the harmful labels favor precision, because hiding a good message is worse than missing a bad one. In plain words: the model catches scams and spam well, and lets more than half of the toxic messages in the test set through at the default strictness. Move the slider toward Strict if you want more caught.
+The best epoch of each run was also picked on the gold set, so these AP numbers are slightly optimistic. Each student has its own thresholds, fit on the gold set. To score them on messages they were not fit on, the set is split five ways and each fifth is scored with thresholds fit on the other four (cross-validation). Measured that way, the 6-layer student reaches macro F1 0.73 and the 3-layer one 0.75. For the 6-layer student that means scam precision 0.91, spam precision 0.91, question F1 0.89 and **toxic precision 0.72 at recall 0.40**. The 3-layer student has its own trade-off: toxic precision 0.71 at recall 0.50, spam precision 0.85, scam precision 0.96. Thresholds for the harmful labels favor precision, because hiding a good message is worse than missing a bad one. In plain words: the model catches scams and spam well, and lets about 60% (GPU) or half (CPU) of the toxic messages in the test set through at the default strictness. In live chat it likely misses more: most toxic test messages were picked because the teacher model had already flagged them. Weighted back to how the test set was sampled, toxic recall is about 0.33 (GPU) and 0.43 (CPU), a rough estimate that rests on only 12 randomly sampled toxic messages. Move the slider toward Strict if you want more caught.
 
-| File | Size | Used for |
-|---|---|---|
-| `onnx/model_quantized.onnx` (q8) | 119 MB | WebGPU (default) |
-| `onnx/model_uint8.onnx` (uint8) | 117 MB | WASM / CPU (default) |
-| `onnx/model_q4f16.onnx` (q4f16) | 65 MB | optional, WebGPU only; smallest, but 0.7% of decisions differ from fp32 |
-| `tokenizer.json` | 13.7 MB | both |
+| File | Model | Size | Used for |
+|---|---|---|---|
+| `onnx/model_quantized.onnx` (q8) | 6 layers | 112.5 MB | WebGPU (default) |
+| `onnx/model_uint8_3L.onnx` (uint8) | 3 layers | 105.3 MB | WASM / CPU (default) |
+| `onnx/model_q4f16.onnx` (q4f16) | 6 layers | 61.9 MB | optional, WebGPU only; smallest, but 0.7% of decisions differ from fp32 |
+| `tokenizer.json` | | 13.7 MB | both |
+
+Each browser loads one model file and the tokenizer, 120 to 126 MB in all.
 
 Data, training, evaluation, limitations and biases: **[MODEL_CARD](docs/MODEL_CARD.md)**. Pipeline and scripts: [ml/README.md](ml/README.md).
 
 ## Privacy
 
 - Chat text is classified inside your browser. Hush has no server, no account, no analytics and no telemetry.
-- Hush makes two kinds of network requests, no more: the one-time model download (only when the model is not bundled) and, if you turn it on, requests to Hush Engine at `http://127.0.0.1:7377` on your own computer.
+- Hush makes two kinds of network requests, no more: the one-time model download (only when the model is not bundled) and, if you turn it on, requests to Hush Engine at the address in your settings, by default `http://127.0.0.1:7377` on your own computer. While the engine is off, nothing is sent to it.
 - Settings and your "not spam" feedback stay in your browser's extension storage. The filtered log and the questions inbox live in memory and disappear when you close the tab.
 
 Details: [PRIVACY.md](PRIVACY.md).
@@ -213,6 +222,7 @@ extension/   Chrome MV3 extension (WXT, TypeScript, Preact)
   src/platforms/   YouTube, Twitch, Kick DOM adapters
   src/runtime/     content-script engine (observer, frame loop, classifier client)
   src/inference/   offscreen host + worker: ONNX Runtime Web, batching, cache
+  src/engine-client/  background client for Hush Engine: routing, batching, deadlines
   src/ui/          in-chat bar, decorations, popup, side panel, onboarding
   tests/           vitest unit tests, fixtures, stress and inference benchmarks
 engine/      Hush Engine: local FastAPI server in front of llama.cpp + Clef-Flash

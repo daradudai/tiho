@@ -87,7 +87,9 @@ export function LiveTab() {
           <div class="sp-waves">
             {s.waves.map((w) => (
               <div class="sp-wave" data-live={Date.now() - w.lastAt < 10_000 ? '' : undefined}>
-                <span class="sp-wave-t">{w.text}</span>
+                <span class="sp-wave-t" dir="auto">
+                  {w.text}
+                </span>
                 <span class="sp-wave-n">×{compact(w.count)}</span>
                 <span class="sp-wave-meta">
                   {w.users} people · {ago(w.lastAt)} ago

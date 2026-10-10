@@ -32,12 +32,13 @@ src/
   platforms/     DOM adapters: youtube.ts, twitch.ts (incl. 7TV), kick.ts; matches.ts = injection targets
   runtime/       content-script engine: observer, per-frame read/resolve/write, classifier Port client, row stylesheet
   inference/     offscreen host + worker: model loading, ONNX Runtime Web session, batching, bucketing, cache, stats
+  engine-client/ background client for Hush Engine: health polling, request batching, deadlines, follow-up answers to tabs
   ui/            in-chat bar (shadow DOM), message decorations, popup, side panel, onboarding, shared kit + tokens
   entrypoints/   WXT entrypoints: background.ts, chat.content.ts, offscreen/, popup/, sidepanel/, onboarding/, bench/
 modules/
   hush-inference.ts   WXT module: copies the ORT runtime, filters bundled model files, cross-origin isolation, bench page
 tests/
-  unit/          vitest: core, runtime, inference, platform adapters against fixtures/
+  unit/          vitest: core, runtime, inference, engine client, platform adapters against fixtures/
   ui/            vitest UI tests + showcase (mock surfaces) + screenshot and icon scripts
   stress/        content-script stress benchmark on mock chats (Playwright)
   bench/         in-browser inference benchmark (Playwright)
@@ -46,37 +47,37 @@ tests/
 
 ## The model
 
-The model lives in `public/models/hush-lite/` and is **git-ignored**. Layout (written by [`ml/export/export_onnx.py`](../ml/export/export_onnx.py)):
+The model lives in `public/models/hush-lite/` and is **git-ignored**. It is adaptive: two students distilled from the same 22-layer model, a 6-layer one for WebGPU and a 3-layer one for the CPU, sharing one tokenizer ([model card](../docs/MODEL_CARD.md)). Layout (written by [`ml/export/combine_variants.py`](../ml/export/combine_variants.py) from two [`export_onnx.py`](../ml/export/export_onnx.py) exports):
 
 ```
 public/models/hush-lite/
-  config.json              HF config + `hush` block: labels, thresholds, max_len, files, sizes, version
-  tokenizer.json           13.7 MB
+  config.json                  HF config + `hush` block: labels, thresholds, max_len, files, sizes, version,
+                               variant_info (layers and version per file), variant_thresholds (per-file overrides)
+  tokenizer.json               13.7 MB
   tokenizer_config.json
-  onnx/model_quantized.onnx   q8, 119 MB     WebGPU default
-  onnx/model_uint8.onnx       uint8, 117 MB  WASM default
-  onnx/model_q4f16.onnx       q4f16, 65 MB   optional, WebGPU only
-  onnx/model.onnx             fp32 reference, never bundled
-  hush_export.json         export report (sizes, parity), never bundled
+  onnx/model_quantized.onnx    q8, 6 layers, 112.5 MB     WebGPU default
+  onnx/model_uint8_3L.onnx     uint8, 3 layers, 105.3 MB  WASM default
+  onnx/model_q4f16.onnx        q4f16, 6 layers, 61.9 MB   optional, WebGPU only
 ```
 
-Get it by copying `models/hush-lite/` from a release zip, or by exporting a checkpoint:
+Get it by copying `models/hush-lite/` from a release zip, or by exporting both students and combining them (from the repo root, in the ml/ environment; details in [ml/README.md](../ml/README.md#9-export)):
 
 ```sh
-# from the repo root, in the ml/ environment
-python ml/export/export_onnx.py --model ml/runs/v2-9L/best --out extension/public/models/hush-lite \
-    --precisions q8,uint8,q4f16 --model-version v2-9L
+python ml/export/export_onnx.py --model ml/runs/v2-6L/best --out ml/out/hush-lite-6L --precisions q8,uint8,q4f16 --model-version v2-6L
+python ml/export/export_onnx.py --model ml/runs/v2-3L/best --out ml/out/hush-lite-3L --precisions q8,uint8,q4f16 --model-version v2-3L
+python ml/export/combine_variants.py --gpu ml/out/hush-lite-6L --cpu ml/out/hush-lite-3L --out extension/public/models/hush-lite
 ```
+
+A single `export_onnx.py` export written straight into the folder works too (one student for both backends, `hush.thresholds` for every file).
 
 **How the extension finds it.** The inference worker tries two base URLs in order and uses the first whose `config.json` loads:
 
 1. the bundled copy, `chrome-extension://<id>/models/hush-lite/`;
 2. `REMOTE_MODEL_URL` from [`src/inference/config.ts`](src/inference/config.ts), overridable at build time with `WXT_HUSH_MODEL_URL`. Any static host with the same layout and CORS works (for example a Hugging Face `resolve/<revision>/` URL; pin a tag or commit). Downloaded files go to Cache Storage (`hush-models-v1`), keyed by URL and model version; files of older versions are pruned.
 
-<!-- TODO(lead): REMOTE_MODEL_URL points at huggingface.co/hush-chat/hush-lite, which is not published yet. -->
-The default remote URL (`huggingface.co/hush-chat/hush-lite`) is not published yet, so for now a build without a bundled model has no model: the rules work, the model status shows an error.
+Release zips bundle the model, so they never download it. A Hugging Face mirror at the default remote URL (`huggingface.co/hush-chat/hush-lite`) is planned but not published yet; until then, a build without a bundled model has no model unless `WXT_HUSH_MODEL_URL` points at a copy: the rules work, and the model status shows an error.
 
-**Which file runs.** `config.json → hush.files` lists the shipped variants. With WebGPU available (and "Use the GPU" on), the worker picks the first of `q8, q8f16, fp16, q4f16, fp32` that exists; otherwise WASM with `uint8, q8, q4, fp32`. If a variant fails to load or produces non-finite output during warm-up, it falls back to the next one, then to WASM. The reasoning behind this order is in [tests/bench/RESULTS.md](tests/bench/RESULTS.md).
+**Which file runs.** `config.json → hush.files` lists the shipped variants. With WebGPU available (and "Use the GPU" on), the worker picks the first of `q8, q8f16, fp16, q4f16, fp32` that exists; otherwise WASM with `uint8, q8, q4, fp32`. If a variant fails to load or produces non-finite output during warm-up, it falls back to the next one, then to WASM. The reasoning behind this order is in [tests/bench/RESULTS.md](tests/bench/RESULTS.md). The model then uses that file's thresholds (`hush.variant_thresholds[variant]`, else `hush.thresholds`) and reports its version (`hush.variant_info[variant].version`, e.g. `v2-3L`) in the model status, where the side panel's model card reads the layer count from it.
 
 ## Build switches
 
@@ -86,7 +87,7 @@ Environment variables read at build time:
 |---|---|---|
 | `HUSH_OUT` | `.output` | output folder; give parallel builds their own (`HUSH_OUT=.output-a`) |
 | `HUSH_BUNDLE_MODEL` | on | `0` leaves `public/models/` out of the build entirely |
-| `HUSH_MODEL_VARIANTS` | `q8,uint8` | which ONNX files to bundle: comma list of `fp32, fp16, q8f16, q8, uint8, q4, q4f16, q8a4`, or `all` (everything except fp32) |
+| `HUSH_MODEL_VARIANTS` | `q8,uint8` | which ONNX files to bundle, by variant: comma list of `fp32, fp16, q8f16, q8, uint8, q4, q4f16, q8a4`, or `all` (everything except fp32) |
 | `WXT_HUSH_MODEL_URL` | see above | remote model base URL (must end with `/`) |
 | `HUSH_COI` | on | `0` drops cross-origin isolation (COOP/COEP) from extension pages; WASM then runs single-threaded |
 | `HUSH_BENCH` | off | `1` also builds the benchmark page (`bench.html`) |

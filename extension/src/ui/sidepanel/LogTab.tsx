@@ -4,7 +4,7 @@ import type { Category } from '../../core/types';
 import { markNotFiltered } from '../bridge';
 import { ago, compact } from '../format';
 import { Icon } from '../icons';
-import { Empty, settings, updateSettings, useTick } from '../kit/kit';
+import { Empty, useTick } from '../kit/kit';
 import { ACTION_META, CATEGORY_META } from '../tokens';
 import { Avatar } from './InboxTab';
 import { NoChat } from './SidePanelApp';
@@ -25,12 +25,12 @@ export function LogTab() {
   const list = cat === 'all' ? all : all.filter((e) => e.verdict.category === cat);
 
   const allow = async (e: LogEntry, scope: 'author' | 'text') => {
-    const rule = await markNotFiltered(e, scope, connection());
+    const res = await markNotFiltered(e, scope, connection());
     setCleared(new Set(cleared).add(e.msg.key));
     setToast({
       text: scope === 'author' ? `Always showing @${e.msg.author}` : 'Phrase allowed',
       undo: () => {
-        void updateSettings({ rules: settings.value.rules.filter((r) => r.id !== rule.id) });
+        void res.undo();
         const n = new Set(cleared);
         n.delete(e.msg.key);
         setCleared(n);
@@ -90,30 +90,34 @@ function LogItem({ e, onAllow }: { e: LogEntry; onAllow: (e: LogEntry, scope: 'a
   const c = e.verdict.category;
   const blur = SENSITIVE.has(c);
   const notLabel = c === 'question' || c === 'positive' || c === 'clean' ? 'Wrong call' : `Not ${c}`;
+  const reason = e.verdict.reason || CATEGORY_META[c].label.toLowerCase();
   return (
     <article class="sp-log" data-c={c} data-ask={ask ? '' : undefined}>
       <Avatar name={e.msg.author} />
       <div class="sp-log-body">
         <div class="sp-q-meta">
-          <b>{e.msg.author}</b>
-          <span class="sp-reason" data-c={c}>
+          <b>
+            <bdi>{e.msg.author}</bdi>
+          </b>
+          <span class="sp-reason" data-c={c} title={reason}>
             <Icon name={c} size={11} fill />
-            {e.verdict.reason || CATEGORY_META[c].label.toLowerCase()}
+            <span>{reason}</span>
           </span>
           <span class="sp-log-act">{ACTION_META[e.verdict.action].verb.toLowerCase()}</span>
           <span class="sp-log-t">{ago(e.msg.ts)}</span>
-          <span class="sp-log-tools">
-            <button class="sp-chipbtn" onClick={() => setAsk(!ask)} aria-expanded={ask}>
-              <Icon name="thumbUp" size={12} /> {notLabel}
-            </button>
-            <button class="sp-iconbtn" onClick={() => connection()?.send({ type: 'reveal', key: e.msg.key })} title="Show in chat" aria-label="Show in chat">
-              <Icon name="arrowUpRight" size={12} strokeWidth={1.9} />
-            </button>
-          </span>
         </div>
-        <p class={`sp-log-text ${blur ? 'is-blur' : ''}`} tabIndex={blur ? 0 : undefined} title={blur ? 'Hover to read' : undefined}>
+        <p class={`sp-log-text ${blur ? 'is-blur' : ''}`} dir="auto" tabIndex={blur ? 0 : undefined} title={blur ? 'Hover to read' : undefined}>
           {e.msg.text}
         </p>
+        {/* after the text, so it reads first; CSS lifts the tools into the meta line */}
+        <span class="sp-log-tools">
+          <button class="sp-chipbtn" onClick={() => setAsk(!ask)} aria-expanded={ask}>
+            <Icon name="thumbUp" size={12} /> {notLabel}
+          </button>
+          <button class="sp-iconbtn" onClick={() => connection()?.send({ type: 'reveal', key: e.msg.key })} title="Show in chat" aria-label="Show in chat">
+            <Icon name="arrowUpRight" size={12} strokeWidth={1.9} />
+          </button>
+        </span>
         {ask && (
           <div class="sp-q-actions">
             <button class="sp-chipbtn sp-chipbtn-accent" onClick={() => onAllow(e, 'author')}>

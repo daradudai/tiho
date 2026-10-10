@@ -34,6 +34,15 @@ describe('WaveDetector', () => {
     expect(w.countOf(next.id)).toBe(5);
   });
 
+  it('the head seen again stays the head, even while its key is alive', () => {
+    const w = new WaveDetector({ minUsers: 2 });
+    obs(w, 'KEKW', 'a', 'm1', 0);
+    expect(obs(w, 'KEKW', 'b', 'm2', 100)!.headKey).toBe('m1');
+    const again = obs(w, 'KEKW', 'a', 'm1', 200, () => true)!;
+    expect(again.role).toBe('head');
+    expect(again.headKey).toBe('m1');
+  });
+
   it('same user repeating is not a wave', () => {
     const w = new WaveDetector({ minUsers: 3 });
     for (let i = 0; i < 10; i++) expect(obs(w, 'PogChamp', 'same', `m${i}`, i * 100)).toBeNull();

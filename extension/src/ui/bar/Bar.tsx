@@ -31,7 +31,8 @@ const SHORT: Record<Category, string> = {
 const MENU_ACTIONS: Action[] = ['show', 'highlight', 'dim', 'collapse', 'hide'];
 
 type Tip = { title: string; sub?: string; x: number; y: number; below: boolean };
-type Menu = { kind: 'chip'; cat: Category; x: number; y: number } | { kind: 'preset'; x: number; y: number };
+/** An open menu; `from` is the chip or pill that opened it (focus returns there). */
+type Menu = ({ kind: 'chip'; cat: Category } | { kind: 'preset' }) & { x: number; y: number; from: HTMLElement };
 
 export interface BarProps {
   v: View;
@@ -47,6 +48,8 @@ export function Bar({ v, actions, markRef }: BarProps) {
   const root = useRef<HTMLDivElement>(null);
   const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tipWarm = useRef(0);
+  /** The tip on screen came from keyboard focus (focusout hides it). */
+  const tipFocus = useRef(false);
 
   const calm = useCalm(v);
   const settings = v.settings.value;
@@ -67,7 +70,7 @@ export function Bar({ v, actions, markRef }: BarProps) {
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (menu) setMenu(null);
+        if (menu) closeMenu();
         else setOpen(false);
       }
     };
@@ -85,41 +88,61 @@ export function Bar({ v, actions, markRef }: BarProps) {
     return { x: b.left - r.left + b.width / 2, y: below ? b.bottom - r.top + 6 : b.top - r.top - 6, w: r.width };
   };
 
-  // Tooltips: delegated, short delay, instant when moving between items.
-  // Text is read when shown (data-tip="calm" is computed from the totals then),
-  // so live numbers never rewrite attributes while chat flows.
+  // Tooltips: delegated, short delay, instant when moving between items; also
+  // on keyboard focus. Text is read when shown (data-tip="calm" is computed
+  // from the totals then), so live numbers never rewrite attributes while chat flows.
+  const showTip = (t: HTMLElement) => {
+    const p = place(t);
+    const text = t.dataset.tip === 'calm' ? calmTip(v.totals.peek()) : { title: t.dataset.tip!, sub: t.dataset.tipSub };
+    setTip({ ...text, x: p.x, y: p.y, below: true });
+    tipWarm.current = performance.now();
+  };
+  const hideTip = () => {
+    if (tipTimer.current) clearTimeout(tipTimer.current);
+    if (tip) tipWarm.current = performance.now();
+    setTip(null);
+  };
   const onOver = (e: PointerEvent) => {
     const t = (e.target as Element).closest?.('[data-tip]') as HTMLElement | null;
     if (!t || menu || open) return;
     if (tipTimer.current) clearTimeout(tipTimer.current);
-    const show = () => {
-      const p = place(t);
-      const text = t.dataset.tip === 'calm' ? calmTip(v.totals.peek()) : { title: t.dataset.tip!, sub: t.dataset.tipSub };
-      setTip({ ...text, x: p.x, y: p.y, below: true });
-      tipWarm.current = performance.now();
-    };
-    if (performance.now() - tipWarm.current < 600) show();
-    else tipTimer.current = setTimeout(show, 280);
+    if (performance.now() - tipWarm.current < 600) showTip(t);
+    else tipTimer.current = setTimeout(() => showTip(t), 280);
   };
   const onOut = (e: PointerEvent) => {
     const t = (e.target as Element).closest?.('[data-tip]');
     const to = (e.relatedTarget as Element | null)?.closest?.('[data-tip]');
     if (t && t === to) return;
-    if (tipTimer.current) clearTimeout(tipTimer.current);
-    if (tip) tipWarm.current = performance.now();
-    setTip(null);
+    hideTip();
+  };
+  const onFocusIn = (e: FocusEvent) => {
+    const t = (e.target as Element).closest?.('[data-tip]') as HTMLElement | null;
+    if (!t || menu || open || !focusVisible(t)) return;
+    showTip(t);
+    tipFocus.current = true;
+  };
+  const onFocusOut = () => {
+    if (!tipFocus.current) return;
+    tipFocus.current = false;
+    hideTip();
   };
 
   const openChipMenu = (cat: Category, el: Element) => {
     const p = place(el);
     setTip(null);
-    setMenu({ kind: 'chip', cat, x: p.x, y: p.y });
+    setMenu({ kind: 'chip', cat, x: p.x, y: p.y, from: el as HTMLElement });
   };
 
   const openPresetMenu = (el: Element) => {
     const p = place(el);
     setTip(null);
-    setMenu(menu?.kind === 'preset' ? null : { kind: 'preset', x: p.x, y: p.y });
+    setMenu(menu?.kind === 'preset' ? null : { kind: 'preset', x: p.x, y: p.y, from: el as HTMLElement });
+  };
+
+  /** Close the menu and give focus back to the chip or pill that opened it. */
+  const closeMenu = () => {
+    menu?.from.focus({ preventScroll: true });
+    setMenu(null);
   };
 
   const stop = (e: Event) => e.stopPropagation();
@@ -151,6 +174,8 @@ export function Bar({ v, actions, markRef }: BarProps) {
       onContextMenu={stop}
       onPointerOver={onOver}
       onPointerOut={onOut}
+      onFocusIn={onFocusIn}
+      onFocusOut={onFocusOut}
     >
       <div class="hb-row" role="toolbar" aria-label="Hush chat filter">
         <MarkButton calm={calm} open={open} onToggle={toggleOpen} markRef={markRef} />
@@ -176,7 +201,7 @@ export function Bar({ v, actions, markRef }: BarProps) {
         <ModelDot model={v.model} perf={v.perf} />
         <button
           class="hb-iconbtn hb-expand"
-          aria-label={open ? 'Close dashboard' : 'Open dashboard'}
+          aria-label={open ? 'Hide live stats' : 'Show live stats'}
           aria-expanded={open}
           data-tip={open ? 'Close' : 'Live stats'}
           onClick={toggleOpen}
@@ -189,6 +214,7 @@ export function Bar({ v, actions, markRef }: BarProps) {
 
       {menu?.kind === 'chip' && (
         <ChipMenu
+          key={menu.cat} // another chip's menu is a new menu: it takes focus again
           cat={menu.cat}
           current={settings.actions[menu.cat]}
           count={v.counts.value[menu.cat]}
@@ -196,8 +222,9 @@ export function Bar({ v, actions, markRef }: BarProps) {
           y={menu.y}
           onPick={(a) => {
             actions.setAction(menu.cat, a);
-            setMenu(null);
+            closeMenu();
           }}
+          onClose={closeMenu}
         />
       )}
       {menu?.kind === 'preset' && (
@@ -207,8 +234,9 @@ export function Bar({ v, actions, markRef }: BarProps) {
           y={menu.y}
           onPick={(p) => {
             actions.setPreset(p);
-            setMenu(null);
+            closeMenu();
           }}
+          onClose={closeMenu}
         />
       )}
       {tip && !menu && (
@@ -309,9 +337,45 @@ function PresetSwitch({ preset, menuOpen, onPick, onOpenMenu }: { preset: Preset
   );
 }
 
-function PresetMenu({ current, x, y, onPick }: { current: PresetId; x: number; y: number; onPick: (p: PresetId) => void }) {
+/** :focus-visible, read when focus lands (false where the selector is unknown). */
+function focusVisible(el: Element): boolean {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Keyboard behaviour of a menu: focus its checked item when it opens; arrows,
+ * Home and End move between items; Tab closes it (Escape is handled by the bar).
+ */
+function useMenuKeys(onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    const item = el?.querySelector<HTMLElement>('[role^="menuitem"][aria-checked="true"]') ?? el?.querySelector<HTMLElement>('[role^="menuitem"]');
+    item?.focus({ preventScroll: true });
+  }, []);
+  const onKeyDown = (e: KeyboardEvent) => {
+    const items = [...ref.current!.querySelectorAll<HTMLElement>('[role^="menuitem"]')];
+    const i = items.indexOf(e.target as HTMLElement);
+    const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: items.length - 1 }[e.key];
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      onClose();
+    } else if (to !== undefined && items.length) {
+      e.preventDefault();
+      items[(to + items.length) % items.length]!.focus({ preventScroll: true });
+    }
+  };
+  return { ref, onKeyDown };
+}
+
+function PresetMenu({ current, x, y, onPick, onClose }: { current: PresetId; x: number; y: number; onPick: (p: PresetId) => void; onClose: () => void }) {
+  const keys = useMenuKeys(onClose);
   return (
-    <div class="hb-menu hb-menu-preset" role="menu" style={{ '--x': `${x}px`, top: `${y}px` } as any}>
+    <div class="hb-menu hb-menu-preset" role="menu" aria-label="Vibe preset" ref={keys.ref} onKeyDown={keys.onKeyDown} style={{ '--x': `${x}px`, top: `${y}px` } as any}>
       <div class="hb-menu-head">Vibe preset</div>
       {PRESET_ORDER.map((p) => (
         <button role="menuitemradio" aria-checked={p === current} class="hb-menu-item" onClick={() => onPick(p)}>
@@ -428,10 +492,34 @@ function Chip({ cat, v, theme, action, actions, onMenu }: { cat: Category; v: Vi
   );
 }
 
-function ChipMenu({ cat, current, count, x, y, onPick }: { cat: Category; current: Action; count: number; x: number; y: number; onPick: (a: Action) => void }) {
+function ChipMenu({
+  cat,
+  current,
+  count,
+  x,
+  y,
+  onPick,
+  onClose,
+}: {
+  cat: Category;
+  current: Action;
+  count: number;
+  x: number;
+  y: number;
+  onPick: (a: Action) => void;
+  onClose: () => void;
+}) {
   const meta = CATEGORY_META[cat];
+  const keys = useMenuKeys(onClose);
   return (
-    <div class="hb-menu" role="menu" style={{ '--x': `${x}px`, top: `${y}px`, '--c': `var(--c-${cat})` } as any}>
+    <div
+      class="hb-menu"
+      role="menu"
+      aria-label={`${meta.label}: what to do`}
+      ref={keys.ref}
+      onKeyDown={keys.onKeyDown}
+      style={{ '--x': `${x}px`, top: `${y}px`, '--c': `var(--c-${cat})` } as any}
+    >
       <div class="hb-menu-cat">
         <span class="hb-menu-cat-ico">
           <Icon name={cat} size={14} fill />
@@ -610,7 +698,9 @@ function Waves({ v }: { v: View }) {
       <div class="hp-waves">
         {waves.map((w) => (
           <span class="hp-wave" data-live={now - w.lastAt < 10_000 ? '' : undefined} title={`${w.users} people · ${ago(w.startedAt)} ago`}>
-            <span class="hp-wave-t">{w.text}</span>
+            <span class="hp-wave-t" dir="auto">
+              {w.text}
+            </span>
             <em>×{compact(w.count)}</em>
           </span>
         ))}
@@ -635,7 +725,10 @@ function Questions({ v, actions }: { v: View; actions: BarActions }) {
                 <Icon name="question" size={12} />
               </span>
               <span class="hp-q-body">
-                <b>{q.msg.author}</b> {q.msg.text}
+                <b>
+                  <bdi>{q.msg.author}</bdi>
+                </b>{' '}
+                <span dir="auto">{q.msg.text}</span>
               </span>
               <span class="hp-q-t">{ago(q.msg.ts)}</span>
             </button>

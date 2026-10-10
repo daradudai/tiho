@@ -7,7 +7,7 @@ flowchart LR
     subgraph collect["collect/"]
         tw[Twitch IRC] & kk[Kick Pusher] & yt[YouTube innertube]
     end
-    collect --> raw[("data/raw/*.jsonl<br/>~550k unique messages<br/>never published")]
+    collect --> raw[("data/raw/*.jsonl<br/>~680k unique messages<br/>never published")]
     raw --> pool["data_prep/build_pool.py<br/>dedup, balance by channel"]
     pool --> teach["teacher/label.py<br/>Clef-Flash on llama.cpp"]
     raw --> gc["data_prep/gold_candidates.py"] --> sel["gold/select_gold.py"] --> gw["gold/gold_workflow.js<br/>2 annotators + adjudicator"]
@@ -15,12 +15,13 @@ flowchart LR
     pub["data_prep/public_sets.py<br/>public_extra.py"] --> train
     teach --> train["train/train.py<br/>mmBERT-small, 22 layers"]
     silver[("silver + active learning<br/>+ synthetic")] --> train
-    train --> dist["train/distill.py<br/>9 layers, 551k unlabeled"]
+    train --> dist["train/distill.py<br/>22 → 6 and 3 layers<br/>on unlabeled real chat"]
     raw --> dist
-    dist --> ev["train/evaluate.py<br/>gold AP, thresholds"]
+    dist --> ev["train/evaluate.py<br/>gold AP, thresholds per student"]
     gold --> ev
-    ev --> exp["export/export_onnx.py<br/>q8 / uint8 / q4f16"]
-    exp --> ext["extension/public/models/hush-lite/"]
+    ev --> exp["export/export_onnx.py<br/>each student: q8 / uint8 / q4f16"]
+    exp --> comb["export/combine_variants.py<br/>6L q8 + q4f16, 3L uint8"]
+    comb --> ext["extension/public/models/hush-lite/"]
 ```
 
 ## Setup
@@ -32,10 +33,12 @@ cd ml
 python -m venv .venv
 .venv/Scripts/python -m pip install torch==2.11.* --index-url https://download.pytorch.org/whl/cu128
 .venv/Scripts/python -m pip install "transformers==5.19.*" "datasets==5.1.*" "tokenizers==0.23.*" safetensors \
-    "scikit-learn==1.9.*" numpy aiohttp "onnx==1.23.*" "onnxruntime-gpu==1.31.*" onnxslim
+    "scikit-learn==1.9.*" numpy aiohttp "onnx==1.23.*" "onnxruntime-gpu==1.31.*" onnxslim pytest
 ```
 
-(On Linux and macOS the interpreter is `.venv/bin/python`.) Run every script from `ml/`: relative paths such as `data/gold.jsonl` and `runs/v2/best` resolve against it.
+(On Linux and macOS the interpreter is `.venv/bin/python`.) Run every script from `ml/`: relative paths such as `data/gold.jsonl` and `runs/v2/best` resolve against it. Tests: `python -m pytest tests` (the check that `train/textclean.py` matches the extension needs Node.js 22).
+
+The model reads every message the way the extension hands it over: `train/textclean.py` is a port of the extension's `cleanForModel` (invisible characters dropped, zalgo squashed, blanks collapsed, at most 400 characters), and training, distillation, evaluation and export parity all use it.
 
 ## Data
 
@@ -48,7 +51,8 @@ python -m venv .venv
 | `data/teacher.jsonl` | `t`: teacher probabilities for the 7 labels plus `clean` | Clef-Flash soft labels |
 | `data/public.jsonl`, `data/public_extra.jsonl` | `y`: labels a source knows; the others are masked | public datasets mapped to Hush labels |
 | `data/silver*.jsonl`, `data/synth*.jsonl` | `y`: 0/1 for all 7 labels | agent-labeled real chat, synthetic hard cases |
-| `data/gold.jsonl` | `y` + `agree` | the evaluation set, never trained on |
+| `data/gold_selected.jsonl` | `t`, `stratum`, `w` | which candidates became gold, why, and the inverse of their chance to be picked |
+| `data/gold.jsonl` | `y` + `agree` | the evaluation set; `build_pool.py`, `train.py` and `distill.py` drop its texts from everything else |
 
 ## 1. Collect
 
@@ -92,10 +96,12 @@ Only permissively licensed sets are used (CC0, Apache-2.0, MIT, WTFPL, CC BY 4.0
 ## 4. Gold set
 
 ```sh
-python data_prep/gold_candidates.py --n 6000                              # unseen messages, all platforms, spread over languages
+python data_prep/gold_candidates.py --n 5000                              # unseen messages, all platforms, spread over languages
 python teacher/label.py data/gold_candidates.jsonl data/gold_teacher.jsonl   # teacher scores, for stratification
 python gold/select_gold.py --n 2000 --chunk 200                           # oversample rare labels, write gold/workflow_args.json
 ```
+
+`select_gold.py` first takes, per label, the candidates the teacher scored highest (up to a quota), then fills up with a uniform sample of the rest. It records each pick's `stratum` and weight `w` (1 for a quota pick, remaining candidates / random picks for the fill) in `data/gold_selected.jsonl`, so `evaluate.py` can weight gold back to the candidate pool. For the current gold set that is 1,090 quota picks and 910 random ones out of 3,910 (weight 4.3).
 
 `gold/gold_workflow.js` is a Claude agent workflow script: two annotators label every chunk independently with the written guideline in the file, and an adjudicator decides every message they disagree on. Its output, merged with `gold_selected.jsonl`, is `data/gold.jsonl` (2,000 messages, 92% full agreement). The annotators see the message text, platform and stream language, never the author.
 
@@ -109,38 +115,54 @@ These sets were made outside the scripts in this repo, and their selection and m
 
 ## 6. Train
 
+The flags v2 was trained with:
+
 ```sh
-python train/train.py --out runs/v2 --epochs 4 --silver "data/silver*.jsonl"
+python train/train.py --out runs/v2 --epochs 4 --silver data/silver.jsonl data/silver2.jsonl \
+    --public data/public.jsonl data/public_extra.jsonl --public-ratio 1.0 --public-w 0.3 --synth-repeat 2
 ```
 
-mmBERT-small with a 7-way multi-label head. Teacher rows give soft targets for all labels, silver rows count 3x, public rows 0.5x, synthetic rows are repeated twice; `toxic` and `scam` get 2x loss weight. Every epoch is scored against the teacher-labeled validation split and against the gold set, and the best gold epoch is saved to `runs/<name>/best`. About 16 minutes on the 3090.
+mmBERT-small with a 7-way multi-label head. Teacher rows give soft targets for all labels, silver rows count 3x, public rows 0.3x (`--public-ratio 1.0` draws as many at random from both public files as there are teacher training rows), synthetic rows are repeated twice; `toxic` and `scam` get 2x loss weight. Gold texts are dropped from every source. Every epoch is scored against the teacher-labeled validation split and against the gold set, and the best gold epoch is saved to `runs/<name>/best`; the arguments go to `runs/<name>/args.json`. About 16 minutes on the 3090.
+
+The command reproduces v2's recipe, not v2 itself: `data/teacher.jsonl` had 24.5k rows when v2 was trained (42k now), and the script has since learned to drop gold texts from public and synthetic data and to clean text like the extension.
 
 ## 7. Distill
 
+The shipped model is an adaptive pair: a 6-layer student for WebGPU and a 3-layer student for the CPU (WASM), both distilled from the 22-layer v2:
+
 ```sh
-python train/distill.py --teacher runs/v2/best --blocks 0,3,6 --out runs/v2-9L    # 9 layers (shipped)
-python train/distill.py --teacher runs/v2/best --blocks 0,6 --out runs/v2-6L      # 6 layers (layers 0-2 and 18-20)
+python train/distill.py --teacher runs/v2/best --blocks 0,6 --out runs/v2-6L    # 6 layers (0-2, 18-20): WebGPU
+python train/distill.py --teacher runs/v2/best --blocks 0 --out runs/v2-3L      # 3 layers (0-2): CPU / WASM
+python train/distill.py --teacher runs/v2/best --blocks 0,3,6 --out runs/v2-9L  # 9 layers (0-2, 9-11, 18-20): not shipped
 ```
 
-The student keeps whole blocks of three layers from the teacher (ModernBERT alternates one global-attention layer with two local ones). It learns the teacher's probabilities on every unique real message in `data/raw/` (about 551k) plus the labeled rows, where the hard label is mixed 50/50 with the teacher's probability. About 12 minutes for 9 layers.
+Each student starts from the teacher's own layers and keeps whole aligned blocks of three (block `b` = layers `3b` to `3b+2`). ModernBERT alternates one global-attention layer with two local ones, and a layer's attention type and RoPE base follow from its index, so aligned blocks keep every layer's attention working as it was trained. The student learns the teacher's probabilities on every unique real message in `data/raw/` (`--raw-glob`, by default every collector file; no labels needed; 614k for v2-6L and 682k for v2-3L, as collection continued) plus the labeled rows, where the hard label is mixed 50/50 with the teacher's probability. Gold texts are left out, and the arguments go to `runs/<name>/args.json`. The teacher's probabilities take one to two minutes; training takes about 11 minutes for 6 layers and 8 for 3.
 
 ## 8. Evaluate and calibrate
 
 ```sh
-python train/evaluate.py runs/v2-9L/best --teacher data/gold_teacher.jsonl          # report only
-python train/evaluate.py runs/v2-9L/best --teacher data/gold_teacher.jsonl --write  # also store thresholds in config.json
+python train/evaluate.py runs/v2-6L/best --teacher data/gold_teacher.jsonl          # report only
+python train/evaluate.py runs/v2-6L/best --teacher data/gold_teacher.jsonl --write  # also store thresholds in config.json
+python train/evaluate.py runs/v2-3L/best --write                                    # each student gets its own thresholds
 ```
 
-Prints AP, F1, precision and recall per label, macro numbers and per-language macro F1 for three cases: the student at 0.5, the student with thresholds calibrated on one half of the gold set and scored on the other, and the teacher. Thresholds maximize F-beta per label, with beta 0.7 for `toxic`, `spam` and `scam` (precision first) and 1 for the rest. `--write` fits them on the whole gold set and stores them as `hush.thresholds`; the export carries them into the extension.
+Thresholds maximize F-beta per label, with beta 0.7 for `toxic`, `spam` and `scam` (precision first) and 1 for the rest. `--write` fits them on the whole gold set and stores them as `hush.thresholds`; the export carries them into the extension. Since they are fit on gold, their precision and recall are estimated out of fold: 5-fold cross-validation fits thresholds on four fifths and scores the fifth left out, then pools the five.
+
+The report gives AP, F1, precision and recall per label, macro numbers and per-language macro F1 (stream languages with at least 40 gold messages) for: the student at 0.5; the student at calibrated thresholds, out of fold (with the range of the five folds' thresholds); the same, weighted back to the candidate pool with `w` from `data/gold_selected.jsonl`; and the teacher. The student reads gold through `train/textclean.py`, like the extension.
 
 ## 9. Export
 
+Export each student on its own, then combine them into the folder the extension loads:
+
 ```sh
-python export/export_onnx.py --model runs/v2-9L/best --out ../extension/public/models/hush-lite \
-    --precisions q8,uint8,q4f16 --model-version v2-9L
+python export/export_onnx.py --model runs/v2-6L/best --out out/hush-lite-6L --precisions q8,uint8,q4f16 --model-version v2-6L
+python export/export_onnx.py --model runs/v2-3L/best --out out/hush-lite-3L --precisions q8,uint8,q4f16 --model-version v2-3L
+python export/combine_variants.py --gpu out/hush-lite-6L --cpu out/hush-lite-3L --out ../extension/public/models/hush-lite
 ```
 
-The exporter re-expresses ModernBERT with ONNX Runtime's fused `RotaryEmbedding` and `MultiHeadAttention` ops (`export/fused_modernbert.py`; for the 22-layer model that is 466 graph nodes instead of 1,404, and every node is a kernel dispatch on WebGPU), quantizes, and checks every file against PyTorch on real chat lines. It writes `hush_export.json` with sizes and parity (mean probability difference, share of flipped decisions). The file layout and how the extension picks a variant are described in [extension/README.md](../extension/README.md#the-model). After a tokenizer change, run `node tests/bench/tokenizer-parity.mjs` in `extension/` (after `node tests/bench/make-sample.mjs`): the browser tokenizer must match the Python one on real chat lines.
+`combine_variants.py` takes the WebGPU files (`q8`, `q4f16`) from the 6-layer export and the WASM file (`uint8`, renamed `model_uint8_3L.onnx`) from the 3-layer one, refuses to run if the two tokenizers differ, and writes one `config.json` whose `hush` block lists every file with its size, its layers and version (`variant_info`) and the 3-layer file's own thresholds (`variant_thresholds`). The extension picks the file by backend and uses that file's thresholds.
+
+The exporter re-expresses ModernBERT with ONNX Runtime's fused `RotaryEmbedding` and `MultiHeadAttention` ops (`export/fused_modernbert.py`; for the 22-layer model that is 466 graph nodes instead of 1,404, and every node is a kernel dispatch on WebGPU), quantizes, and checks every file against PyTorch on real chat lines, cleaned like in the extension. It writes `hush_export.json` with sizes and parity (mean probability difference, share of flipped decisions). The file layout and how the extension picks a variant are described in [extension/README.md](../extension/README.md#the-model). After a tokenizer change, run `node tests/bench/tokenizer-parity.mjs` in `extension/` (after `node tests/bench/make-sample.mjs`): the browser tokenizer must match the Python one on real chat lines.
 
 ## Results so far
 
@@ -150,7 +172,8 @@ The exporter re-expresses ModernBERT with ONNX Runtime's fused `RotaryEmbedding`
 | v0 | 0.627 |
 | v1 (+ silver) | 0.778 |
 | v2 (+ active learning), 22 layers | 0.816 |
-| **v2-9L**, shipped | **0.822** |
-| v2-6L | TODO(lead) |
+| v2-9L | 0.822 |
+| **v2-6L**, shipped for WebGPU | **0.822** |
+| **v2-3L**, shipped for the CPU | **0.815** |
 
 Per-label numbers, calibrated thresholds and caveats: [model card](../docs/MODEL_CARD.md#evaluation).

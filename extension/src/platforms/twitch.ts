@@ -19,7 +19,8 @@
 // row is inserted (no async hydration).
 //
 // FrankerFaceZ re-renders lines with the same .chat-line__message class (we
-// fall back to `.message` body and `.ffz-badge[data-badge]`); BTTV injects
+// fall back to `.message` body and `.ffz-badge[data-badge]`; cheers are
+// span.ffz-cheer, and links and cheers carry `ffz-tooltip`); BTTV injects
 // emote <img alt> into native lines (handled).
 //
 // 7TV (verified live with the 7TV extension, 2026-10-10): the native list is
@@ -139,6 +140,20 @@ const RE_FIRST_LABEL = /^\s*(first time chat|1st time chat)/i;
 
 let cheerSeen = false;
 
+/**
+ * Hover cards rendered inside a message (BTTV's emote tooltips, Twitch's
+ * tw-tooltip): never message text. FFZ's `ffz-tooltip` class marks tokens that
+ * HAVE a tooltip (links, cheers, emotes) and must be read.
+ */
+const HOVER_CARD = /(?:^|\s)(?:bttv-tooltip|tw-tooltip|ffz__tooltip)(?:\s|$)/;
+
+/** Code of an FFZ cheermote, like a native one ("Cheer1000"). */
+function ffzCheer(e: Element): string {
+  const alt = e.getAttribute('alt') || e.querySelector('img')?.getAttribute('alt') || '';
+  if (alt) return alt.replace(/\s+/g, '');
+  return (e.getAttribute('data-prefix') || 'Cheer') + (e.getAttribute('data-amount') || '').replace(/\D+/g, '');
+}
+
 /** Walk the message body: text nodes, mention fragments, emote <img alt>, links. */
 function walkBody(el: Element, acc: TextAcc): void {
   for (let n = el.firstChild; n; n = n.nextSibling) {
@@ -174,11 +189,20 @@ function walkBody(el: Element, acc: TextAcc): void {
         cheerSeen = true; // "300" next to the cheermote → bits → paid
         continue;
       }
-      if (cls.indexOf('tooltip') >= 0) continue; // BTTV/FFZ hover cards
+      if (cls.indexOf('ffz-cheer') >= 0) {
+        // FFZ: <span class="ffz-cheer ffz-tooltip" data-prefix="Cheer" data-amount="1,000" alt="Cheer1000">
+        cheerSeen = true;
+        pushEmote(acc, ffzCheer(e));
+        continue;
+      }
+      if (cls.indexOf('tooltip') >= 0 && HOVER_CARD.test(cls)) continue;
     }
     walkBody(e, acc);
   }
 }
+
+/** A sub / resub notice carries the subscriber's own message in this container. */
+const SUB_MESSAGE = '[data-a-target$="subscription-message__custom-message"]';
 
 function extractNative(row: HTMLElement, line: HTMLElement, channel: string): ChatMessage | null {
   const cont = line.querySelector('.chat-line__message-container');
@@ -203,7 +227,9 @@ function extractNative(row: HTMLElement, line: HTMLElement, channel: string): Ch
   const acc = newAcc();
   cheerSeen = false;
   walkBody(body, acc);
-  const paid = cheerSeen;
+  // bits, or the message of a sub / resub (paid, like a YouTube membership milestone)
+  const box = line.parentElement;
+  const paid = cheerSeen || (!!box && box.hasAttribute('data-a-target') && box.matches(SUB_MESSAGE));
   mentionsFromText(acc);
 
   // Reply: the first child of .chat-line__message-container renders
@@ -268,8 +294,16 @@ function walk7tv(el: Element, acc: TextAcc): void {
     const cls = typeof e.className === 'string' ? e.className : '';
     if (cls.indexOf('emote-token') >= 0 || cls.indexOf('seventv-emote-box') >= 0) {
       // first <img> is the emote; further ones are zero-width overlays
-      const img = e.querySelector('img');
-      pushEmote(acc, img?.getAttribute('alt') || '');
+      let code = e.querySelector('img')?.getAttribute('alt') || '';
+      // The span after every emote holds the bits of a cheermote ("1000"), empty otherwise.
+      const amount = e.nextElementSibling;
+      const bits = amount && amount.tagName === 'SPAN' ? (amount.textContent || '').replace(/\D+/g, '') : '';
+      if (bits) {
+        cheerSeen = true;
+        if (!/\d$/.test(code)) code += bits; // "Cheer" + "1000", like a native cheermote
+        n = amount!; // the amount is not message text
+      }
+      pushEmote(acc, code);
       continue;
     }
     if (cls.indexOf('seventv-chat-message-buttons') >= 0) continue;
@@ -284,7 +318,7 @@ function walk7tv(el: Element, acc: TextAcc): void {
   }
 }
 
-const REPLY_TARGET = /@([^s:]+)/;
+const REPLY_TARGET = /@([^\s:]+)/;
 
 function extract7tv(row: HTMLElement, channel: string): ChatMessage | null {
   const user = row.querySelector('.seventv-chat-user-username');
@@ -326,6 +360,17 @@ function extract7tv(row: HTMLElement, channel: string): ChatMessage | null {
     paid: cheerSeen,
     ts: Date.now(),
   };
+}
+
+/**
+ * The line a notice row embeds (resub, watch streak, highlighted message).
+ * Several lines mean the "row" is a wrapper Twitch (or an extension) put
+ * between the list and the rows: not a message, or one verdict would apply to
+ * all of chat.
+ */
+function soleLine(row: HTMLElement): HTMLElement | null {
+  const lines = row.querySelectorAll<HTMLElement>('.chat-line__message');
+  return lines.length === 1 ? lines[0]! : null;
 }
 
 function channelFromPath(pathname: string): string {
@@ -376,9 +421,9 @@ export const twitch: PlatformAdapter = {
       ? row
       : fast && fast.classList.contains('chat-line__message')
         ? fast
-        : row.querySelector<HTMLElement>('.chat-line__message');
+        : soleLine(row);
     if (line) return extractNative(row, line, ch);
-    return null; // welcome / user-notice without user text / deleted
+    return null; // welcome / user-notice without user text / deleted / not a row
   },
 
   channel(doc) {
@@ -411,10 +456,24 @@ export const twitch: PlatformAdapter = {
   },
 
   viewer(doc) {
-    // Twitch keeps the login in a readable cookie when signed in.
-    const m = /(?:^|;\s*)login=([^;]+)/.exec(doc.cookie || '');
-    if (m) return decodeURIComponent(m[1]!);
-    const img = doc.querySelector('[data-a-target="user-menu-toggle"] img[alt]');
-    return img?.getAttribute('alt') || null;
+    // Signed in, Twitch keeps the login in a readable cookie and the display
+    // name, which can differ ("도비" for dobi_kr), in twilight-user; the user
+    // menu's avatar is labelled with the display name.
+    const names: string[] = [];
+    const cookie = doc.cookie || '';
+    const login = /(?:^|;\s*)login=([^;]+)/.exec(cookie);
+    if (login) names.push(decodeURIComponent(login[1]!));
+    const user = /(?:^|;\s*)twilight-user=([^;]+)/.exec(cookie);
+    if (user) {
+      try {
+        const name: unknown = JSON.parse(decodeURIComponent(user[1]!))?.displayName;
+        if (typeof name === 'string' && name) names.push(name);
+      } catch {
+        /* not JSON */
+      }
+    }
+    const alt = doc.querySelector('[data-a-target="user-menu-toggle"] img[alt]')?.getAttribute('alt');
+    if (alt) names.push(alt);
+    return names;
   },
 };

@@ -28,10 +28,11 @@ button {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
+/* An outline, so no component box-shadow (highlight chips, menu items) can hide it */
 button:focus-visible,
 [tabindex]:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .ico {
@@ -49,7 +50,6 @@ button:focus-visible,
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   user-select: none;
-  --focus-ring: 0 0 0 2px var(--accent-line);
 }
 
 .hb[data-theme="dark"] {
@@ -347,6 +347,11 @@ button:focus-visible,
 }
 .hb-chip:active {
   transform: scale(0.96);
+}
+/* chips sit in a clipping scroller and menu items touch: their ring goes inside */
+.hb-chip:focus-visible,
+.hb-menu-item:focus-visible {
+  outline-offset: -2px;
 }
 /* the glyph is a background image in the category color (glyphs.ts) */
 .hb-chip-ico {

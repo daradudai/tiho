@@ -30,7 +30,7 @@ interface Row extends FakeMsg {
 }
 
 const EXTRA: FakeMsg[] = [
-  { author: 'spamton', color: '#daa520', text: 'BUY BUY BUY BUY BUY BUY BUY BUY BUY', c: 'spam', r: 'spam · flood' },
+  { author: 'spamton', color: '#daa520', text: 'BUY BUY BUY BUY BUY BUY BUY BUY BUY', c: 'spam', r: 'repeat ×9' },
 ];
 
 function initialRows(): Row[] {
@@ -53,7 +53,8 @@ export function ChatBackdrop({ platform, theme, store, live }: { platform: Platf
     const el = listRef.current!;
     const reveal = (key: string) =>
       setRows((rs) => rs.map((r) => (r.key === key ? { ...r, peek: true } : r)));
-    const dispose = mountBar({ el, where: 'before' }, store, fakeActions(store, reveal));
+    // open: shoot.mjs and perf.mjs reach into the bar (Playwright cannot pierce a closed root)
+    const dispose = mountBar({ el, where: 'before' }, store, fakeActions(store, reveal), { shadow: 'open' });
     return dispose;
   }, [store]);
 

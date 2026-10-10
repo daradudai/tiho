@@ -20,8 +20,8 @@ export interface ClassifyItem {
   text: string;
 }
 
-/** content → background (over Port) */
-export type PortRequest = { type: 'classify'; batchId: number; items: ClassifyItem[] };
+/** content → background (over Port). `hidden`: sent from a background tab (the Hush Engine skips it). */
+export type PortRequest = { type: 'classify'; batchId: number; items: ClassifyItem[]; hidden?: boolean };
 
 /** background → content (over Port) */
 export type PortResponse =

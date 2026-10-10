@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InferenceHub, type PortLike } from '../../../src/inference/hub';
 
 class FakePort implements PortLike {
@@ -107,6 +107,29 @@ describe('InferenceHub', () => {
     expect(a.sent.at(-1)).toEqual({ type: 'error', batchId: 4, error: 'overloaded' });
   });
 
+  it('broadcasts a switch to another model even when backend and version stay the same', () => {
+    const { hub, broadcasts } = setup();
+    const off = new FakePort('hush:offscreen');
+    hub.attachOffscreen(off);
+    off.emit({ type: 'status', status: { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2' } });
+    off.emit({ type: 'status', status: { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q4f16', version: 'v2' } });
+    expect(broadcasts.map((b) => b.status.modelId)).toEqual(['hush-lite/q8', 'hush-lite/q4f16']);
+  });
+
+  it('tells onScores whether the batch came from a background tab', () => {
+    const got: boolean[] = [];
+    const hub = new InferenceHub({ ensureOffscreen: async () => {}, broadcast: () => {}, onScores: (r) => got.push(!!r.hidden) });
+    const a = new FakePort('hush:classify');
+    hub.addClient(a);
+    const off = new FakePort('hush:offscreen');
+    hub.attachOffscreen(off);
+    a.emit({ type: 'classify', batchId: 1, items: [{ id: 'x', text: 'x' }], hidden: true });
+    a.emit({ type: 'classify', batchId: 2, items: [{ id: 'y', text: 'y' }] });
+    for (const r of off.sent.filter((m) => m.type === 'classify'))
+      off.emit({ type: 'scores', id: r.id, ids: [r.items[0].id], scores: [[0]], ms: 1, backend: 'wasm' });
+    expect(got).toEqual([true, false]);
+  });
+
   it('sends the device preference to the host', () => {
     const { hub } = setup();
     hub.setDevice('wasm');
@@ -115,5 +138,67 @@ describe('InferenceHub', () => {
     expect(off.sent[0]).toEqual({ type: 'init', opts: { device: 'wasm' } });
     hub.setDevice('auto');
     expect(off.sent.at(-1)).toEqual({ type: 'init', opts: { device: 'auto' } });
+  });
+});
+
+describe('InferenceHub: failed model load', () => {
+  afterEach(() => vi.useRealTimers());
+
+  const failed = { state: 'error', backend: 'none', error: 'GET config.json: 503' } as const;
+  const inits = (off: FakePort) => off.sent.filter((m) => m.type === 'init').length;
+
+  it('loads again with backoff while a chat is open, until the model is ready', () => {
+    vi.useFakeTimers();
+    const { hub } = setup();
+    hub.addClient(new FakePort('hush:classify'));
+    const off = new FakePort('hush:offscreen');
+    hub.attachOffscreen(off);
+    expect(inits(off)).toBe(1);
+    off.emit({ type: 'status', status: failed });
+    vi.advanceTimersByTime(4_999);
+    expect(inits(off)).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(inits(off)).toBe(2); // first retry after 5 s
+    off.emit({ type: 'status', status: { state: 'downloading', backend: 'none', progress: 0.1 } });
+    off.emit({ type: 'status', status: failed });
+    vi.advanceTimersByTime(9_999);
+    expect(inits(off)).toBe(2);
+    vi.advanceTimersByTime(1);
+    expect(inits(off)).toBe(3); // then 10 s
+    off.emit({ type: 'status', status: { state: 'ready', backend: 'wasm', modelId: 'hush-lite/uint8', version: 'v2-3L' } });
+    vi.advanceTimersByTime(600_000);
+    expect(inits(off)).toBe(3);
+    off.emit({ type: 'status', status: failed }); // a later failure starts from 5 s again
+    vi.advanceTimersByTime(5_000);
+    expect(inits(off)).toBe(4);
+  });
+
+  it('does not retry without an open chat, and starts again when one opens', () => {
+    vi.useFakeTimers();
+    const { hub } = setup();
+    const off = new FakePort('hush:offscreen');
+    hub.attachOffscreen(off);
+    off.emit({ type: 'status', status: failed });
+    vi.advanceTimersByTime(60_000);
+    expect(inits(off)).toBe(1);
+    hub.addClient(new FakePort('hush:classify'));
+    vi.advanceTimersByTime(5_000);
+    expect(inits(off)).toBe(2);
+  });
+
+  it('creates the inference host again when that is what failed', async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const hub = new InferenceHub({
+      ensureOffscreen: async () => {
+        if (++calls === 1) throw new Error('offscreen quota');
+      },
+      broadcast: () => {},
+    });
+    hub.addClient(new FakePort('hush:classify'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(hub.getStatus().state).toBe('error');
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(calls).toBe(2);
   });
 });

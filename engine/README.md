@@ -9,7 +9,9 @@ through llama.cpp's `llama-server` and answers two kinds of questions about chat
   probability.
 - **Second opinion**: the same 6-way category + 3-way tone schema the in-browser model was
   trained on (`toxic, spam, scam, noise, question, clean` + `positive, negative`), for messages
-  the in-browser model is unsure about.
+  the in-browser model is unsure about. These are softmax probabilities on another scale than
+  the in-browser model's: the extension averages them with its own scores, each against
+  thresholds calibrated for its model, and never compares them with the in-browser thresholds.
 
 A decision model gives a probability for every option of every question in one forward pass.
 It never generates text, so it is fast and its output never needs parsing.
@@ -45,7 +47,9 @@ On first start the engine downloads anything that is missing:
 - **llama.cpp.** Release **b11541** from GitHub, the first release with the Clef decision
   endpoint (PR #29831). It goes to `vendor/llama.cpp/`, or to `--llama-dir` /
   `HUSH_LLAMA_DIR`. On Windows with NVIDIA, the engine fetches
-  `llama-b11541-bin-win-cuda-12.4-x64.zip` plus `cudart-llama-bin-win-cuda-12.4-x64.zip`.
+  `llama-b11541-bin-win-cuda-12.4-x64.zip` plus `cudart-llama-bin-win-cuda-12.4-x64.zip`. Every
+  archive is checked against its pinned size and SHA-256 before it is unpacked. A replaced
+  archive fails just like a corrupt model file.
 
 To fetch everything without starting the server, use `--download-only`. To never download
 anything, use `--no-download`.
@@ -68,10 +72,19 @@ Startup takes about 5 to 30 seconds while the model loads. During that time `/he
 `"status": "loading"`.
 
 **Managed mode** (the default) means the engine starts and owns the `llama-server` child:
-- The child listens on `127.0.0.1:7379` and logs to `logs/llama-server.log`.
+- The child listens on `127.0.0.1:7379` and logs errors and warnings to `logs/llama-server.log`
+  (at llama.cpp's default verbosity it would log three lines per request). For more detail, pass
+  `--llama-args "-lv 3"`.
+- It is locked with an API key that the engine makes up on every run, so only the engine can use
+  it (see [Privacy and security](#privacy-and-security)).
 - It is killed when the engine exits. On Windows a Job Object does this even after a hard kill
   or a closed console window; on Linux `PR_SET_PDEATHSIG` does the same.
-- If it crashes, the engine restarts it, up to 3 times in 10 minutes.
+- If it crashes, the engine restarts it, up to 3 times in 10 minutes. A restart that fails (for
+  example because a game holds the VRAM) is tried again after 15 s, then 30 s.
+
+**Attach mode** (`--attach URL`) uses a `llama-server` you run yourself. Start it with
+`--api-key <key>` and pass the same key with `--attach-key <key>`. Without a key, any web page you
+visit can use that server.
 
 ## How the extension connects
 
@@ -87,6 +100,9 @@ Startup takes about 5 to 30 seconds while the model loads. During that time `/he
 - Send up to 256 messages per request. Set `deadline_ms` to how long you are still willing to
   wait. Whatever is not done by then comes back as `{"id", "error": "expired"}`. Treat that as
   "no engine opinion".
+- Under load some messages of a request expire, and a plain JSON answer then arrives at the
+  deadline, even for messages that were done long before. Send `stream: true` to get each answer
+  as soon as it is ready.
 - **The engine refines a subset of messages; it cannot classify every message in a busy chat.**
   One RTX 3090 handles about 10 messages per second with 3 filters. Repeats and waves cost
   nothing because of the cache.
@@ -108,7 +124,7 @@ Startup takes about 5 to 30 seconds while the model loads. During that time `/he
   "device": "NVIDIA GeForce RTX 3090 (24 GB)",
   "mode": "managed",
   "backend": "http://127.0.0.1:7379",
-  "queue": {"pending": 0, "inflight": 0, "inflight_limit": 8, "max_inflight": 8, "max_queue": 1024,
+  "queue": {"pending": 0, "inflight": 0, "inflight_limit": 2, "max_inflight": 8, "max_queue": 1024,
             "submitted": 0, "completed": 0, "deduped": 0, "expired": 0, "dropped": 0, "errors": 0,
             "backend_ms_p50": null, "backend_ms_p95": null, "req_per_s_10s": 0.0, "prompt_tok_per_s_10s": 0.0},
   "cache": {"size": 0, "max": 50000, "hits": 0, "misses": 0, "hit_rate": 0.0},
@@ -152,6 +168,7 @@ Fields:
 - **`context`** (optional): added to the state as `Stream context: ...`. It helps filters such as
   spoilers and backseating. Without it, the state is exactly the teacher's:
   `"<Platform> live chat message: <text>"`.
+- **`stream`** (default false): answer as NDJSON instead, see below.
 
 Response:
 
@@ -180,6 +197,16 @@ Response:
   - `backend_error`
 - **HTTP 503** with `{"error": {"code": "<status>", ...}}` means the engine is not ready.
   **HTTP 422** means the request is invalid.
+
+With `"stream": true` the response is `application/x-ndjson`: one line per message, written as
+soon as that message is answered, in the order the answers are ready rather than request order.
+Messages that are not done by the deadline follow with their `error`. The last line sums up:
+
+```
+{"id":"m2","filters":{"backseat":0.0643,"spoiler":0.0121},"cached":false}
+{"id":"m1","error":"expired"}
+{"done":true,"ms":2500.4,"expired":1}
+```
 
 ### `POST /v1/systemone`
 
@@ -225,14 +252,20 @@ directly:
    - A queued request that can no longer finish before its deadline is dropped without reaching
      the GPU.
    - When the queue is full, the oldest requests are dropped.
-5. **Adaptive concurrency.** When the GPU is shared with a game or another client, more parallel
-   requests only make every answer late.
-   - The in-flight limit starts at the server's slot count.
-   - It shrinks (×0.75) while answers take more than 70% of their deadline budget, and grows
-     back by 1 when they are fast.
+5. **Adaptive concurrency.** llama.cpp runs decision requests one at a time, whatever its slot
+   count. More requests in flight only queue inside llama.cpp, where they can be neither reordered
+   nor dropped, and llama.cpp serves them unfairly.
+   - On an RTX 3090 (1 filter): 1 in flight gave 18 req/s at 54 ms; 2 gave 20 req/s at 109 ms;
+     4 to 16 gave the same 20 req/s, but some requests waited up to 2.5 s.
+   - The in-flight limit starts at 2: one request running, the next one ready.
+   - It grows by 1 while requests that run next to others take about as long per prompt token as
+     one that runs alone. That happens only on a backend that really runs them in parallel. The
+     limit never goes above the server's slot count (or `--max-inflight`).
+   - It shrinks (×0.75) when requests queue in the backend (1.5× slower than alone), or when
+     answers take more than 70% of their deadline budget (a game or another client on the GPU).
    - In one contended run, a fixed 16 requests in flight gave 0.8 msg/s on time; 6 in flight
      gave 2.7 msg/s.
-   - `--fixed-concurrency` turns this off.
+   - `--fixed-concurrency` turns this off and keeps `--max-inflight` requests in flight.
 
 ## Privacy and security
 
@@ -242,6 +275,11 @@ directly:
 - The `Host` header must be `127.0.0.1` or `localhost`. This blocks DNS-rebinding attacks.
 - CORS allows only extension and localhost origins. A POST with any other `Origin` gets 403
   before it reaches the model. This blocks "simple" cross-site POSTs from web pages.
+- llama-server itself checks neither `Origin` nor `Host`. In managed mode it therefore gets a
+  random API key on every run (`--api-key`, kept out of its log), and only `/health` answers
+  without it. Otherwise any web page could read `/props` (its model path can show your user
+  name), keep its slots busy so Hush's answers miss their deadlines, or use your GPU. In attach
+  mode, give your server a key and pass it with `--attach-key`.
 
 ## Performance
 

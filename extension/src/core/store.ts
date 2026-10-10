@@ -17,6 +17,7 @@ export interface WaveInfo {
   text: string;
   count: number;
   users: number;
+  /** Epoch ms (Date.now()), like ChatMessage.ts: extension pages compare them with their own clock. */
   startedAt: number;
   lastAt: number;
 }

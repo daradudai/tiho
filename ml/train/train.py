@@ -1,10 +1,14 @@
 """Train the Hush Lite student: mmBERT-small + 7 sigmoid heads.
 
-Data (JSONL):
+Data (JSONL; each source takes one or more glob patterns):
   teacher   data/teacher*.jsonl  rows with "t": soft probs from Clef-Flash  (all 7 labels supervised)
-  public    data/public.jsonl    rows with "y": partial labels              (masked loss)
+  public    data/public.jsonl data/public_extra.jsonl
+                                 rows with "y": partial labels              (masked loss)
   synth     data/synth*.jsonl    rows with "y": labels for synthetic hard cases
-  gold      data/gold.jsonl      rows with "y": human/agent labels — eval only
+  silver    data/silver.jsonl    rows with "y": agent labels on real chat
+  gold      data/gold.jsonl      rows with "y": human/agent labels — eval only, dropped from every other source
+
+The model sees each text the way the extension feeds it (`clean_for_model`).
 
     python train/train.py --out runs/v1 --epochs 3
 """
@@ -24,6 +28,8 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_cosine_schedule_with_warmup
 
+from textclean import clean_for_model
+
 LABELS = ["toxic", "spam", "scam", "noise", "question", "positive", "negative"]
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,6 +44,11 @@ def load_jsonl(pattern: str) -> list[dict]:
                 except json.JSONDecodeError:
                     pass  # tolerate a torn line from an interrupted writer
     return rows
+
+
+def load_unseen(patterns: list[str], gold_texts: set[str]) -> list[dict]:
+    """Rows of every pattern minus the gold texts (compared cleaned): gold never trains."""
+    return [r for p in patterns if p for r in load_jsonl(p) if clean_for_model(r["text"]) not in gold_texts]
 
 
 def to_example(r: dict, w: float = 1.0) -> tuple[str, list[float], list[float], float] | None:
@@ -55,7 +66,7 @@ def to_example(r: dict, w: float = 1.0) -> tuple[str, list[float], list[float], 
                 tgt[i], mask[i] = float(v), 1.0
     if not any(mask):
         return None
-    return r["text"], tgt, mask, w
+    return clean_for_model(r["text"]), tgt, mask, w
 
 
 class DS(Dataset):
@@ -121,19 +132,14 @@ def metrics(probs, ex, thr=0.5):
 def main(a):
     random.seed(a.seed)
     torch.manual_seed(a.seed)
-    teacher = load_jsonl(a.teacher)
-    public = load_jsonl(a.public) if a.public else []
-    synth = load_jsonl(a.synth) if a.synth else []
-    silver = load_jsonl(a.silver) if a.silver else []
     gold = load_jsonl(a.gold) if a.gold else []
-    gold_texts = {g["text"] for g in gold}
-    teacher = [r for r in teacher if r["text"] not in gold_texts]
+    gold_texts = {clean_for_model(g["text"]) for g in gold}
+    teacher, public, synth, silver = (load_unseen(p, gold_texts) for p in (a.teacher, a.public, a.synth, a.silver))
     random.shuffle(teacher)
     n_val = min(3000, len(teacher) // 10)
     val_t, train_t = teacher[:n_val], teacher[n_val:]
     random.shuffle(public)
     public = public[: int(len(train_t) * a.public_ratio)] if a.public_ratio > 0 else []
-    silver = [r for r in silver if r["text"] not in gold_texts]
     train_ex = [e for e in (to_example(r) for r in train_t + synth * a.synth_repeat) if e]
     train_ex += [e for e in (to_example(r, a.public_w) for r in public) if e]
     train_ex += [e for e in (to_example(r, a.silver_w) for r in silver) if e]
@@ -157,6 +163,7 @@ def main(a):
     t0 = time.time()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    (out / "args.json").write_text(json.dumps(vars(a), indent=1))
     best = -1
     for ep in range(a.epochs):
         model.train()
@@ -196,11 +203,11 @@ def main(a):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="jhu-clsp/mmBERT-small")
-    ap.add_argument("--teacher", default="data/teacher*.jsonl")
-    ap.add_argument("--public", default="data/public.jsonl")
-    ap.add_argument("--synth", default="data/synth*.jsonl")
+    ap.add_argument("--teacher", nargs="+", default=["data/teacher*.jsonl"])
+    ap.add_argument("--public", nargs="+", default=["data/public.jsonl", "data/public_extra.jsonl"])
+    ap.add_argument("--synth", nargs="+", default=["data/synth*.jsonl"])
     ap.add_argument("--gold", default="data/gold.jsonl")
-    ap.add_argument("--silver", default="data/silver.jsonl")
+    ap.add_argument("--silver", nargs="+", default=["data/silver.jsonl"])
     ap.add_argument("--silver-w", type=float, default=3.0)
     ap.add_argument("--public-w", type=float, default=0.5)
     ap.add_argument("--public-ratio", type=float, default=0.5)

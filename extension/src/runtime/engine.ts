@@ -8,15 +8,18 @@
 //  READ  phase: adapter.extract → normalize → rules → waves → cache → policy
 //               misses → classifier queue; held rows stay invisible
 //  RESOLVE    : scores that arrived (coalesced with page frames), failed
-//               batches, hold timeouts
+//               batches, hold timeouts, late Hush Engine answers
 //  WRITE phase: data-hush-a / -c / -r / -wh / -wm attribute diffs, then
 //               data-hush-run on the last row of every changed pill run
 //  FLUSH      : classifier batch → Port; Store (≤ 4 Hz, one batch())
 //
 // No layout reads, no inline styles, one stylesheet. Rows are tracked in a
-// WeakMap; a row whose content changes (recycled node) is re-evaluated.
+// WeakMap; a row whose content changes (recycled node) is re-evaluated. A
+// message seen before that comes back in a new node keeps what was decided
+// about it (recent, by ChatMessage.key).
 
 import { batch } from '@preact/signals';
+import { LRU } from '../core/lru';
 import { cleanForModel, normalize } from '../core/normalize';
 import { decide, modelCanHide, policyContext, type PolicyContext } from '../core/policy';
 import { needsModel, RuleEngine, Sig, type RuleResult } from '../core/rules';
@@ -26,7 +29,7 @@ import type { Category, ChatMessage, ModelStatus, PerfStats, Verdict } from '../
 import { WaveDetector, type WaveHit, type WaveOptions } from '../core/waves';
 import type { BarActions, MountBar } from '../core/bar-actions';
 import type { PlatformAdapter } from '../platforms/types';
-import type { ClassifierClient } from './classifier';
+import { modelKey, type ClassifierClient } from './classifier';
 import { ATTR, RowStyles } from './styles';
 
 export interface RuntimeReport {
@@ -99,6 +102,8 @@ interface RowState {
 }
 
 const LAT_RING = 4096;
+/** Messages remembered after their row is gone (more than any platform keeps mounted or buffered). */
+const RECENT_MESSAGES = 1024;
 const WAVE_COUNTER_MS = 250;
 const RESOLVE_COALESCE_MS = 40;
 const COALESCE_MIN_RATE = 20; // msg/s
@@ -165,6 +170,8 @@ export class HushRuntime {
   private settings: Settings;
   private ctx: PolicyContext;
   private thresholds: number[] | null = null;
+  /** Model that scored the rows (modelKey of the last ready status). */
+  private model = '';
   private classifier: ClassifierClient | null;
   private now: () => number;
   private raf: (cb: () => void) => number;
@@ -178,12 +185,22 @@ export class HushRuntime {
   private retryQueue: HTMLElement[] = [];
   private live = new Set<HTMLElement>();
   private byKey = new Map<string, HTMLElement>();
+  /**
+   * State of recent messages by ChatMessage.key, kept across detach. A message
+   * that comes back in a new node (Kick re-mounts rows scrolled back into
+   * view, YouTube re-renders the list on a chat-mode switch, Hush or the site
+   * turned off and on) keeps its verdict and is not counted, logged or fed to
+   * the duplicate tracker and waves a second time.
+   */
+  private recent = new LRU<string, RowState>(RECENT_MESSAGES);
   private queue = new Set<HTMLElement>();
   private dirty = new Set<HTMLElement>();
   private waiting = new Map<string, HTMLElement[]>();
   private held = new Set<HTMLElement>();
   private resolvedIds: string[] = [];
   private failedIds: string[] = [];
+  /** Normalized texts whose cached scores got a Hush Engine answer since the last frame. */
+  private rescored = new Set<string>();
   private waveDirty = new Set<string>();
   private waveHeads = new Map<string, string>();
   /** Rows (or neighbours of removed rows) whose pill run must be re-counted. */
@@ -299,12 +316,16 @@ export class HushRuntime {
 
   setModelStatus(s: ModelStatus): void {
     this.store.model.value = s;
+    const model = modelKey(s);
+    const swapped = !!model && !!this.model && model !== this.model;
+    if (model) this.model = model;
     const thr = s.thresholds && s.thresholds.length ? s.thresholds : null;
     if (thr && JSON.stringify(thr) !== JSON.stringify(this.thresholds)) {
       this.thresholds = thr;
       this.ctx = policyContext(this.settings, thr);
-      this.reevaluateAll(false);
+      if (!swapped) this.reevaluateAll(false);
     }
+    if (swapped) this.rescoreAll();
     this.holdOn = this.computeHold();
   }
 
@@ -317,6 +338,12 @@ export class HushRuntime {
   /** These ids will not get scores (error / timeout / disconnect). */
   onFailed(ids: string[]): void {
     for (const id of ids) this.failedIds.push(id);
+    this.scheduleResolve();
+  }
+
+  /** Hush Engine answers were attached to the cached scores of these ids: rows already decided on them may change. */
+  onRescored(ids: string[]): void {
+    for (const id of ids) this.rescored.add(id);
     this.scheduleResolve();
   }
 
@@ -462,6 +489,28 @@ export class HushRuntime {
     this.schedule();
   }
 
+  /**
+   * Another model was loaded (the 3-layer student after a lost GPU, say). The
+   * old one's scores mean nothing against the new thresholds, so rows decided
+   * on them are asked again instead of re-thresholded; they keep their verdict
+   * until the new scores land.
+   */
+  private rescoreAll(): void {
+    const cl = this.classifier;
+    for (const row of this.live) {
+      const st = this.states.get(row);
+      if (!st) continue;
+      if (st.scores && !st.waiting && cl?.available) {
+        cl.request(st.norm, cleanForModel(st.msg.text));
+        const w = this.waiting.get(st.norm);
+        if (w) w.push(row);
+        else this.waiting.set(st.norm, [row]);
+        st.waiting = true;
+      } else this.redecide(row, st);
+    }
+    this.schedule();
+  }
+
   // ───────────────────────────── attach / observe ─────────────────────────────
 
   private loc(): Location {
@@ -537,6 +586,7 @@ export class HushRuntime {
     this.dirty.clear();
     this.waiting.clear();
     this.held.clear();
+    this.rescored.clear();
     this.waveHeads.clear();
     this.waveDirty.clear();
     this.runDirty.clear();
@@ -690,6 +740,7 @@ export class HushRuntime {
     // RESOLVE
     if (this.resolvedIds.length) this.resolve(this.resolvedIds, true, now);
     if (this.failedIds.length) this.resolve(this.failedIds, false, now);
+    if (this.rescored.size) this.rescore();
     if (this.held.size && now >= this.nextDeadline) this.expireHolds(now);
 
     // WRITE
@@ -772,8 +823,9 @@ export class HushRuntime {
     // Our attributes always include data-hush-a: one read tells whether the
     // node carries any (recycled row) — fresh rows skip six more reads.
     const a0 = row.getAttribute(ATTR.action);
-    const norm = normalize(msg.text);
-    const rule = this.rules.evaluate(msg, norm, now);
+    const known = this.recall(row, msg);
+    const norm = known ? known.norm : normalize(msg.text);
+    const rule = this.rules.evaluate(msg, norm, now, known ? !!(known.rule.sig & Sig.DUPLICATE) : undefined);
     const st: RowState = {
       key: msg.key,
       text: msg.text,
@@ -814,14 +866,17 @@ export class HushRuntime {
     this.states.set(row, st);
     this.live.add(row);
     this.byKey.set(msg.key, row);
-    this.seen++;
-    this.secCount++;
-    this.metrics.msgs++;
-    this.storeDirty = true;
-
-    if (norm && rule.user !== 'block' && rule.user !== 'allow') {
-      const hit = this.waves.observe(norm, msg.authorId || msg.author, msg.key, now, msg.text, this.headAlive);
-      if (hit) this.onWave(row, st, hit);
+    this.recent.set(msg.key, st);
+    if (known) this.restore(row, st, known, now);
+    else {
+      this.seen++;
+      this.secCount++;
+      this.metrics.msgs++;
+      this.storeDirty = true;
+      if (norm && rule.user !== 'block' && rule.user !== 'allow') {
+        const hit = this.waves.observe(norm, msg.authorId || msg.author, msg.key, now, msg.text, this.headAlive);
+        if (hit) this.onWave(row, st, hit);
+      }
     }
 
     const ctx = this.ctx;
@@ -835,7 +890,7 @@ export class HushRuntime {
     if (cached) {
       st.scores = cached;
       this.metrics.decided.cache++;
-      this.setVerdict(row, st, decide(cached, rule, st.wave, ctx, 'cache'), true, now);
+      this.setVerdict(row, st, decide(cached, rule, st.wave, ctx, st.viaModel ? 'model' : 'cache'), true, now);
       return;
     }
     if (cl && norm && cl.available) {
@@ -857,6 +912,51 @@ export class HushRuntime {
     }
     this.metrics.decided.fallback++;
     this.setVerdict(row, st, decide(null, rule, st.wave, ctx, 'rule'), true, now);
+  }
+
+  /**
+   * What was decided about this message in another node, or null when it is
+   * new. The other node, if still tracked, stops standing for it.
+   */
+  private recall(row: HTMLElement, msg: ChatMessage): RowState | null {
+    const known = this.recent.peek(msg.key);
+    if (!known || known.text !== msg.text) return null;
+    const old = this.byKey.get(msg.key);
+    if (old && old !== row) {
+      // the list re-rendered and the old node is not gone yet
+      this.live.delete(old);
+      this.held.delete(old);
+      this.states.delete(old);
+    }
+    // a late score for the old node must not decide (and count) it again
+    known.waiting = false;
+    known.deadline = 0;
+    return known;
+  }
+
+  /** Carry a known message's verdict bookkeeping over to its new node (st). */
+  private restore(row: HTMLElement, st: RowState, known: RowState, now: number): void {
+    st.wave = known.wave;
+    st.viaModel = known.viaModel;
+    st.t0 = 0; // its latency was measured the first time
+    st.counted = known.counted;
+    st.filtered = known.filtered;
+    st.loggedFiltered = known.loggedFiltered;
+    st.loggedQuestion = known.loggedQuestion;
+    st.vibed = known.vibed;
+    st.revealed = known.revealed;
+    if (st.revealed) row.setAttribute(ATTR.open, '');
+    const w = st.wave;
+    if (w && w.role === 'head') {
+      // the counter it showed; a wave still running updates it
+      if (known.wh) {
+        row.setAttribute(ATTR.waveHead, String(known.wh));
+        st.wh = known.wh;
+        st.whAt = now;
+      }
+      if (!this.waveHeads.has(w.id)) this.waveHeads.set(w.id, st.key);
+      this.waveDirty.add(w.id);
+    }
   }
 
   private headAlive = (key: string): boolean => {
@@ -944,6 +1044,23 @@ export class HushRuntime {
       this.holdTimer = 0;
       this.nextDeadline = Infinity;
     }
+  }
+
+  /**
+   * Re-decide live rows showing a text the Hush Engine just answered. The
+   * answer rides on the cached score vector (ScoreVector.engine); rows still
+   * waiting for scores pick it up in resolve().
+   */
+  private rescore(): void {
+    const ids = this.rescored;
+    const cl = this.classifier;
+    for (const row of this.live) {
+      const st = this.states.get(row);
+      if (!st || !st.scores || !ids.has(st.norm)) continue;
+      st.scores = cl?.cache.peek(st.norm) ?? st.scores; // re-requested after an eviction: the vector that has the answer
+      this.redecide(row, st);
+    }
+    ids.clear();
   }
 
   private armHold(deadline: number, now: number): void {
@@ -1196,7 +1313,7 @@ export class HushRuntime {
       s.totals.value = { seen: this.seen, filtered: this.filteredCount };
       if (nq.length) s.questions.value = nq.reverse().concat(s.questions.peek()).slice(0, 100);
       if (nf.length) s.filtered.value = nf.reverse().concat(s.filtered.peek()).slice(0, 200);
-      if (wavesDirty) s.waves.value = this.waves.list(now);
+      if (wavesDirty) s.waves.value = this.waves.list(now).map((w) => ({ ...w, startedAt: w.startedAt - now + Date.now(), lastAt: w.lastAt - now + Date.now() })); // waves run on this.now; the store is epoch ms, like ChatMessage.ts
     });
   }
 
@@ -1237,6 +1354,7 @@ export class HushRuntime {
           this.store.channel.value = ch;
           this.waves.reset();
           this.rules.reset();
+          this.recent.clear();
         }
         if (this.ticks % 5 === 1 && this.adapter.viewer) this.rules.setViewer(this.adapter.viewer(this.doc));
       } catch {

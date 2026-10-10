@@ -33,9 +33,21 @@ describe('policy', () => {
   it('maps category → action from settings and formats the reason', () => {
     const v = decide(S({ toxic: 0.94 }), R(), null, ctxOf());
     expect(v.action).toBe('hide'); // chill
-    expect(v.reason).toBe('toxic 0.94');
+    expect(v.reason).toBe('toxic · 94%');
     expect(v.source).toBe('model');
     expect(decide(S({ toxic: 0.94 }), R(), null, ctxOf({ actions: PRESETS.raw })).action).toBe('show');
+  });
+
+  it('formats reasons for display', () => {
+    const ctx = ctxOf();
+    expect(decide(S({ question: 0.81 }), R(), null, ctx).reason).toBe('question · 81%');
+    expect(decide(S({ toxic: 0.998 }), R(), null, ctx).reason).toBe('toxic · 99%'); // never "100%"
+    expect(decide(S({}), R(), null, ctx).reason).toBe('');
+    // a rule signal carried the label over its threshold: name it instead of a low score
+    expect(decide(S({ scam: 0.3 }), R({ sig: Sig.LINK }), null, ctx).reason).toBe('scam · link');
+    expect(decide(S({ scam: 0.7 }), R({ sig: Sig.LINK }), null, ctx).reason).toBe('scam · 70%');
+    expect(decide(S({ spam: 0.35 }), R({ sig: Sig.REPEAT }), null, ctx).reason).toBe('spam · repeat');
+    expect(decide(null, R({ sig: Sig.QUESTION_MARK }), null, ctx).reason).toBe('question mark');
   });
 
   it('uses model thresholds and shifts filtering labels with strictness', () => {

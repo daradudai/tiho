@@ -2,6 +2,16 @@
 per label and per language, calibrate per-label thresholds, and write them into
 the checkpoint's config.json as `hush.thresholds`.
 
+The student sees each message the way the extension feeds it (`clean_for_model`).
+The shipped thresholds are fit on all of gold, so scoring them on gold would be
+optimistic; their precision and recall are estimated out of fold instead: each
+fold gets thresholds fit on the other folds, and the decisions are pooled.
+
+Gold oversamples messages the teacher scored high (gold/select_gold.py). With the
+selection record (`w` per row, the inverse chance of being picked), the
+out-of-fold numbers are also weighted back to the candidate pool, which is closer
+to what real chat looks like.
+
     python train/evaluate.py runs/v1/best --gold data/gold.jsonl --teacher data/gold_teacher.jsonl --write
 """
 from __future__ import annotations
@@ -16,11 +26,13 @@ import torch
 from sklearn.metrics import average_precision_score, f1_score, precision_score, recall_score
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from textclean import clean_for_model
 from train import LABELS, predict
 
 # What matters for a chat filter: hiding a good message is worse than letting one
 # bad message through, so harmful heads are tuned for precision (F-beta, beta<1).
 BETA = {"toxic": 0.7, "spam": 0.7, "scam": 0.7, "noise": 1.0, "question": 1.0, "positive": 1.0, "negative": 1.0}
+FOLDS = 5
 
 
 def fbeta(p, r, b):
@@ -36,19 +48,41 @@ def best_threshold(y, p, beta):
     return best[1]
 
 
-def report(name, Y, P, thr, langs):
+def fit_thresholds(Y, P):
+    return {k: round(best_threshold(Y[:, i], P[:, i], BETA[k]), 2) if Y[:, i].sum() else 0.5 for i, k in enumerate(LABELS)}
+
+
+def decide(P, thr):
+    return P >= np.array([thr[k] for k in LABELS])
+
+
+def out_of_fold(Y, P, folds=FOLDS, seed=0):
+    """Decisions for every message at thresholds fit without it: the k-fold estimate
+    for thresholds fit on all of gold. -> (decisions, thresholds of each fold)"""
+    fold = np.random.default_rng(seed).permutation(len(Y)) % folds
+    D = np.zeros(P.shape, dtype=bool)
+    fits = []
+    for f in range(folds):
+        thr = fit_thresholds(Y[fold != f], P[fold != f])
+        D[fold == f] = decide(P[fold == f], thr)
+        fits.append(thr)
+    return D, fits
+
+
+def report(name, Y, P, D, langs, thr, w=None):
+    """`D`: decisions; `thr`: each label's threshold as printed; `w`: sample weights (None = 1)."""
     print(f"\n### {name}")
-    print(f"{'label':9} {'n+':>5} {'AP':>6} {'F1':>6} {'P':>6} {'R':>6} {'thr':>5}")
+    print(f"{'label':9} {'n+':>5} {'AP':>6} {'F1':>6} {'P':>6} {'R':>6} {'thr':>9}")
     out = {}
     for i, k in enumerate(LABELS):
-        y, p = Y[:, i], P[:, i]
+        y, p, d = Y[:, i], P[:, i], D[:, i]
         if y.sum() == 0:
             continue
-        t = thr[k]
-        out[k] = dict(ap=average_precision_score(y, p), f1=f1_score(y, p >= t), p=precision_score(y, p >= t, zero_division=0),
-                      r=recall_score(y, p >= t), thr=t, pos=int(y.sum()))
+        out[k] = dict(ap=average_precision_score(y, p, sample_weight=w), f1=f1_score(y, d, sample_weight=w),
+                      p=precision_score(y, d, sample_weight=w, zero_division=0), r=recall_score(y, d, sample_weight=w),
+                      thr=thr[k], pos=int(y.sum()))
         o = out[k]
-        print(f"{k:9} {o['pos']:5d} {o['ap']:6.3f} {o['f1']:6.3f} {o['p']:6.3f} {o['r']:6.3f} {t:5.2f}")
+        print(f"{k:9} {o['pos']:5d} {o['ap']:6.3f} {o['f1']:6.3f} {o['p']:6.3f} {o['r']:6.3f} {thr[k]:>9}")
     print(f"macro F1 {np.mean([o['f1'] for o in out.values()]):.3f}  macro AP {np.mean([o['ap'] for o in out.values()]):.3f}")
     # per-language macro F1 over labels with positives
     by = defaultdict(list)
@@ -58,7 +92,7 @@ def report(name, Y, P, thr, langs):
     for l, idx in by.items():
         if len(idx) < 40:
             continue
-        f1s = [f1_score(Y[idx, i], P[idx, i] >= thr[k]) for i, k in enumerate(LABELS) if Y[idx, i].sum() >= 3]
+        f1s = [f1_score(Y[idx, i], D[idx, i]) for i in range(len(LABELS)) if Y[idx, i].sum() >= 3]
         if f1s:
             rows.append((l, len(idx), float(np.mean(f1s))))
     print("per-language macro F1:", ", ".join(f"{l}:{f:.2f}(n={n})" for l, n, f in sorted(rows, key=lambda x: -x[1])))
@@ -72,21 +106,27 @@ def main(a):
     langs = [g.get("lang") for g in gold]
     tok = AutoTokenizer.from_pretrained(a.ckpt)
     model = AutoModelForSequenceClassification.from_pretrained(a.ckpt).cuda()
-    P = predict(model, tok, texts)
-    # calibrate on half, report on the other half, then refit on all for shipping
-    rng = np.random.default_rng(0)
-    perm = rng.permutation(len(gold))
-    cal, tst = perm[: len(perm) // 2], perm[len(perm) // 2:]
-    thr_cal = {k: best_threshold(Y[cal, i], P[cal, i], BETA[k]) if Y[cal, i].sum() else 0.5 for i, k in enumerate(LABELS)}
-    report("student @0.5 (all)", Y, P, {k: 0.5 for k in LABELS}, langs)
-    report("student calibrated (held-out half)", Y[tst], P[tst], thr_cal, [langs[i] for i in tst])
+    P = predict(model, tok, [clean_for_model(t) for t in texts])
+    at = lambda t: {k: t for k in LABELS}
+    report("student @0.5 (all)", Y, P, decide(P, at(0.5)), langs, at("0.50"))
+    D, fits = out_of_fold(Y, P)
+    spread = {k: f"{min(f[k] for f in fits):.2f}-{max(f[k] for f in fits):.2f}" for k in LABELS}
+    report(f"student calibrated, out of fold ({FOLDS} folds; thr = range over folds)", Y, P, D, langs, spread)
+    weights = {}
+    if Path(a.selected).exists():
+        weights = {r["text"]: r["w"] for r in map(json.loads, open(a.selected, encoding="utf-8")) if "w" in r}
+    if all(t in weights for t in texts):
+        report("student calibrated, out of fold, weighted to the candidate pool", Y, P, D, langs, spread,
+               w=np.array([weights[t] for t in texts]))
+    else:
+        print(f"\n(no weighted estimate: {a.selected} lacks the selection weight `w` of some gold texts)")
     if a.teacher:
         tmap = {json.loads(l)["text"]: json.loads(l)["t"] for l in open(a.teacher, encoding="utf-8")}
         idx = [j for j, t in enumerate(texts) if t in tmap]
         PT = np.array([[tmap[texts[j]].get(k, 0) for k in LABELS] for j in idx])
-        report("teacher Clef-Flash @0.5", Y[idx], PT, {k: 0.5 for k in LABELS}, [langs[j] for j in idx])
-    thr_all = {k: round(best_threshold(Y[:, i], P[:, i], BETA[k]), 2) if Y[:, i].sum() else 0.5 for i, k in enumerate(LABELS)}
-    print("\nshipping thresholds:", thr_all)
+        report("teacher Clef-Flash @0.5", Y[idx], PT, decide(PT, at(0.5)), [langs[j] for j in idx], at("0.50"))
+    thr_all = fit_thresholds(Y, P)
+    print("\nshipping thresholds (fit on all of gold):", thr_all)
     if a.write:
         cfgp = Path(a.ckpt) / "config.json"
         cfg = json.loads(cfgp.read_text())
@@ -99,6 +139,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("ckpt")
     ap.add_argument("--gold", default="data/gold.jsonl")
+    ap.add_argument("--selected", default="data/gold_selected.jsonl", help="gold/select_gold.py output, for the weights `w`")
     ap.add_argument("--teacher")
     ap.add_argument("--write", action="store_true")
     main(ap.parse_args())

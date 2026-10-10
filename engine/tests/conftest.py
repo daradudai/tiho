@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import socket
 from typing import Any
@@ -34,6 +35,7 @@ class FakeBackend:
     * answers are deterministic functions of (state, question)
     * `max_tokens`: estimated prompts above it fail like llama.cpp ("too large")
     * `gate`: an asyncio.Event every call waits on (to hold calls in flight)
+    * `serial`: one call at a time (each `delay` long), like llama.cpp runs decision requests
     """
 
     def __init__(self, delay: float = 0.0, max_tokens: int | None = None, slots: int = 4, n_ctx: int = 1024) -> None:
@@ -43,6 +45,8 @@ class FakeBackend:
         self.active = 0
         self.peak = 0
         self.gate: asyncio.Event | None = None
+        self.serial = False
+        self._lock = asyncio.Lock()
         self.fail_unavailable = 0
         self.status = "ok"
         self.info_ = BackendInfo(model="Fake-Clef", slots=slots, n_ctx_slot=n_ctx)
@@ -58,7 +62,8 @@ class FakeBackend:
             if self.gate is not None:
                 await self.gate.wait()
             if self.delay:
-                await asyncio.sleep(self.delay)
+                async with self._lock if self.serial else contextlib.nullcontext():
+                    await asyncio.sleep(self.delay)
             qs = body["questions"]
             if self.max_tokens is not None:
                 n = schema.prompt_tokens(body["state"], qs)

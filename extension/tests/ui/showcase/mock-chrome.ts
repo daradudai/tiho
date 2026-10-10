@@ -30,7 +30,7 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
   const data = new Map<string, unknown>();
   const onChanged = evt();
   const onMessage = evt();
-  let model: ModelStatus = opts.model ?? { state: 'ready', backend: 'webgpu', modelId: 'hush/hush-lite-mmbert-small', version: '1.0.0' };
+  let model: ModelStatus = opts.model ?? { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2-6L' };
 
   const storageLocal = {
     async get(keys?: string | string[] | null) {
@@ -134,10 +134,10 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
 
   if (opts.downloading) {
     let p = 0.08;
-    model = { state: 'downloading', backend: 'none', progress: p, modelId: 'hush/hush-lite-mmbert-small' };
+    model = { state: 'downloading', backend: 'none', progress: p, modelId: 'hush-lite/q8' };
     const id = setInterval(() => {
       p = Math.min(1, p + 0.035);
-      model = p >= 1 ? { state: 'ready', backend: 'webgpu', modelId: 'hush/hush-lite-mmbert-small' } : { ...model, progress: p };
+      model = p >= 1 ? { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2-6L' } : { ...model, progress: p };
       onMessage.emit({ type: 'hush:status', status: model }, {}, () => {});
       if (p >= 1) clearInterval(id);
     }, 400);

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
 import time
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, AsyncGenerator, Sequence
 
 from . import schema
 from .backend import InvalidRequest, PromptTooLarge
@@ -145,16 +146,15 @@ class ClassifyService:
         res["cached"] = cached
         return res
 
-    # -- API -------------------------------------------------------------------
-    async def classify(
+    async def _results(
         self,
         messages: Sequence[Msg],
-        filters: Sequence[Filter] = (),
-        base: bool = False,
-        deadline_ms: int | None = None,
-        context: str | None = None,
-    ) -> dict[str, Any]:
-        t0 = time.monotonic()
+        filters: Sequence[Filter],
+        base: bool,
+        deadline_ms: int | None,
+        context: str | None,
+    ) -> AsyncGenerator[tuple[int, dict[str, Any]], None]:
+        """(index, result) per message, each as soon as it is ready; what is not ready by the deadline comes last."""
         deadline = self.deadline_for(deadline_ms)
         self.requests += 1
         self.messages += len(messages)
@@ -172,26 +172,67 @@ class ClassifyService:
                 fquestions[qid] = q
             fmap.append((f.id, qid))
 
-        tasks = [
-            asyncio.ensure_future(self._message(m, base, fquestions, fmap, context, deadline)) for m in messages
-        ]
-        if tasks:
-            timeout = None if math.isinf(deadline) else max(0.0, deadline - time.monotonic())
-            done, not_done = await asyncio.wait(tasks, timeout=timeout)
-            for t in not_done:
+        tasks = {
+            asyncio.ensure_future(self._message(m, base, fquestions, fmap, context, deadline)): i
+            for i, m in enumerate(messages)
+        }
+        pending = set(tasks)
+        try:
+            while pending:
+                timeout = None if math.isinf(deadline) else max(0.0, deadline - time.monotonic())
+                done, pending = await asyncio.wait(pending, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+                if not done:
+                    break
+                for t in sorted(done, key=tasks.__getitem__):
+                    yield tasks[t], self._result(messages[tasks[t]], t)
+            for t in sorted(pending, key=tasks.__getitem__):
                 t.cancel()  # the shared backend jobs keep running and still fill the cache
-        results = []
-        n_expired = 0
-        for m, t in zip(messages, tasks):
-            if t.done() and not t.cancelled() and t.exception() is None:
-                results.append(t.result())
-                continue
-            exc = None if (t.cancelled() or not t.done()) else t.exception()
-            if exc is None or isinstance(exc, Expired):
-                n_expired += 1
-            results.append({"id": m.id, "error": _error_code(exc)})
-        self.expired += n_expired
+                yield tasks[t], self._result(messages[tasks[t]], t)
+        finally:
+            for t in pending:  # the client went away
+                t.cancel()
+
+    def _result(self, m: Msg, t: asyncio.Future) -> dict[str, Any]:
+        if t.done() and not t.cancelled() and t.exception() is None:
+            return t.result()
+        exc = None if (t.cancelled() or not t.done()) else t.exception()
+        if exc is None or isinstance(exc, Expired):
+            self.expired += 1
+        return {"id": m.id, "error": _error_code(exc)}
+
+    # -- API -------------------------------------------------------------------
+    async def classify(
+        self,
+        messages: Sequence[Msg],
+        filters: Sequence[Filter] = (),
+        base: bool = False,
+        deadline_ms: int | None = None,
+        context: str | None = None,
+    ) -> dict[str, Any]:
+        t0 = time.monotonic()
+        results: list[dict[str, Any]] = [{} for _ in messages]
+        async for i, r in self._results(messages, filters, base, deadline_ms, context):
+            results[i] = r
+        n_expired = sum(1 for r in results if r.get("error") == "expired")
         return {"results": results, "ms": round(1000 * (time.monotonic() - t0), 1), "expired": n_expired}
+
+    async def classify_stream(
+        self,
+        messages: Sequence[Msg],
+        filters: Sequence[Filter] = (),
+        base: bool = False,
+        deadline_ms: int | None = None,
+        context: str | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Like classify(), but each message's result as soon as it is ready (in the order they
+        finish, so a slow or expiring one never holds back the others), then {"done", "ms", "expired"}."""
+        t0 = time.monotonic()
+        n_expired = 0
+        async with contextlib.aclosing(self._results(messages, filters, base, deadline_ms, context)) as results:
+            async for _, r in results:
+                n_expired += r.get("error") == "expired"
+                yield r
+        yield {"done": True, "ms": round(1000 * (time.monotonic() - t0), 1), "expired": n_expired}
 
     async def systemone(self, body: dict[str, Any], deadline_ms: int | None = 0) -> dict[str, Any]:
         """Raw Jev/SystemOne passthrough (cached, deduped, queued like everything else)."""

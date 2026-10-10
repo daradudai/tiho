@@ -95,6 +95,16 @@ describe('EngineRouter', () => {
     expect(port.sent).toEqual([]);
   });
 
+  it('spends no engine time on chats in background tabs', async () => {
+    const { router, asked } = setup();
+    const port = new FakePort('hush:classify', { tab: { id: 7 } });
+    router.onLocalScores({ port, batchId: 1, items: items('go left'), ids: ['n0'], scores: [UNSURE], hidden: true });
+    router.onLocalScores({ port, batchId: 2, items: items('go right'), ids: ['n0'], scores: [CLEAN], hidden: false });
+    await tick();
+    expect(asked.map((q) => q.text)).toEqual(['go right']);
+    expect(port.engine.map((m) => m.batchId)).toEqual([2]);
+  });
+
   it('leaves out texts the engine did not answer, and sends nothing if none were', async () => {
     const { router } = setup(settings(), (q) => (q.text === 'late' ? null : { filters: { [KEY]: 0.7 } }));
     const port = new FakePort('hush:classify');
