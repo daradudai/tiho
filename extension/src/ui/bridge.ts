@@ -203,7 +203,7 @@ export async function getSnapshot(tabId: number, timeoutMs = 800): Promise<LiveS
   }
 }
 
-/** Fallback perf from the background (implemented by the background agent). */
+/** Fallback perf from the background (`hush:getPerf` in entrypoints/background.ts). */
 export async function getPerf(): Promise<{ stats: PerfStats & { platform?: string; channel?: string; counts?: Record<string, number> } } | null> {
   try {
     const r = (await chrome.runtime.sendMessage({ type: 'hush:getPerf' })) as any;

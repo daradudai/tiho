@@ -17,8 +17,8 @@ Goals
   more than ~2 ms per frame.
 - Multilingual: every language the base model saw (mmBERT: 1800+), tuned on real
   chat in EN, ES, DE, PT, FR, RU, BG, PL, TR, IT, JA, KO, …
-- Zero setup: install → open a stream → it works. Model downloads once and is
-  cached.
+- Zero setup: install → open a stream → it works. The release zip carries the
+  model, so nothing is downloaded and it works offline.
 - Optional **Hush Engine**: a local GPU server (RTX-class) running an open
   Jev-style decision model (Cloudflare Clef-Flash) for custom natural-language
   filters ("hide backseating", "hide spoilers for Elden Ring") and a second
@@ -34,18 +34,21 @@ any cloud, mobile apps.
 hush/
   extension/        WXT + TypeScript + Preact. Chrome MV3 (Firefox later).
     src/
-      core/         platform-agnostic: types, pipeline, rules, waves, cache, settings
+      core/         platform-agnostic: types, normalize, rules, waves, policy,
+                    settings, store
       platforms/    youtube.ts, twitch.ts, kick.ts  (DOM adapters)
-      inference/    offscreen host + worker running ONNX model (WebGPU → WASM)
+      runtime/      content-script engine: observer, per-frame passes, classifier Port
+      inference/    offscreen host + worker running the ONNX model (WebGPU → WASM)
+      engine-client/  background client for the optional Hush Engine
       ui/           overlay (in-chat, shadow DOM), popup, sidepanel, onboarding
       entrypoints/  WXT entrypoints (content scripts, background, offscreen, pages)
-    tests/          vitest unit + playwright e2e (mock chat + live smoke)
+    tests/          vitest unit + UI tests, Playwright stress harness and
+                    inference benchmark on mock chats, live-site tools
   engine/           Hush Engine: local server (Python, FastAPI) in front of
-                    llama.cpp `llama-server` running Clef-Flash; also serves the
-                    student ONNX on CUDA for bulk/benchmarks.
+                    llama.cpp `llama-server` running Clef-Flash.
   ml/               data collection, labeling (gold + teacher), training,
-                    ONNX export/quantization, evaluation, benchmarks.
-  docs/             architecture notes, model card, screenshots.
+                    distillation, ONNX export/quantization, evaluation.
+  docs/             architecture notes, model card, live test report, screenshots.
 ```
 
 ## 2. Message model
@@ -65,7 +68,7 @@ interface ChatMessage {
   mentions: string[]     // @names
   isReply: boolean
   isFirstMessage: boolean // Twitch "first time chatter" etc.
-  paid?: boolean         // superchat / bits / kicks — never hidden by default
+  paid: boolean          // superchat / bits / kicks / sticker — never hidden by default
   ts: number
 }
 ```
@@ -82,9 +85,12 @@ interface ChatMessage {
 | 5  | `positive` | supportive, kind, hype |
 | 6  | `negative` | complaining / criticism without abuse |
 
-`clean` = none of 0–3 above threshold. Labels are independent (a message can be
-`toxic` + `negative`). Thresholds per label are calibrated on the gold set and
-shipped in `model/config.json` as `hush.thresholds`.
+Labels are independent (a message can be `toxic` + `negative`). A message's
+category is the first label at or above its threshold in priority order
+(toxic > scam > spam > noise > question > negative > positive), or `clean` when
+none is. Thresholds per label are calibrated on the gold set for each student
+and shipped in the model's `config.json`: `hush.thresholds`, overridden per
+model file by `hush.variant_thresholds`.
 
 ## 4. Pipeline (per message)
 
@@ -119,20 +125,20 @@ held invisible (`visibility:hidden`, no layout shift... see adapter notes) for a
 most `holdMs` (default 250 ms). If inference does not answer in time the message
 is shown and re-evaluated when the score lands (can still collapse later).
 
-Never hidden by default: broadcaster, moderators, paid messages, messages that
-mention the viewer.
+Never hidden by default: broadcaster, moderators, VIPs, paid messages, the
+viewer's own messages and messages that mention the viewer.
 
 ### Tier 0 rules (core/rules.ts)
 - user allow/block lists (users, words, regex)
 - `!command` → noise
-- link detection (with allow-list of harmless domains: clips.twitch.tv, youtu.be when
-  posted by mods, …) → scam signal
+- link detection → scam signal, unless the domain is allow-listed (twitch.tv,
+  kick.com, wikipedia, emote sites, …) or the author is privileged
 - char/emote floods, caps ratio, repeated tokens → spam signal
 - duplicate by same user within 30 s → spam
-- **Waves**: SimHash over normalized text in a 10 s sliding window across users.
-  When ≥ N users post near-identical text the wave is detected; first message stays,
-  the rest collapse into a live counter on it ("KEKW ×37"). Waves are culture, not
-  spam: shown compact by default.
+- **Waves**: exact keys for short texts, SimHash over normalized text for longer
+  ones, in a 10 s sliding window across users. When ≥ 4 users post near-identical
+  text the wave is detected; first message stays, the rest collapse into a live
+  counter on it ("KEKW ×37"). Waves are culture, not spam: shown compact by default.
 
 ### Normalization (core/normalize.ts)
 NFKC, lowercase, strip zero-width & combining abuse, map homoglyphs/leet
@@ -141,25 +147,48 @@ cache key is the normalized text; the model sees the original (lightly cleaned).
 
 ## 5. In-browser model ("Hush Lite")
 
-- Base: `jhu-clsp/mmBERT-small` (ModernBERT arch, 140 M params, 256k vocab, MIT).
+- Base: `jhu-clsp/mmBERT-small` (ModernBERT arch, 140 M params, 256k vocab, MIT),
+  fine-tuned as a 22-layer model (v2), then distilled into two students: 6 layers
+  (v2-6L) for WebGPU and 3 layers (v2-3L) for WASM. One model folder holds both;
+  each browser loads only the one for its backend.
 - Fine-tuned multi-label head (7 sigmoid outputs), max_len 64 tokens.
-- Training data: real chat (Twitch IRC collection, YouTube/Kick samples) labeled by
-  a teacher (Clef-Flash decision model on the RTX 3090) + moderator-deletion weak
-  labels + public datasets (toxicity / spam) + synthetic hard cases. Gold eval set
-  hand-labeled (multilingual) by Claude agents and spot-checked.
-- Export: ONNX, int8 (and fp16 for WebGPU), loaded with transformers.js v4.
+- Training data: real chat (Twitch IRC, Kick Pusher, YouTube live chat) labeled by
+  a teacher (Clef-Flash decision model on the RTX 3090) and by Claude agents
+  (silver, active learning; messages moderators deleted were oversampled into the
+  labeling pool) + public datasets (toxicity / spam / sentiment) + synthetic hard
+  cases. Gold eval set: 2,000 real messages labeled by two Claude annotators and a
+  third that settled disagreements; no human labels
+  ([docs/MODEL_CARD.md](docs/MODEL_CARD.md)).
+- Export: ONNX with fused attention ops: `q8` (int8 weight-only) for WebGPU, `uint8`
+  (dynamic int8) for WASM. Run with ONNX Runtime Web; Transformers.js is used for
+  the tokenizer only.
+- Shipped in the release zip. A build may instead download it from a URL set at
+  build time, and then uses only files matching the SHA-256 hashes pinned in the
+  build.
 - Budget: ≤ 150 MB download, p95 ≤ 25 ms for a batch of 32 on a mid GPU, ≥ 300 msg/s
   on WASM (4 threads) on a mid laptop CPU. Cached by text, so effective throughput is
   much higher.
 
 ## 6. Hush Engine (optional, local GPU)
 
-- `engine/`: FastAPI on `127.0.0.1:7377`. Endpoints:
-  - `GET /health` → model, device, version
-  - `POST /v1/classify` `{messages:[{text, author, channel}], filters:[{id, question}]}`
-    → per message: student scores (CUDA ONNX) + answers to custom filters from Clef.
-- Clef-Flash (9B, GGUF Q8_0) via llama.cpp `llama-server` decision endpoint.
-- Batches, dedups and caches. Extension auto-detects it; status shown in UI.
+- `engine/`: FastAPI on `127.0.0.1:7377`, extension and localhost origins only.
+  Endpoints:
+  - `GET /health` → status, decision model, device, version, queue and cache stats
+  - `POST /v1/classify` `{messages:[{id, text, platform}], filters:[{id, question}],
+    base, deadline_ms, context, stream}` → per message: a probability per custom
+    filter and, with `base`, Clef-Flash's own category + tone scores (second
+    opinion); `{id, error: "expired"}` past the deadline.
+  - `POST /v1/systemone`: raw decision-model passthrough.
+- Clef-Flash (9B, GGUF `Q8_0` or `Q4_K_M` by VRAM) via the llama.cpp `llama-server`
+  decision endpoint. The engine starts and supervises its own llama-server, locked
+  with a random API key, or attaches to one that already runs.
+- Batches, dedups, caches, drops what misses its deadline (newest first under load).
+- Off by default. The viewer turns it on in the side panel; only then does the
+  background service worker poll `/health` and send it texts that reached the
+  in-browser model (none from background tabs): custom filters for each, the
+  second opinion only where the local model is unsure. Answers stream back to the
+  tab as they come in and re-decide rows already on screen. Status is shown in the
+  UI.
 
 ## 7. UI
 
@@ -182,16 +211,21 @@ cache key is the normalized text; the model sees the original (lightly cleaned).
 - Read DOM in one pass, write attributes in one pass per frame (rAF), no forced
   layout (no `offsetHeight` reads in hot path).
 - Content script holds only a bounded LRU (≤ 5k entries) and WeakMap for nodes.
-- Inference: dynamic batching (max 64, max wait 1 frame), dedup within batch,
-  LRU cache 20k in offscreen.
+- Inference: dynamic batching (max 64, max wait 12 ms ≈ 1 frame), dedup across
+  requests and tabs, LRU cache 20k in offscreen. Under load the newest texts go
+  first; a text not asked for again within 2 s is dropped, and above 4,096 queued
+  texts new ones are rejected (their rows keep the rules-only verdict).
 - Telemetry stays local: p50/p95 latency, msg/s, cache hit rate, shown in side panel.
 
 ## 9. Testing
 
-- Unit (vitest): normalize, rules, waves, policy, adapters against saved HTML fixtures.
+- Unit (vitest): normalize, rules, waves, policy, runtime, inference, engine client,
+  UI, adapters against saved HTML fixtures.
 - Perf harness: `extension/tests/stress/` a mock chat page per platform skin that
-  emits N msg/s from the real collected corpus; Playwright loads the unpacked
-  extension and measures long tasks, frame drops, latency.
-- Live smoke (Playwright, headed Chrome): open a live stream on each platform, assert
-  messages get `data-hush-c` within 1 s.
-- ML eval: macro-F1 per label on gold set, per language.
+  emits N msg/s from the real collected corpus; Playwright runs the content-script
+  runtime on it (and, in `ext-smoke.mjs`, the real built extension) and measures
+  main-thread cost, long tasks, frame drops, latency.
+- Live sites: `extension/tests/tools/live-check.mjs` runs the adapters on a real live
+  page and reports extracted vs. skipped rows.
+- ML eval: average precision and cross-validated precision / recall / F1 per label
+  on the gold set, macro-F1 per stream language.

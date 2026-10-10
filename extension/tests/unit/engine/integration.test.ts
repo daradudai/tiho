@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { EngineFollowUp } from '../../../src/core/protocol';
 import { DEFAULT_SETTINGS, engineQuestion, filterKey, type EngineFilter, type Settings } from '../../../src/core/settings';
-import { EngineClient } from '../../../src/engine-client/client';
+import { EngineClient, type EngineClientOptions } from '../../../src/engine-client/client';
 import { EngineRouter } from '../../../src/engine-client/router';
 import { InferenceHub, type PortLike } from '../../../src/inference/hub';
 import { FILTER_PRESETS } from '../../../src/ui/sidepanel/filter-presets';
@@ -33,8 +33,8 @@ const BEGGING = preset('begging');
 // A shared GPU can be slow: give answers time (the extension uses 2.5 s).
 const DEADLINE_MS = 30_000;
 
-async function connected(): Promise<EngineClient> {
-  const c = new EngineClient({ deadlineMs: DEADLINE_MS });
+async function connected(o: EngineClientOptions = {}): Promise<EngineClient> {
+  const c = new EngineClient({ deadlineMs: DEADLINE_MS, ...o });
   c.configure(true, URL);
   await c.check();
   expect(c.status.state).toBe('ready');
@@ -60,6 +60,24 @@ describe.skipIf(!up)('Hush Engine (live)', () => {
     expect(beg!.filters[kg]).toBeGreaterThan(0.5);
     expect(fine!.filters[kb]).toBeLessThan(0.5);
     expect(fine!.filters[kg]).toBeLessThan(0.5);
+    c.dispose();
+  });
+
+  it('streams answers, each text as soon as it is ready', { timeout: 60_000 }, async () => {
+    const types: string[] = [];
+    const c = await connected({
+      fetch: async (input, init) => {
+        const res = await fetch(input, init);
+        if (String(input).endsWith('/v1/classify')) types.push(res.headers.get('content-type') ?? '');
+        return res;
+      },
+    });
+    const filters = [BACKSEAT].map((f) => ({ id: filterKey(f), question: engineQuestion(f.question) }));
+    const run = Date.now().toString(36); // texts the engine has not cached yet
+    const texts = ['go left', 'nice play', 'use the bow', 'what game is this', 'lol', 'jump now!!', 'gg', 'check the map'];
+    const answers = await Promise.all(texts.map((t) => c.ask({ text: `${t} ${run}`, platform: 'twitch', filters, base: false })));
+    expect(types).toEqual(['application/x-ndjson']); // one request, streamed
+    expect(answers.every((a) => a && Number.isFinite(a.filters[filterKey(BACKSEAT)]))).toBe(true);
     c.dispose();
   });
 
@@ -115,12 +133,18 @@ describe.skipIf(!up)('Hush Engine (live)', () => {
     const req = sentOff.find((m) => m.type === 'classify');
     offMsg({ type: 'scores', id: req.id, ids: ['a', 'b'], scores: [[0.01, 0.01, 0.01, 0.02, 0.01, 0.1, 0.02], [0, 0, 0, 0.9, 0, 0, 0]], ms: 2, backend: 'webgpu' });
 
-    for (let i = 0; i < 600 && !got.length; i++) await new Promise((r) => setTimeout(r, 50));
-    expect(got).toHaveLength(1);
+    // answers come as they are ready, possibly in more than one follow-up
+    const p = new Map<string, number>();
     const k = filterKey(BACKSEAT);
-    expect(got[0]).toMatchObject({ type: 'engine', batchId: 1, ids: ['a', 'b'] });
-    expect(got[0]!.filters[k]![0]).toBeGreaterThan(0.5);
-    expect(got[0]!.filters[k]![1]).toBeLessThan(0.5);
+    for (let i = 0; i < 600 && p.size < 2; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      for (const m of got.splice(0)) {
+        expect(m).toMatchObject({ type: 'engine', batchId: 1 });
+        m.ids.forEach((id, j) => p.set(id, m.filters[k]![j]!));
+      }
+    }
+    expect(p.get('a')).toBeGreaterThan(0.5);
+    expect(p.get('b')).toBeLessThan(0.5);
     c.dispose();
   });
 });

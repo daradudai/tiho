@@ -4,17 +4,29 @@ Hush on real, busy live chats on Twitch, Kick and YouTube, with the bundled mode
 
 **Result:** the content-script pipeline works on all three sites: rows get verdicts, the bar renders, questions are highlighted, spam is folded, waves are counted, and the model runs on WebGPU and on WASM. Hush Engine answered every question in time. Five bugs were found. The most serious one is [BUG-1](#bug-1-side-panel-and-popup-never-get-live-data): the side panel and the popup never get live data, so the Live, Inbox and Log tabs, the popup stats and the stream-context field do not work on a real page.
 
+**Status:** all five bugs were fixed in `a049001`:
+
+| Bug | Fix |
+|---|---|
+| [BUG-1](#bug-1-side-panel-and-popup-never-get-live-data) | `startHush` (`extension/src/runtime/index.ts`) calls `serveLive` once a chat is on screen. |
+| [BUG-2](#bug-2-wave-times-mix-two-clocks-497680h-ago-live-marker-never-on) | The runtime converts wave times to wall-clock milliseconds before they reach the store. |
+| [BUG-3](#bug-3-the-3-layer-wasm-student-is-never-bundled) | `modules/hush-inference.ts` takes the file of each variant from `config.json` → `hush.files`, so the default build bundles `model_uint8_3L.onnx`. |
+| [BUG-4](#bug-4-re-rendered-or-re-mounted-rows-are-folded-as-repeat-spam) | The runtime keeps what it decided about the last 1,024 messages by key, and the duplicate rule ignores a message with the same key. |
+| [BUG-5](#bug-5-minor-the-side-panel-says-no-stream-open-on-a-chat-page-when-the-content-script-does-not-answer) | `connectLive` reports the tab at once when nothing serves it, and keeps its stale timer running across retries. |
+
+The rest of this page describes the build that was tested, before these fixes.
+
 ## Setup
 
 | | |
 |---|---|
-| Machine | Windows 11, Ryzen 9 3950X, RTX 3090. llama-server with Clef-Flash-Q8_0 was running on `:7378` and other agents were using the GPU at the same time. |
+| Machine | Windows 11, Ryzen 9 3950X, RTX 3090. llama-server with Clef-Flash-Q8_0 was running on `:7378` and other jobs were using the GPU at the same time. |
 | Build | `HUSH_OUT=.output-e2e npx wxt build` (default variants). Output: `model_quantized.onnx` (112.5 MB), tokenizer and config. **The 3-layer `model_uint8_3L.onnx` was not bundled** ([BUG-3](#bug-3-the-3-layer-wasm-student-is-never-bundled)). |
 | Browser | Playwright 1.64 bundled Chromium 156.0.8078.4, headed, `launchPersistentContext` with `--disable-extensions-except/--load-extension`, device scale 2. Each run used a fresh profile with default settings (Chill preset). |
 | Perf numbers | Every `hush:perf` message, captured by a listener added to the service worker. Worker statistics came from `hush:getPerf` and `hush:getStatus` sent from an extension page. |
 | Engine | `engine\.venv\Scripts\python.exe -m hush_engine --attach http://127.0.0.1:7378` on `:7377`. It was stopped after the runs, and llama-server was left running. |
 
-The test scripts are in the session scratchpad and are not committed. If you want them in the repo, they are close to `extension/tests/tools/live-look.mjs`. Two browser limits are not Hush bugs. Playwright's Chromium has no proprietary codecs, so YouTube's player shows "Something went wrong" and some Twitch players stay black. The chat is not affected.
+The test scripts are not in the repo; `extension/tests/tools/live-look.mjs` does the same kind of run. Two browser limits are not Hush bugs. Playwright's Chromium has no proprietary codecs, so YouTube's player shows "Something went wrong" and some Twitch players stay black. The chat is not affected.
 
 ## What was verified
 
@@ -64,32 +76,14 @@ The test was done through the side panel UI, on Twitch ohnepixel. Steps: **Rules
   - "Avoid the villages to the east"
   - the same line as copypasta
   ```html
-  <div class="Layout-sc-1xcs6mc-0" data-hush-a="hide" data-hush-c="clean" data-hush-r="filter: backseating">…TimooDZ: Avoid the villages to the east…
+  <div class="Layout-sc-1xcs6mc-0" data-hush-a="hide" data-hush-c="clean" data-hush-r="filter: backseating">…viewer1: Avoid the villages to the east…
   ```
 - After switching the filter to **Dim** (the action button in the filter list), new matches stayed visible and dimmed, for example `dim (filter: backseating)` on "@ohnePixel Remember to avoid the villages to the east".
 - With BUG-1 patched in a scratch build ([below](#media)), the stream-context field showed and saved per channel. In that run the engine answered 140 texts with 0 expired.
 
 ## Media
 
-All of these files are in `docs/img/`. Every PNG and WebP is under 600 KB, and the GIF is under 8 MB.
-
-| File | What | Source |
-|---|---|---|
-| `hush-live.gif` (420×780, 8 fps, 20 s, 6.4 MB) and `hush-live.mp4` (same clip, 1.4 MB) | Twitch ohnepixel popout chat with Hush on: `×6` wave, "1 hidden · show" pills, highlighted questions, live counters in the bar | Playwright `recordVideo`, converted with ffmpeg. `recordVideo` records at CSS pixels and ignores device scale, so a narrow popout window was used to keep text sharp. |
-| `live-twitch-chat.png` | Twitch popout, dark theme. The bar shows 37% hushed and counters. Questions are highlighted and messages have category edges. | shipped build |
-| `live-twitch-dashboard.png` | Expanded bar on illojuan (Spanish): 16% hushed · 112 of 691, rate and vibe charts, category grid, waves `Sisi ×11 · KEK ×29 · LOL ×12`, latest questions, "Ready · WebGPU · 40 ms" | shipped build |
-| `live-kick-chat.webp` | Kick cuvey (Fortnite) with video: "4 hidden · show" pill, highlighted question, bar | shipped build |
-| `live-youtube-chat.png` | YouTube popout, Live chat, light theme: pill, highlighted questions, negative edges | shipped build |
-| `live-twitch-sidepanel.png`, `live-twitch-inbox.png`, `live-twitch-log.png`, `live-twitch-popup.png`, `live-twitch-engine.png` | Side panel Live, Inbox and Log tabs, popup, and the Custom AI filters card connected to the engine with a stream context | **Scratch build with BUG-1 patched** (`serveLive` wired in `runtime/index.ts`, 3 lines, outside the repo). Until BUG-1 is fixed, the shipped extension shows "No stream open" or "waiting for chat" instead. Use these only after the fix. The Live tab also shows BUG-2 ("497680h ago") at the bottom edge. |
-| `e2e/*` | Evidence for the bugs below | |
-
-A suggested README row, if wanted:
-
-```html
-<p align="center"><img src="docs/img/hush-live.gif" width="420" alt="Hush on a live Twitch chat"></p>
-```
-
-Content check: the media were chosen to avoid visible slurs. The GIF contains one mild profanity ("played like shit"). Toxic lines in the Log screenshot are blurred by the UI.
+The screenshots and the recording taken during this run showed real chatter names, so they are not published. The side panel, popup and engine captures came from a scratch build with BUG-1 patched (`serveLive` wired in `runtime/index.ts`, 3 lines). The live images and the demo clip in the [README](../README.md) were captured later, after the fixes, with `extension/tests/tools/media-shoot.mjs`, which swaps every chatter name for a made-up one before each capture.
 
 ## Bugs
 
@@ -104,7 +98,7 @@ Content check: the media were chosen to avoid visible slurs. The GIF contains on
   3. Click the bar's expand arrow, then **Open dashboard**. The side panel opens and stays on "Open a live stream" with "No stream open" in its header. The Inbox and Log tabs are empty.
   4. Open the popup: it shows "Twitch · waiting for chat" and only msgs/s (the `hush:getPerf` fallback).
   5. In Rules → Custom AI filters with the engine on, the stream context shows "Open a stream to give the engine context about it…" instead of the field.
-- **Evidence.** `docs/img/e2e/bug1-real-build-sidepanel-popup.webp`. With this 3-line change in a scratch copy, everything works (see the `live-twitch-*` side panel and popup images):
+- **Evidence.** A screenshot of the side panel and popup on the real build (not published, see [Media](#media)). With this 3-line change in a scratch copy, everything works:
   ```ts
   // runtime/index.ts, startHush
   let offLive: (() => void) | null = null;
@@ -127,7 +121,7 @@ Content check: the media were chosen to avoid visible slurs. The GIF contains on
   [{"text":"zimmer×26","live":false,"title":"25 people · 497680h ago"},{"text":"mhm×12","live":false,"title":"14 people · 497680h ago"}]
   ```
   This JSON was read from the open shadow root. The side panel's Waves card shows "5 people · 497680h ago".
-- **Evidence.** `docs/img/e2e/bug2-wave-ago.png`.
+- **Evidence.** A screenshot of the side panel's Waves card (not published, see [Media](#media)).
 - **Fix.** Convert to wall time when building `WaveInfo` (store `Date.now()`-based times), or send the age instead of timestamps.
 
 ### BUG-3: the 3-layer WASM student is never bundled
@@ -151,14 +145,14 @@ Content check: the media were chosen to avoid visible slurs. The GIF contains on
   2. Open the chat-mode menu and pick **Live chat**. Picking **Top chat** again has the same effect.
   3. YouTube re-creates every row with the same element id. 50 of 71 messages changed verdict, for example:
      ```json
-     {"id":"ChwKGkNQbmF5TXZ0cjVjREZUSEU1d01kUWtjUHlB","before":"data-hush-a=\"show\" data-hush-c=\"clean\"","after":"data-hush-a=\"collapse\" data-hush-c=\"spam\" data-hush-r=\"repeat\" data-hush-run=\"1\"","newNode":true,"text":"@ajm64sc2: betting sponsored team ez"}
+     {"id":"ChwKGk…","before":"data-hush-a=\"show\" data-hush-c=\"clean\"","after":"data-hush-a=\"collapse\" data-hush-c=\"spam\" data-hush-r=\"repeat\" data-hush-run=\"1\"","newNode":true,"text":"@viewer2: betting sponsored team ez"}
      ```
   4. In another run, every one of the 68 re-created rows ended as `collapse/repeat`, and no row was hidden any more (2 were hidden as toxic before the switch). So toxic lines end up one click away, behind "show".
-  5. The chat shows a stack of "7 hidden · show", "6 hidden · show" pills: `docs/img/e2e/bug4-youtube-mode-switch.webp`.
+  5. The chat shows a stack of "7 hidden · show", "6 hidden · show" pills.
 - **Repro, Kick.**
   1. Open `https://kick.com/korekore_ch` and wait 25 s.
   2. Scroll the chat up about 1500 px. The virtual list re-mounts older rows as new nodes.
-  3. 47 of 56 previously seen messages changed from `show/negative · 14%`, `highlight/question · 62%` and so on to `collapse/repeat`. The scrolled-back history reads "105 hidden · show" and the spam counter jumped to 608: `docs/img/e2e/bug4-kick-scroll-up.webp`.
+  3. 47 of 56 previously seen messages changed from `show/negative · 14%`, `highlight/question · 62%` and so on to `collapse/repeat`. The scrolled-back history reads "105 hidden · show" and the spam counter jumped to 608.
   4. This contradicts `docs/architecture.md`: "Keys are content hashes so a re-mounted row keeps its verdict."
 - **Fix.** In `process()`, when there is no `prev` for the node but `byKey` (or a small key → `RowState` / verdict map) knows `msg.key` with the same text, reuse that state (`knownDup`) instead of feeding the rule tracker again. The duplicate tracker could also ignore entries with the same key. The `seen` and count totals should not count re-mounts.
 
@@ -171,7 +165,7 @@ Content check: the media were chosen to avoid visible slurs. The GIF contains on
 ## Other observations (not bugs)
 
 - **Model misses seen live:**
-  - "jewnicker" (Kick, clavicular) was shown as clean.
+  - An antisemitic slur (Kick, clavicular) was shown as clean.
   - "sped" used as an insult (Twitch) was shown.
   - English chat is very noise-heavy (77% noise on ohnepixel), mostly `???` and `gg` waves. That is expected, and noise is shown under Chill.
 - **YouTube channel.** The YouTube adapter reports the video id as the channel (by design). The side panel and the per-channel engine context are therefore per video, e.g. "lvfB2KhWSBE".

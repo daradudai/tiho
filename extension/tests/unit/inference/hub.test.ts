@@ -201,4 +201,42 @@ describe('InferenceHub: failed model load', () => {
     await vi.advanceTimersByTimeAsync(5_000);
     expect(calls).toBe(2);
   });
+
+  it('loads again at once on Retry and starts the backoff over', () => {
+    vi.useFakeTimers();
+    const { hub } = setup();
+    hub.addClient(new FakePort('hush:classify'));
+    const off = new FakePort('hush:offscreen');
+    hub.attachOffscreen(off);
+    off.emit({ type: 'status', status: failed });
+    vi.advanceTimersByTime(5_000);
+    off.emit({ type: 'status', status: failed }); // next automatic retry would be in 10 s
+    expect(inits(off)).toBe(2);
+    hub.reload();
+    expect(inits(off)).toBe(3);
+    vi.advanceTimersByTime(60_000);
+    expect(inits(off)).toBe(3); // the pending automatic retry is gone
+    off.emit({ type: 'status', status: { state: 'loading', backend: 'none' } });
+    off.emit({ type: 'status', status: failed });
+    vi.advanceTimersByTime(5_000);
+    expect(inits(off)).toBe(4); // from 5 s again
+  });
+
+  it('Retry works without an open chat, and only after a failure', () => {
+    const { hub } = setup();
+    const off = new FakePort('hush:offscreen');
+    hub.attachOffscreen(off);
+    hub.reload();
+    expect(inits(off)).toBe(1); // loading fine: nothing to retry
+    off.emit({ type: 'status', status: failed });
+    hub.reload();
+    expect(inits(off)).toBe(2);
+  });
+
+  it('Retry creates the inference host when there is none', () => {
+    const { hub, ensured } = setup();
+    hub.restoreStatus(failed); // persisted by a previous service worker
+    hub.reload();
+    expect(ensured()).toBe(1);
+  });
 });

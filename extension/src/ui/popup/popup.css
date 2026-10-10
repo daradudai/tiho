@@ -331,10 +331,26 @@
   gap: 10px;
   min-width: 0;
 }
-.pp-model > span:last-child {
+.pp-model-text {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+.pp-model-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.pp-retry {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.pp-retry:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .pp-model b {
   font-size: 12px;

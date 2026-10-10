@@ -1,11 +1,11 @@
 # Checks for every push to main and every pull request.
 #
 #   extension  typecheck, unit tests, production build without the model
-#              (the model is git-ignored; the build then expects to download it)
+#              (the model is git-ignored, so this build filters with rules only)
 #   engine     unit tests against the fake llama-server backend; the
 #              integration tests need a real GPU server and are deselected
 #
-# Playwright suites (stress, live smoke) need real chat logs, a display or live
+# Playwright suites (stress, live-site checks) need real chat logs, a display or live
 # streams, so they stay local.
 name: CI
 
@@ -57,10 +57,11 @@ jobs:
         run: |
           out=.output/chrome-mv3
           for f in manifest.json background.js content-scripts/chat.js offscreen.html popup.html sidepanel.html onboarding.html \
-                   ort/ort-wasm-simd-threaded.asyncify.mjs ort/ort-wasm-simd-threaded.asyncify.wasm; do
+                   ort/ort-wasm-simd-threaded.asyncify.mjs ort/ort-wasm-simd-threaded.asyncify.wasm LICENSE THIRD_PARTY_NOTICES.md; do
             test -s "$out/$f" || { echo "::error::missing $out/$f"; exit 1; }
           done
           if [ -d "$out/models" ]; then echo "::error::model files leaked into the build"; exit 1; fi
+          if grep -Eq 'huggingface\.co|hf\.co' "$out/manifest.json"; then echo "::error::model host permissions without WXT_HUSH_MODEL_URL"; exit 1; fi
           du -sh "$out"
 
       - name: Upload build

@@ -3,7 +3,7 @@ import type { Platform } from '../../core/types';
 import { Mark } from '../brand';
 import { Icon, PlatformGlyph } from '../icons';
 import { Button, Card, Row, Slider, Toggle, modelStatus, settings, updateSettings } from '../kit/kit';
-import { BACKEND_LABEL, modelLayers, modelProblem, modelSummary, prettyModel } from '../model-status';
+import { BACKEND_LABEL, modelLayers, modelProblem, modelSummary, prettyModel, retryModel } from '../model-status';
 import { strictWord } from '../format';
 import { REPO_URL } from './filter-presets';
 
@@ -118,7 +118,14 @@ function ModelCard() {
           <h3>{prettyModel(m?.modelId)}</h3>
           <p>{m?.modelId ?? 'hush-lite · mmBERT-small, distilled for live chat'}</p>
         </div>
-        {sum && <span class={`sp-tone sp-tone-${sum.tone}`}>{m!.state === 'ready' ? BACKEND_LABEL[m!.backend] ?? m!.backend : sum.title}</span>}
+        {m?.state === 'error' ? (
+          // what failed is in the box below
+          <Button variant="subtle" size="sm" icon="refresh" onClick={retryModel}>
+            Retry
+          </Button>
+        ) : (
+          sum && <span class={`sp-tone sp-tone-${sum.tone}`}>{m!.state === 'ready' ? BACKEND_LABEL[m!.backend] ?? m!.backend : sum.title}</span>
+        )}
       </div>
       {m?.state === 'downloading' && (
         <div class="sp-model-prog">

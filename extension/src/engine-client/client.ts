@@ -3,6 +3,11 @@
 //   ask(query) ──▶ group by (filters, base, context) ──≤ 50 ms or 32 texts──▶ POST /v1/classify
 //              ◀── answer, or null = no opinion (expired, overloaded, engine down)
 //
+// Requests ask for a streamed answer (NDJSON, one line per text as the engine
+// finishes it), so each text settles when its own answer is in instead of
+// when the slowest text of its request is; an engine that cannot stream
+// answers with one JSON for the whole request.
+//
 // Health is polled only while the engine is enabled: every 10 s when ready,
 // every 2 s while it loads, backing off from 2 s to 30 s while nothing
 // answers. An answer that lands seconds late is useless in a live chat, so
@@ -17,10 +22,13 @@ import type { EngineStatus, EngineTestRequest, EngineTestResult } from '../core/
 import {
   MAX_FILTERS,
   baseToScores,
+  ndjson,
   normalizeUrl,
   statusFromHealth,
+  type ClassifyLine,
   type ClassifyRequest,
   type ClassifyResponse,
+  type ClassifyResult,
   type Health,
 } from './api';
 
@@ -339,6 +347,7 @@ export class EngineClient {
       messages: batch.map((e, i) => ({ id: String(i), text: e.text, ...(e.platform ? { platform: e.platform } : {}) })),
       filters: g.filters,
       deadline_ms: Math.max(MIN_BUDGET_MS, Math.round(left)),
+      stream: true,
     };
     if (g.base) body.base = true;
     if (g.context) body.context = g.context;
@@ -348,7 +357,23 @@ export class EngineClient {
     this.aborts.add(ac);
     this.inflight++;
     const t0 = this.now();
-    const answers: (EngineAnswer | null)[] = batch.map(() => null);
+    /** Texts still waiting for their answer (null once settled). */
+    const open: (Entry | null)[] = [...batch];
+    const answer = (r: ClassifyResult) => {
+      const i = Number(r.id);
+      const e = Number.isInteger(i) ? open[i] : undefined;
+      if (!e || ac.signal.aborted) return;
+      open[i] = null;
+      if ('error' in r || !r.filters) {
+        this.settle(e, null);
+        return;
+      }
+      const a: EngineAnswer = { filters: r.filters, base: baseToScores(r.base) };
+      if (epoch === this.epoch) this.cache.set(e.key, a);
+      this.settle(e, a);
+      const ms = this.now() - t0;
+      this.st.latencyMs = this.st.latencyMs ? Math.round(this.st.latencyMs * 0.8 + ms * 0.2) : Math.round(ms);
+    };
     try {
       const res = await this.fetch(`${this.url}/v1/classify`, {
         method: 'POST',
@@ -357,14 +382,12 @@ export class EngineClient {
         signal: ac.signal,
       });
       if (res.status === 503) void this.check(); // engine up, model not (any more)
-      else if (res.ok) {
+      else if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+        // an engine without streaming answers the whole batch at once
         const j = (await res.json()) as ClassifyResponse;
-        for (const r of j.results ?? []) {
-          const i = Number(r.id);
-          if (!('error' in r) && i >= 0 && i < batch.length && r.filters) answers[i] = { filters: r.filters, base: baseToScores(r.base) };
-        }
-        const ms = this.now() - t0;
-        this.st.latencyMs = this.st.latencyMs ? Math.round(this.st.latencyMs * 0.8 + ms * 0.2) : Math.round(ms);
+        for (const r of j.results ?? []) answer(r);
+      } else if (res.ok && res.body) {
+        for await (const line of ndjson<ClassifyLine>(res.body)) if ('id' in line) answer(line);
       }
     } catch (e) {
       if (!ac.signal.aborted && !isTimeout(e) && epoch === this.epoch) this.lost();
@@ -373,12 +396,7 @@ export class EngineClient {
       this.aborts.delete(ac);
       this.inflight--;
     }
-    for (let i = 0; i < batch.length; i++) {
-      const e = batch[i]!;
-      const a = answers[i]!;
-      if (a && epoch === this.epoch) this.cache.set(e.key, a);
-      this.settle(e, a);
-    }
+    for (const e of open) if (e) this.settle(e, null);
     this.pump();
   }
 

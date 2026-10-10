@@ -11,12 +11,14 @@
 //               batches, hold timeouts, late Hush Engine answers
 //  WRITE phase: data-hush-a / -c / -r / -wh / -wm attribute diffs, then
 //               data-hush-run on the last row of every changed pill run
+//               (that row is the pill: a button for the keyboard too)
 //  FLUSH      : classifier batch → Port; Store (≤ 4 Hz, one batch())
 //
 // No layout reads, no inline styles, one stylesheet. Rows are tracked in a
 // WeakMap; a row whose content changes (recycled node) is re-evaluated. A
 // message seen before that comes back in a new node keeps what was decided
-// about it (recent, by ChatMessage.key).
+// about it (recent, by ChatMessage.key), and its scores while the model that
+// gave them is loaded.
 
 import { batch } from '@preact/signals';
 import { LRU } from '../core/lru';
@@ -69,6 +71,8 @@ interface RowState {
   rule: RuleResult;
   wave: WaveHit | null;
   scores: number[] | null;
+  /** Model that gave `scores` (modelKey): another model's scores are asked again, not re-thresholded. */
+  model: string;
   verdict: Verdict | null;
   /** Verdict is final (not provisional / not waiting for the model). */
   final: boolean;
@@ -108,6 +112,8 @@ const WAVE_COUNTER_MS = 250;
 const RESOLVE_COALESCE_MS = 40;
 const COALESCE_MIN_RATE = 20; // msg/s
 const COLLAPSED = `[${ATTR.action}="collapse"]`;
+/** What the pill row says to assistive tech (the pill itself is drawn by the stylesheet). */
+const pillLabel = (n: number) => `${n} hidden message${n === 1 ? '' : 's'}, show`;
 
 const zeroCounts = (): Record<Category, number> => ({
   toxic: 0,
@@ -170,7 +176,7 @@ export class HushRuntime {
   private settings: Settings;
   private ctx: PolicyContext;
   private thresholds: number[] | null = null;
-  /** Model that scored the rows (modelKey of the last ready status). */
+  /** Model loaded now (modelKey of the last ready status). */
   private model = '';
   private classifier: ClassifierClient | null;
   private now: () => number;
@@ -190,7 +196,8 @@ export class HushRuntime {
    * that comes back in a new node (Kick re-mounts rows scrolled back into
    * view, YouTube re-renders the list on a chat-mode switch, Hush or the site
    * turned off and on) keeps its verdict and is not counted, logged or fed to
-   * the duplicate tracker and waves a second time.
+   * the duplicate tracker and waves a second time. Its scores stand while
+   * their model is loaded; after a switch it is scored again (see process).
    */
   private recent = new LRU<string, RowState>(RECENT_MESSAGES);
   private queue = new Set<HTMLElement>();
@@ -222,6 +229,8 @@ export class HushRuntime {
   private scheduledAt = 0;
   private rafId = 0;
   private fallbackId: ReturnType<typeof setTimeout> | 0 = 0;
+  private resolveTimer: ReturnType<typeof setTimeout> | 0 = 0;
+  private laterTimer: ReturnType<typeof setTimeout> | 0 = 0;
   private holdTimer: ReturnType<typeof setTimeout> | 0 = 0;
   private nextDeadline = Infinity;
   private tickTimer: ReturnType<typeof setInterval> | 0 = 0;
@@ -365,7 +374,6 @@ export class HushRuntime {
       this.schedule();
     }, RESOLVE_COALESCE_MS);
   }
-  private resolveTimer: ReturnType<typeof setTimeout> | 0 = 0;
 
   /** Un-hide a message (by ChatMessage.key) and scroll it into view. */
   reveal(key: string): boolean {
@@ -493,20 +501,16 @@ export class HushRuntime {
    * Another model was loaded (the 3-layer student after a lost GPU, say). The
    * old one's scores mean nothing against the new thresholds, so rows decided
    * on them are asked again instead of re-thresholded; they keep their verdict
-   * until the new scores land.
+   * until the new scores land. Messages off screen are asked again when they
+   * come back (process).
    */
   private rescoreAll(): void {
     const cl = this.classifier;
     for (const row of this.live) {
       const st = this.states.get(row);
       if (!st) continue;
-      if (st.scores && !st.waiting && cl?.available) {
-        cl.request(st.norm, cleanForModel(st.msg.text));
-        const w = this.waiting.get(st.norm);
-        if (w) w.push(row);
-        else this.waiting.set(st.norm, [row]);
-        st.waiting = true;
-      } else this.redecide(row, st);
+      if (st.scores && !st.waiting && cl?.available) this.ask(cl, row, st);
+      else this.redecide(row, st);
     }
     this.schedule();
   }
@@ -558,6 +562,7 @@ export class HushRuntime {
     this.observer = new MutationObserver(this.onMutations);
     this.observer.observe(list, { childList: true, subtree: sub, characterData: sub });
     list.addEventListener('click', this.onClick, true);
+    list.addEventListener('keydown', this.onKeyDown, true);
 
     // rows already present
     const kids = list.children;
@@ -573,6 +578,7 @@ export class HushRuntime {
     this.observer?.disconnect();
     this.observer = null;
     this.list?.removeEventListener('click', this.onClick, true);
+    this.list?.removeEventListener('keydown', this.onKeyDown, true);
     this.list?.removeAttribute(ATTR.list);
     this.listMarked = false;
     if (clear) {
@@ -583,6 +589,7 @@ export class HushRuntime {
     this.live.clear();
     this.byKey.clear();
     this.queue.clear();
+    this.retryQueue.length = 0;
     this.dirty.clear();
     this.waiting.clear();
     this.held.clear();
@@ -658,17 +665,29 @@ export class HushRuntime {
 
   private onClick = (e: Event): void => {
     const t = e.target as Element | null;
-    const row = t && typeof t.closest === 'function' ? (t.closest(`${COLLAPSED}:not([${ATTR.open}])`) as HTMLElement | null) : null;
-    if (!row || row.parentElement !== this.list) return;
+    const row = t && typeof t.closest === 'function' ? t.closest(`${COLLAPSED}:not([${ATTR.open}])`) : null;
+    if (row && row.parentElement === this.list) this.openPill(row, e);
+  };
+
+  /** Enter or Space on the focused pill (the run's last row, a button: see markRun) opens it like a click. */
+  private onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const row = e.target as Element | null;
+    if (row && row.parentElement === this.list && row.hasAttribute(ATTR.run) && !row.hasAttribute(ATTR.open)) this.openPill(row, e);
+  };
+
+  /**
+   * The pill stands for its whole run (it is drawn by the run's last row):
+   * expand every collapsed row of it; rows taking no space stay hidden. The
+   * attribute shows them now, the next frame settles their verdicts and runs.
+   */
+  private openPill(row: Element, e: Event): void {
     e.preventDefault();
     e.stopPropagation();
-    // The pill stands for its whole run (it is drawn by the run's last row):
-    // expand every collapsed row of it; rows taking no space stay hidden. The
-    // attribute shows them now, the next frame settles their verdicts and runs.
     this.revealRun(row, 'previousElementSibling');
     this.revealRun(row.nextElementSibling, 'nextElementSibling');
     this.schedule();
-  };
+  }
 
   private revealRun(from: Element | null, step: 'previousElementSibling' | 'nextElementSibling'): void {
     for (let r = from; r; r = r[step]) {
@@ -677,6 +696,7 @@ export class HushRuntime {
       if (v === 0) continue;
       r.setAttribute(ATTR.open, '');
       const st = this.states.get(r);
+      this.markRun(r, st, 0); // no longer a pill (nor a button)
       if (st) {
         st.revealed = true;
         this.dirty.add(r as HTMLElement);
@@ -763,7 +783,6 @@ export class HushRuntime {
     this.syncListMark(); // after the first pass over pre-existing rows
   }
 
-  private laterTimer: ReturnType<typeof setTimeout> | 0 = 0;
   private scheduleLater(ms: number): void {
     if (this.laterTimer) return;
     this.laterTimer = setTimeout(() => {
@@ -834,6 +853,7 @@ export class HushRuntime {
       rule,
       wave: null,
       scores: null,
+      model: '',
       verdict: null,
       final: false,
       waiting: false,
@@ -861,7 +881,7 @@ export class HushRuntime {
     if (a0 !== null) {
       if (row.hasAttribute(ATTR.waveHead)) row.removeAttribute(ATTR.waveHead);
       if (row.hasAttribute(ATTR.open)) row.removeAttribute(ATTR.open);
-      if (row.hasAttribute(ATTR.run)) row.removeAttribute(ATTR.run);
+      this.markRun(row, undefined, 0);
     }
     this.states.set(row, st);
     this.live.add(row);
@@ -886,19 +906,25 @@ export class HushRuntime {
       return;
     }
     const cl = this.classifier;
-    const cached = cl && norm ? cl.lookup(norm) : undefined;
+    // a known message keeps its scores, even once out of the cache, while their model is loaded
+    const cached = (cl && norm ? cl.lookup(norm) : undefined) ?? (known && known.model === this.model ? known.scores : null);
     if (cached) {
       st.scores = cached;
+      st.model = this.model;
       this.metrics.decided.cache++;
       this.setVerdict(row, st, decide(cached, rule, st.wave, ctx, st.viaModel ? 'model' : 'cache'), true, now);
       return;
     }
     if (cl && norm && cl.available) {
-      cl.request(norm, cleanForModel(msg.text));
-      const w = this.waiting.get(norm);
-      if (w) w.push(row);
-      else this.waiting.set(norm, [row]);
-      st.waiting = true;
+      this.ask(cl, row, st);
+      if (known && known.scores && known.verdict) {
+        // Scored by the model loaded before: like the rows on screen when it
+        // changed (rescoreAll), it keeps its verdict until the new scores land.
+        st.scores = known.scores;
+        st.model = known.model;
+        this.setVerdict(row, st, known.verdict, false, now);
+        return;
+      }
       const waveMember = st.wave && st.wave.role === 'member' && ctx.collapseWaves;
       if (this.holdOn && !rule.protect && !rule.user && !waveMember) {
         st.deadline = now + this.settings.holdMs;
@@ -957,6 +983,15 @@ export class HushRuntime {
       if (!this.waveHeads.has(w.id)) this.waveHeads.set(w.id, st.key);
       this.waveDirty.add(w.id);
     }
+  }
+
+  /** Ask the classifier for a row's scores; resolve() decides the row when they land. */
+  private ask(cl: ClassifierClient, row: HTMLElement, st: RowState): void {
+    cl.request(st.norm, cleanForModel(st.msg.text));
+    const w = this.waiting.get(st.norm);
+    if (w) w.push(row);
+    else this.waiting.set(st.norm, [row]);
+    st.waiting = true;
   }
 
   private headAlive = (key: string): boolean => {
@@ -1025,12 +1060,12 @@ export class HushRuntime {
         const st = this.states.get(row);
         if (!st || st.norm !== id || !st.waiting) continue;
         st.waiting = false;
-        const wasHeld = st.deadline !== 0;
-        if (wasHeld) {
+        if (st.deadline) {
           st.deadline = 0;
           this.held.delete(row);
         }
         st.scores = scores;
+        st.model = this.model;
         st.viaModel = !!scores;
         if (scores) this.metrics.decided.model++;
         else this.metrics.decided.fallback++;
@@ -1057,7 +1092,12 @@ export class HushRuntime {
     for (const row of this.live) {
       const st = this.states.get(row);
       if (!st || !st.scores || !ids.has(st.norm)) continue;
-      st.scores = cl?.cache.peek(st.norm) ?? st.scores; // re-requested after an eviction: the vector that has the answer
+      // re-requested after an eviction or a model switch: the vector that has the answer
+      const answered = cl?.cache.peek(st.norm);
+      if (answered) {
+        st.scores = answered;
+        st.model = this.model;
+      }
       this.redecide(row, st);
     }
     ids.clear();
@@ -1251,10 +1291,25 @@ export class HushRuntime {
     this.runDirty.clear();
   }
 
+  /**
+   * Move a run mark onto (n > 0) or off (0) a row. The marked row is the pill,
+   * so it is also a button for the keyboard (focusable, named "3 hidden
+   * messages, show"; Enter or Space opens it, see onKeyDown). Chat rows have
+   * no tabindex, role or aria-label of their own, so removing ours is safe.
+   */
   private markRun(row: Element, st: RowState | undefined, n: number): void {
     if (st ? st.rm === n : !n && !row.hasAttribute(ATTR.run)) return;
-    if (n) row.setAttribute(ATTR.run, String(n));
-    else row.removeAttribute(ATTR.run);
+    if (n) {
+      row.setAttribute(ATTR.run, String(n));
+      row.setAttribute('tabindex', '0');
+      row.setAttribute('role', 'button');
+      row.setAttribute('aria-label', pillLabel(n));
+    } else {
+      row.removeAttribute(ATTR.run);
+      row.removeAttribute('tabindex');
+      row.removeAttribute('role');
+      row.removeAttribute('aria-label');
+    }
     if (st) st.rm = n;
   }
 
@@ -1292,8 +1347,8 @@ export class HushRuntime {
     row.removeAttribute(ATTR.reason);
     row.removeAttribute(ATTR.waveHead);
     row.removeAttribute(ATTR.waveMember);
-    row.removeAttribute(ATTR.run);
     row.removeAttribute(ATTR.open);
+    this.markRun(row, undefined, 0);
   }
 
   // ───────────────────────────── store ─────────────────────────────
@@ -1313,7 +1368,11 @@ export class HushRuntime {
       s.totals.value = { seen: this.seen, filtered: this.filteredCount };
       if (nq.length) s.questions.value = nq.reverse().concat(s.questions.peek()).slice(0, 100);
       if (nf.length) s.filtered.value = nf.reverse().concat(s.filtered.peek()).slice(0, 200);
-      if (wavesDirty) s.waves.value = this.waves.list(now).map((w) => ({ ...w, startedAt: w.startedAt - now + Date.now(), lastAt: w.lastAt - now + Date.now() })); // waves run on this.now; the store is epoch ms, like ChatMessage.ts
+      if (wavesDirty) {
+        // waves run on this.now; the store is epoch ms, like ChatMessage.ts
+        const epoch = Date.now() - now;
+        s.waves.value = this.waves.list(now).map((w) => ({ ...w, startedAt: w.startedAt + epoch, lastAt: w.lastAt + epoch }));
+      }
     });
   }
 

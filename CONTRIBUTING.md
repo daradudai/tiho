@@ -33,7 +33,7 @@ npx vitest run         # unit tests
 npm run build          # production build into .output/chrome-mv3
 ```
 
-The model is not in git. To work with the real model, put it in `extension/public/models/hush-lite/` (see [extension/README.md](extension/README.md#the-model)). Without it, Hush still runs: rules filter on their own and the model status shows the download error.
+The model is not in git. To work with the real model, put it in `extension/public/models/hush-lite/` (see [extension/README.md](extension/README.md#the-model)). Without it, Hush still runs: rules filter on their own and the model status says "Model not included in this build".
 
 **Engine** (Python 3.10+, no GPU needed for tests):
 
@@ -48,13 +48,13 @@ python -m venv .venv
 
 ## Rules of the house
 
-**Privacy.** Chat text never leaves the device. No analytics, no telemetry, no remote code (Manifest V3 forbids it anyway), no new network destinations without discussion. The only allowed requests are the model download and the user's own Hush Engine.
+**Privacy.** Chat text never leaves the device. No analytics, no telemetry, no remote code (Manifest V3 forbids it anyway), no new network destinations without discussion. The only allowed requests are the model download (only in builds made with `WXT_HUSH_MODEL_URL`, and only files whose hashes the build pins) and the user's own Hush Engine.
 
 **Performance** (SPEC.md §8). The content script shares the page's main thread with the chat itself:
 
 - One `MutationObserver` on the chat list, `childList` only. Never poll or walk the whole DOM.
 - Read in one pass, write in one pass, once per animation frame. No layout reads (`offsetHeight`, `getBoundingClientRect`, ...) in the hot path.
-- Rows get attributes only (`data-hush-*`); all visuals live in the one injected stylesheet. No inline styles on rows.
+- Rows get attributes only (`data-hush-*`, plus the button attributes of a pill row); all visuals live in the one injected stylesheet. No inline styles on rows.
 - Bounded memory: LRU caches with a size, `WeakMap` for nodes.
 
 If you touch `src/runtime`, `src/core` or `src/platforms`, run the stress harness before and after and put both numbers in the PR:

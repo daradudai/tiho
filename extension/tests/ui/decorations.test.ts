@@ -22,6 +22,7 @@ describe('pillRuns', () => {
 
 describe('decorationCss', () => {
   it('uses only plain attribute selectors on the row (no scoping, combinators or counters)', () => {
+    const run = '[data-hush-run][data-hush-a="collapse"]:not([data-hush-open])';
     for (const p of ['twitch', 'youtube', 'kick'])
       for (const t of ['dark', 'light'] as const) {
         const css = decorationCss(p, t);
@@ -30,11 +31,22 @@ describe('decorationCss', () => {
         expect(css).not.toContain('counter');
         const sels = selectors(css);
         expect(sels.length).toBeGreaterThan(30);
-        for (const s of sels) {
-          // one compound selector: attributes, :not(attribute), :hover, :dir(rtl), ::before / ::after
-          expect(s, s).toMatch(/^(\[data-hush-[a-z]+(="[a-z]+")?\]|:not\(\[data-hush-[a-z]+(="[a-z]+")?\]\)|:hover|:dir\(rtl\)|::before|::after)+$/);
+        // the one exception: the pill row's own content, hidden so that the row can stay visible and take focus
+        expect(sels.filter((s) => s.includes('>'))).toEqual([`${run}>*`]);
+        for (const s of sels.filter((s) => !s.includes('>'))) {
+          // one compound selector: attributes, :not(attribute), :hover, :focus-visible, :dir(rtl), ::before / ::after
+          expect(s, s).toMatch(/^(\[data-hush-[a-z]+(="[a-z]+")?\]|:not\(\[data-hush-[a-z]+(="[a-z]+")?\]\)|:hover|:focus-visible|:dir\(rtl\)|::before|::after)+$/);
         }
       }
+  });
+
+  it('lets the pill row take keyboard focus: visible itself, its content hidden, a ring on the pill', () => {
+    const css = decorationCss('kick', 'light');
+    const run = '[data-hush-run][data-hush-a="collapse"]:not([data-hush-open])';
+    expect(css).toContain('overflow:hidden!important;visibility:visible!important;opacity:1!important;color:transparent!important;');
+    expect(css).toContain(`${run}>*{visibility:hidden!important}`);
+    expect(css).toContain(`${run}:focus-visible::before{box-shadow:inset 2px 0 0 var(--hush-link),`);
+    expect(css).toContain(`${run}:focus-visible:dir(rtl)::before{box-shadow:inset -2px 0 0 var(--hush-link),`);
   });
 
   it('mirrors everything that has a side for right-to-left chats, labels kept left-to-right', () => {

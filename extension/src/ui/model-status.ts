@@ -1,5 +1,6 @@
 // Human-readable model status, shared by the bar and extension pages.
 
+import type { RuntimeMessage } from '../core/protocol';
 import type { ModelStatus } from '../core/types';
 import { pct } from './format';
 
@@ -29,6 +30,15 @@ export function modelProblem(error?: string): string {
   if (/^GET |failed to fetch|network/i.test(e)) return 'Model download failed';
   if (/no usable model file|non-finite|webgpu|wasm|backend|session/i.test(e)) return 'Model could not run on this device';
   return 'Model could not load';
+}
+
+/** Retry: the background loads a model that failed to load again now (it also retries by itself, with backoff, while a chat is open). */
+export function retryModel(): void {
+  try {
+    chrome.runtime.sendMessage({ type: 'hush:reloadModel' } satisfies RuntimeMessage).catch(() => {});
+  } catch {
+    /* no extension context (showcase) */
+  }
 }
 
 export function modelSummary(m: ModelStatus): { title: string; sub: string; tone: StatusTone } {

@@ -17,6 +17,13 @@
   <img src="https://img.shields.io/badge/model-on--device-22c55e" alt="On-device model">
 </p>
 
+<!-- docs/img/hush-demo.gif and .mp4: node extension/tests/tools/media-shoot.mjs <Twitch popout chat url> clip
+     --viewport 340x600 --trim 0.8 --clip-height 502 -->
+<p align="center">
+  <img src="docs/img/hush-demo.gif" width="420" alt="Hush on a live Twitch chat: the bar counts hushed toxic, scam and spam messages, spam folds into '1 hidden · show' pills, and 20 identical 'LOL' messages fold into one line marked ×20">
+  <br><sub>Hush on a live Twitch chat, 14 seconds (<a href="docs/img/hush-demo.mp4">MP4</a>). Names are made up, see below.</sub>
+</p>
+
 <!-- docs/img/*.png are copies of extension/tests/ui/screenshots/ (node tests/ui/shoot.mjs):
      twitch-chill = chat-twitch-dark, youtube-reason = chat-youtube-light-hover, kick-chill = chat-kick-dark,
      twitch-focus = chat-twitch-light-focus, twitch-dashboard = chat-twitch-dark-open, popup = popup-dark,
@@ -38,11 +45,34 @@
 
 <p align="center"><sub>These are renders of the real UI components on a mock chat (<code>extension/tests/ui/showcase</code>), not captures of live streams. Names and counts are sample data.</sub></p>
 
+<!-- docs/img/live-*.png: node extension/tests/tools/media-shoot.mjs <channel url> <shots> (see its header) -->
+<p align="center"><b>On live streams</b></p>
+<table>
+  <tr>
+    <td align="center" width="25%"><img src="docs/img/live-twitch-chat.png" alt="Live Twitch chat with Hush, Chill preset: two folded spam pills, a highlighted question and an o7 wave marked ×5"><br><sub><b>Twitch.</b> Spam folded into pills, a question lit up, an "o7" wave counted ×5.</sub></td>
+    <td align="center" width="25%"><img src="docs/img/live-twitch-light.png" alt="Live Twitch chat in the light theme with a ×6 wave, a folded pill and highlighted questions"><br><sub><b>Light theme.</b> The bar and the marks follow the site's theme.</sub></td>
+    <td align="center" width="25%"><img src="docs/img/live-kick-chat.png" alt="Live Kick chat of a chess stream with many highlighted questions"><br><sub><b>Kick.</b> A chess stream: questions to the streamer stand out.</sub></td>
+    <td align="center" width="25%"><img src="docs/img/live-youtube-chat.png" alt="Live YouTube chat on the watch page with highlighted questions in English and Hindi"><br><sub><b>YouTube.</b> Watch-page chat, questions in English and Hindi.</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/img/live-twitch-dashboard.png" alt="The in-chat bar expanded on a live Twitch chat: 24% hushed, rate and vibe charts, category counts, waves and latest questions"><br><sub><b>Bar, expanded.</b> 24% hushed, waves, latest questions.</sub></td>
+    <td align="center"><img src="docs/img/live-sidepanel-live.png" alt="Side panel Live tab: hushed share, messages per second, vibe and per-category counts"><br><sub><b>Side panel.</b> Rate, vibe and every category.</sub></td>
+    <td align="center"><img src="docs/img/live-sidepanel-inbox.png" alt="Side panel Inbox tab listing questions from chat"><br><sub><b>Inbox.</b> Every question from chat in one list.</sub></td>
+    <td align="center"><img src="docs/img/live-sidepanel-log.png" alt="Side panel Log tab: hidden toxic messages blurred, folded spam and copypasta with the reason"><br><sub><b>Log.</b> What was filtered and why. Toxic text stays blurred.</sub></td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2"><img src="docs/img/live-popup.png" width="62%" alt="Toolbar popup on a live Twitch chat: 23% hushed, 3 messages per second, Chill preset, model ready on WebGPU"><br><sub><b>Popup.</b> Preset, strictness, model status.</sub></td>
+    <td align="center" colspan="2"><img src="docs/img/live-engine.png" width="62%" alt="Custom AI filters card connected to Hush Engine (Clef-Flash on an RTX 3090) with a Backseating filter, a stream context and a test that scores a message 89%"><br><sub><b>Custom AI filters.</b> Hush Engine on an RTX 3090 with a Backseating filter.</sub></td>
+  </tr>
+</table>
+
+<p align="center"><sub>Captured on live Twitch, Kick and YouTube streams with the bundled model. Chatter names, @mentions and avatars were swapped for made-up handles in the page before each capture (<code>extension/tests/tools/anonymize.js</code>); message text and Hush's verdicts are untouched.</sub></p>
+
 ---
 
 ## What it does
 
-- **Hides the ugly.** Insults, harassment, slurs, threats, scam links, bots and "free robux" pitches are hidden. Spam is folded into a thin `2 hidden · show` pill. One click brings any of it back.
+- **Hides the ugly.** Insults, harassment, slurs, threats, scam links, bots and "free robux" pitches are hidden. Spam is folded into a thin `2 hidden · show` pill. One click (or Enter on the focused pill) brings any of it back.
 - **Folds waves.** When 37 people type `KEKW` within a few seconds, you see one `KEKW ×37` with a live counter. Waves are chat culture, not spam, so they stay, just compact. Copypasta with small edits joins the same wave.
 - **Surfaces questions.** Real questions get a soft highlight and collect in an inbox in the side panel, so the one person asking something does not drown in emotes.
 - **Reads the room.** A slim bar above chat shows how much was hushed, messages per second and a **vibe meter** (positive vs. negative over the last few minutes).
@@ -69,30 +99,29 @@ Hush needs **Chrome 124 or newer**. It is built and tested on Chrome; other Chro
 
 1. Download the latest `hush-*-chrome.zip` from [Releases](https://github.com/daradudai/hush/releases) and unzip it.
 2. Open `chrome://extensions`, turn on **Developer mode** (top right), click **Load unpacked** and pick the unzipped folder (the one with `manifest.json`).
-3. A welcome tab opens. Pick a preset, then open any live stream.
+3. A welcome tab opens. Pick a preset, then open any live stream. Chats that were already open start filtering too, without a reload.
 
 Release builds include the model, so nothing is downloaded and Hush works offline from the first message.
 
 ### From source
 
-You need Node.js 22.
+You need Node.js 22 and the model. **The model is not in git** (105 to 113 MB per file), so download a release zip as above and unzip it first: the build bundles whatever is in `extension/public/models/hush-lite/`.
 
 ```sh
 git clone https://github.com/daradudai/hush.git
 cd hush/extension
 npm ci
-npm run build          # output: extension/.output/chrome-mv3
+cp -r path/to/unzipped-release/models public/   # PowerShell: Copy-Item -Recurse path\to\unzipped-release\models public\
+npm run build                                   # output: extension/.output/chrome-mv3
 ```
 
-Then load `extension/.output/chrome-mv3` as above.
+Check that `extension/public/models/hush-lite/config.json` exists before you build, then load `extension/.output/chrome-mv3` as above.
 
-**The model is not in git** (105 to 113 MB per file). The build bundles whatever is in `extension/public/models/hush-lite/`:
+Instead of a release, you can export your own students and combine them as described in [ml/README.md](ml/README.md#9-export). By default only the two files the extension uses are bundled, the 6-layer `onnx/model_quantized.onnx` for WebGPU and the 3-layer `onnx/model_uint8_3L.onnx` for WASM, plus the tokenizer and config.
 
-- **Bundled (recommended).** Put the model folder there before you build. Copy `models/hush-lite/` out of a release zip, or export your own students and combine them as described in [ml/README.md](ml/README.md#9-export). By default only the two files the extension uses are bundled, the 6-layer `onnx/model_quantized.onnx` for WebGPU and the 3-layer `onnx/model_uint8_3L.onnx` for WASM, plus the tokenizer and config.
-- **Downloaded.** If the folder is missing, the extension fetches the model on first use from `REMOTE_MODEL_URL` in [`src/inference/config.ts`](extension/src/inference/config.ts) (override at build time with `WXT_HUSH_MODEL_URL`). It downloads only the file for its backend (112.5 MB on WebGPU, 105.3 MB on the CPU) plus the tokenizer (13.7 MB) and keeps them in the browser's Cache Storage. Until the model is ready, the Tier-0 rules filter on their own.
+Without the folder the build has no model. Hush still runs, but only the Tier-0 rules filter, and the model status says "Model not included in this build". There is no default download location.
 
-> [!NOTE]
-> Release zips bundle the model, so they never download it. A Hugging Face mirror at the default `REMOTE_MODEL_URL` (`huggingface.co/hush-chat/hush-lite`) is planned but not published yet; until then, a build without the model folder filters with rules only, unless you point `WXT_HUSH_MODEL_URL` at your own copy.
+To keep the model out of the zip, you can host the model folder yourself: build with `WXT_HUSH_MODEL_URL` set to its base URL and `HUSH_BUNDLE_MODEL=0`. The build still needs the model folder, because it pins the SHA-256 and size of every file, and the extension uses a downloaded file only if it matches. Each browser then downloads only the file for its backend (112.5 MB on WebGPU, 105.3 MB on the CPU) plus the tokenizer (13.7 MB), once, and keeps them in Cache Storage. Until the model is ready, the rules filter on their own.
 
 Build switches and dev workflow: [extension/README.md](extension/README.md).
 
@@ -102,10 +131,10 @@ The in-browser model knows seven fixed categories. **Hush Engine** adds filters 
 
 - Best on an NVIDIA GPU: 7.5 GB of VRAM runs the 6 GiB `Q4_K_M` model, 14 GB or more the 9 GiB `Q8_0`. Without NVIDIA it uses llama.cpp's Vulkan build (Windows, Linux) or the regular build (macOS); with too little VRAM, llama.cpp offloads to the CPU and it gets slow.
 - Windows: `cd engine` then `.\start.ps1`. Linux, macOS or Git Bash: `./start.sh`. The first run creates a Python virtual environment (needs Python 3.10+), downloads llama.cpp and the model (resumable, SHA-256 verified) and starts both.
-- Binds to `127.0.0.1` only and accepts requests only from extension and localhost origins.
+- Binds to `127.0.0.1` only and accepts requests only from extension and localhost origins. The llama.cpp server it starts gets a new random API key on every run, so no web page can use it either.
 - Turn it on in **Side panel → Rules → Custom AI filters**. There you can also test a filter on a sample message and give each channel a short stream context ("Elden Ring, first playthrough") that the engine sees with every question.
-- The extension's background worker sends the engine each text right after the in-browser model has scored it, so only messages that reached the model (not those decided by rules or answered from the tab's own cache). Every custom filter is asked about every such text. The second opinion is asked only where the in-browser model was close to a threshold that would dim, fold or hide something. Its scores are then averaged with the local ones, each against thresholds calibrated for its own model, so it settles close calls instead of overruling the in-browser model. On the gold set's close calls, next to the 6-layer model this hid fewer clean messages and caught more bad ones than the model alone; next to the 3-layer model the two come out about even.
-- Answers arrive a moment after the local verdict and update the message where it is, even if it is already on screen. A filter that fires can highlight, dim, fold or hide a message; it never makes a verdict milder. Each text has 2.5 seconds: answers that would come later are dropped, and under load the newest messages are asked first.
+- The extension's background worker sends the engine each text right after the in-browser model has scored it, so only messages that reached the model (not those decided by rules or answered from the tab's own cache), and none from chats in background tabs. Every custom filter is asked about every such text. The second opinion is asked only where the in-browser model was close to a threshold that would dim, fold or hide something. Its scores are then averaged with the local ones, each against thresholds calibrated for its own model, so it settles close calls instead of overruling the in-browser model. On the gold set's close calls, next to the 6-layer model this hid fewer clean messages and caught more bad ones than the model alone; next to the 3-layer model the two come out about even.
+- Answers stream back one by one, a moment after the local verdict, and update the message where it is, even if it is already on screen. A filter that fires can highlight, dim, fold or hide a message; it never makes a verdict milder. Each text has 2.5 seconds: answers that would come later are dropped, and under load the newest messages are asked first.
 - One RTX 3090 answers about 10 messages per second with 3 filters, so in a very busy chat the engine keeps up with only part of it. Each text is asked once: answers are cached in the extension and in the engine, so repeats and waves cost nothing.
 
 Full details (requirements per GPU, API, scheduling, security): [engine/README.md](engine/README.md).
@@ -131,7 +160,7 @@ flowchart LR
 
 1. **One observer per chat.** A content script watches only the chat list. Each platform adapter turns a DOM row into a plain message: author, roles, text with emotes as their codes, mentions, paid flag. Adapters were checked against the live sites (Twitch also with 7TV, and Kick's virtualized list) and are tested against saved HTML fixtures.
 2. **Tier 0, in microseconds.** Text is normalized (Unicode, zero-width and zalgo characters, homoglyphs, leetspeak, repeated characters). Rules decide the obvious cases on their own (your rules, `!commands`, floods, duplicates, emote-only lines, known scam patterns) and add signals for the rest (untrusted links, caps, repeats). A SimHash index finds waves across users in a sliding window.
-3. **The model, off the page.** Messages that still need an opinion are batched once per frame and sent to the background service worker, which forwards them to one offscreen document shared by all tabs. Its worker runs **Hush Lite**, a distilled mmBERT with seven sigmoid outputs (`toxic, spam, scam, noise, question, positive, negative`), in the size that suits the device: 6 layers on the GPU through WebGPU, 3 layers on the CPU through WebAssembly. It batches dynamically, groups texts of similar length, dedups, and caches 20k results. Repeats and waves never reach the model twice.
+3. **The model, off the page.** Messages that still need an opinion are batched once per frame and sent to the background service worker, which forwards them to one offscreen document shared by all tabs. Its worker runs **Hush Lite**, a distilled mmBERT with seven sigmoid outputs (`toxic, spam, scam, noise, question, positive, negative`), in the size that suits the device: 6 layers on the GPU through WebGPU, 3 layers on the CPU through WebAssembly. It batches dynamically, groups texts of similar length, dedups, and caches 20k results. Repeats and waves never reach the model twice. When it falls behind, the newest messages go first, and a message that has waited 2 seconds is dropped and keeps its rules-only verdict.
 4. **Policy.** Scores are compared with per-label thresholds calibrated on the gold evaluation set (for each model size separately) and shifted by your strictness setting. The category with the highest priority wins (toxic > scam > spam > noise > question > negative > positive) and maps to your action for it. Privileged authors, paid messages, your own messages and mentions of you are capped at show or highlight.
 5. **No flash, no jank.** When a category you hide depends on the model, new rows stay invisible until they have a verdict, for at most 250 ms (configurable). If the model is late, the message shows and is re-checked when its score lands. All writes happen in one pass per animation frame, as attributes only, styled by one injected stylesheet. Hush never reads layout in the hot path.
 
@@ -143,13 +172,13 @@ Measured on a Ryzen 9 3950X + RTX 3090 under Windows 11. The machine was busy wi
 
 **Cost on the page** (mock Twitch / YouTube chat fed with real chat lines, Hush paused vs. running in alternating windows):
 
-| Chat speed | Script + style + layout Hush adds per message | Longest single Hush callback | Page long tasks (paused / running) | Row insert → verdict, p50 / p95 |
-|---|---|---|---|---|
-| 100 msg/s | 0.21 to 0.26 ms | 1.2 ms | 0 / 0 | 35 to 38 / 61 to 64 ms |
-| 200 msg/s | 0.15 to 0.20 ms | 1.4 ms | 0 / 0 | 35 to 36 / 60 to 62 ms |
-| 100 msg/s, CPU throttled ×4 | 0.88 ms | 4.3 ms | 1 / 2 | 46 / 83 ms |
+| Chat speed | Script + style + layout Hush adds per message | All main-thread work Hush adds per message | Longest single Hush callback | Page long tasks (paused / running) | Row insert → verdict, p50 / p95 |
+|---|---|---|---|---|---|
+| 100 msg/s | 0.16 to 0.17 ms | 0.26 ms | 0.4 to 0.8 ms | 0 / 0 | 38 to 39 / 64 to 65 ms |
+| 200 msg/s | 0.11 to 0.12 ms | 0.14 to 0.15 ms | 0.8 to 0.9 ms | 0 / 0 | 34 to 35 / 60 to 66 ms |
+| 100 msg/s, CPU throttled ×4 | 0.71 ms | 1.2 ms | 2.4 ms | 1 / 0 | 50 / 77 ms |
 
-Ranges cover the Twitch and YouTube skins. Under ×4 throttling the mock page had long tasks with Hush paused too; Hush's longest callback there was 4.3 ms.
+Ranges cover the Twitch and YouTube skins. "All main-thread work" also counts painting the rows Hush hides or folds, and is noisier on a shared machine. Under ×4 throttling the one long task came while Hush was paused.
 
 In a 5-minute soak at 100 msg/s the page heap grew 1.4 MB (6.6 → 8.0 MB; the score cache sits at its 5,000-entry cap from 90 s on) and no frame took over 33 ms. These runs simulate inference latency (25 ms + 0.4 ms per item); with the real extension and the model on WASM, a 50 msg/s smoke test measured p50 10 to 30 ms and p95 about 60 ms from row insert to verdict, with no long tasks.
 
@@ -202,14 +231,14 @@ The best epoch of each run was also picked on the gold set, so these AP numbers 
 | `onnx/model_q4f16.onnx` (q4f16) | 6 layers | 61.9 MB | optional, WebGPU only; smallest, but 0.7% of decisions differ from fp32 |
 | `tokenizer.json` | | 13.7 MB | both |
 
-Each browser loads one model file and the tokenizer, 120 to 126 MB in all.
+Each browser loads one model file and the tokenizer: 126 MB on WebGPU, 119 MB on the CPU.
 
 Data, training, evaluation, limitations and biases: **[MODEL_CARD](docs/MODEL_CARD.md)**. Pipeline and scripts: [ml/README.md](ml/README.md).
 
 ## Privacy
 
 - Chat text is classified inside your browser. Hush has no server, no account, no analytics and no telemetry.
-- Hush makes two kinds of network requests, no more: the one-time model download (only when the model is not bundled) and, if you turn it on, requests to Hush Engine at the address in your settings, by default `http://127.0.0.1:7377` on your own computer. While the engine is off, nothing is sent to it.
+- Hush makes two kinds of network requests, no more: the one-time model download, only in a build made to download it (release zips include the model, so they never download it), and, if you turn it on, requests to Hush Engine at the address in your settings, by default `http://127.0.0.1:7377` on your own computer. While the engine is off, nothing is sent to it.
 - Settings and your "not spam" feedback stay in your browser's extension storage. The filtered log and the questions inbox live in memory and disappear when you close the tab.
 
 Details: [PRIVACY.md](PRIVACY.md).
@@ -227,7 +256,7 @@ extension/   Chrome MV3 extension (WXT, TypeScript, Preact)
   tests/           vitest unit tests, fixtures, stress and inference benchmarks
 engine/      Hush Engine: local FastAPI server in front of llama.cpp + Clef-Flash
 ml/          data collection, labeling, training, distillation, ONNX export
-docs/        architecture, model card, screenshots
+docs/        architecture, model card, live test report, screenshots
 SPEC.md      the design contract between the parts
 ```
 
@@ -251,8 +280,8 @@ Hush stands on a lot of open work:
   [wangyuancheng/discord-phishing-scam](https://huggingface.co/datasets/wangyuancheng/discord-phishing-scam) (MIT),
   [FredZhang7/all-scam-spam](https://huggingface.co/datasets/FredZhang7/all-scam-spam) (Apache-2.0),
   [clapAI/MultiLingualSentiment](https://huggingface.co/datasets/clapAI/MultiLingualSentiment) (Apache-2.0),
-  and the [YouTube Spam Collection](https://archive.ics.uci.edu/dataset/380/youtube+spam+collection) by Alberto, Lochter and Almeida, UCI Machine Learning Repository (CC BY 4.0).
+  and the [YouTube Spam Collection](https://doi.org/10.24432/C58885) by T. C. Alberto and J. V. Lochter, UCI Machine Learning Repository (CC BY 4.0).
 
 ## License
 
-[MIT](LICENSE) for the code and the Hush Lite model weights. Clef-Flash and llama.cpp are downloaded by Hush Engine from their own sources under their own licenses (Apache-2.0 and MIT); they are not part of this repository.
+[MIT](LICENSE) for the code and the Hush Lite model weights. The extension bundles ONNX Runtime Web, Transformers.js, Preact and mmBERT's tokenizer under their own licenses (MIT and Apache-2.0); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which every build carries next to `LICENSE`. Clef-Flash and llama.cpp are downloaded by Hush Engine from their own sources under their own licenses (Apache-2.0 and MIT); they are not part of this repository.

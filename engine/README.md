@@ -54,6 +54,10 @@ On first start the engine downloads anything that is missing:
 To fetch everything without starting the server, use `--download-only`. To never download
 anything, use `--no-download`.
 
+These downloads come from their publishers under their own licenses: Clef-Flash under
+Apache-2.0, llama.cpp under MIT, and the CUDA runtime archives under NVIDIA's CUDA Toolkit EULA.
+None of them is part of this repository ([THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)).
+
 ## Run
 
 ```powershell
@@ -102,7 +106,7 @@ visit can use that server.
   "no engine opinion".
 - Under load some messages of a request expire, and a plain JSON answer then arrives at the
   deadline, even for messages that were done long before. Send `stream: true` to get each answer
-  as soon as it is ready.
+  as soon as it is ready. The extension does (`extension/src/engine-client/client.ts`).
 - **The engine refines a subset of messages; it cannot classify every message in a busy chat.**
   One RTX 3090 handles about 10 messages per second with 3 filters. Repeats and waves cost
   nothing because of the cache.
@@ -165,8 +169,8 @@ Fields:
   "this message". Identical questions are asked only once.
 - **`base`** (default false): also ask the teacher's category + tone schema.
 - **`deadline_ms`** (default 3000): `0` means wait as long as it takes.
-- **`context`** (optional): added to the state as `Stream context: ...`. It helps filters such as
-  spoilers and backseating. Without it, the state is exactly the teacher's:
+- **`context`** (optional, up to 300 chars): added to the state as `Stream context: ...`. It
+  helps filters such as spoilers and backseating. Without it, the state is exactly the teacher's:
   `"<Platform> live chat message: <text>"`.
 - **`stream`** (default false): answer as NDJSON instead, see below.
 

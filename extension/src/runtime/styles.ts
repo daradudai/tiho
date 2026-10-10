@@ -7,7 +7,8 @@
 //   data-hush-wh  wave head: live count ("37")              → "×37" badge
 //   data-hush-wm  wave member (collapses into its head, takes no space)
 //   data-hush-run last collapsed row of a run: run length    → "3 hidden · show" pill
-//                 (the run's other collapsed rows take no space)
+//                 (the run's other collapsed rows take no space; the pill row is
+//                 also a button: tabindex, role and aria-label, see markRun)
 //   data-hush-open  user expanded a collapsed row
 // and the chat list itself may carry
 //   data-hush-list  rows without data-hush-a yet are invisible (hidden from
@@ -19,8 +20,9 @@
 // buckets them by attribute, so only rows carrying data-hush-* are ever
 // matched), never scoped with the platform row selector — only the runtime
 // writes these attributes, and only on rows. Measured in tests/stress:
-// :is(<row selector list>) scoping and "+" / "> *" combinators tripled
-// style-recalc cost; pill runs are marked by the runtime instead.
+// :is(<row selector list>) scoping and "+" / "> *" combinators on every row
+// tripled style-recalc cost; pill runs are marked by the runtime instead.
+// (The one child rule left, scoped to pill rows, measured within noise.)
 // No inline styles are ever written on rows.
 
 import type { Platform } from '../core/types';

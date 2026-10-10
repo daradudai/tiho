@@ -9,7 +9,8 @@
 //
 // A model that failed to load (network down during the download, crashed
 // worker) is retried with backoff while any chat is open, so it comes back
-// without the viewer toggling settings or restarting Chrome.
+// without the viewer toggling settings or restarting Chrome. The popup and
+// side panel's Retry loads it again at once (`reload`).
 //
 // The SW may be killed at any time; nothing here must survive it: content
 // scripts reconnect their Ports (with backoff) and the offscreen document
@@ -164,6 +165,15 @@ export class InferenceHub {
     this.sendOff({ type: 'getStats' });
   }
 
+  /** Load a failed model again now (the viewer pressed Retry), even without an open chat; the backoff starts over. */
+  reload(): void {
+    if (this.status.state !== 'error') return;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.retryMs = RETRY_MIN_MS;
+    this.load();
+  }
+
   // ───────────────────────────── internals ─────────────────────────────
 
   private onClientMessage(port: PortLike, m: PortRequest): void {
@@ -260,11 +270,14 @@ export class InferenceHub {
     this.retryMs = Math.min(RETRY_MAX_MS, ms * 2);
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      if (this.status.state !== 'error' || !this.clients.size) return;
-      // `init` makes the worker load again; without a host, create one
-      if (this.off) this.sendOff({ type: 'init', opts: { device: this.device } });
-      else void this.kick();
+      if (this.status.state === 'error' && this.clients.size) this.load();
     }, ms);
+  }
+
+  /** `init` makes the worker load again; without a host (or when its Port just failed), create one. */
+  private load(): void {
+    this.sendOff({ type: 'init', opts: { device: this.device } });
+    if (!this.off) void this.kick();
   }
 
   private sendOff(m: ToOffscreen): void {

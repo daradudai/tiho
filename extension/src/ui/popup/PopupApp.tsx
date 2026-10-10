@@ -13,7 +13,7 @@ import { Sparkline } from '../charts';
 import { compact, pct, rate, strictWord, vibeWord } from '../format';
 import { Icon, PlatformGlyph } from '../icons';
 import { Button, Slider, Toggle, initModelStatus, initSettings, initTheme, modelStatus, settings, updateSettings } from '../kit/kit';
-import { modelSummary } from '../model-status';
+import { modelSummary, retryModel } from '../model-status';
 import { CATEGORY_META, CHIP_CATEGORIES, PRESET_META, PRESET_ORDER } from '../tokens';
 import './popup.css';
 
@@ -290,7 +290,7 @@ function EngineLine() {
   return (
     <span class="pp-model pp-engine" data-tone={sum.tone}>
       <span class="pp-model-dot" />
-      <span>
+      <span class="pp-model-text">
         <b>Hush Engine · {sum.title}</b>
         {sum.sub && <em>{sum.sub}</em>}
       </span>
@@ -304,7 +304,7 @@ function ModelLine() {
     return (
       <span class="pp-model" data-tone="idle">
         <span class="pp-model-dot" />
-        <span>
+        <span class="pp-model-text">
           <b>Hush Lite</b>
           <em>Connecting…</em>
         </span>
@@ -318,9 +318,16 @@ function ModelLine() {
       ) : (
         <span class="pp-model-dot" />
       )}
-      <span>
+      <span class="pp-model-text">
         <b>{s.title}</b>
-        <em>{s.sub}</em>
+        <span class="pp-model-sub">
+          <em>{s.sub}</em>
+          {m.state === 'error' && (
+            <button type="button" class="pp-retry" onClick={retryModel}>
+              Retry
+            </button>
+          )}
+        </span>
       </span>
     </span>
   );

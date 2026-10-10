@@ -4,7 +4,13 @@
 //   hub: local scores → Port ──▶ router.onLocalScores({port, batchId, items, ids, scores})
 //        ──▶ client.ask() per text (custom filters for every text; the engine's
 //            own scores only where the local model was unsure)
-//        ──▶ Port {type:'engine', batchId, ids, filters, base}   (texts answered in time)
+//        ──▶ Port {type:'engine', batchId, ids, filters, base}   (texts answered so far)
+//
+// Answers go out as they come in rather than once a batch is complete, so one
+// slow text does not hold back the others. Those that arrive close together
+// share a flush: the first after a quiet spell goes out at the end of the
+// task it arrived in, later ones at most every FOLLOW_UP_MS per Port, so a
+// busy chat does not cost the tab a message (and a re-decide pass) per text.
 //
 // Asking after the local scores (≈ 20–50 ms) rather than alongside them lets
 // one engine request per text carry both the filters and, when needed, the
@@ -28,6 +34,15 @@ export interface RouterDeps {
   tabInfo(tabId: number): { platform?: string; channel?: string } | undefined;
 }
 
+/** Min time between two flushes of engine answers to one Port, ms. */
+const FOLLOW_UP_MS = 50;
+
+/** Answers waiting for their Port's next flush, by batch (filters as asked). */
+interface Outbox {
+  batches: Map<number, { filters: EngineQuery['filters']; ids: string[]; answers: EngineAnswer[] }>;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 const PLATFORM_HOSTS: [RegExp, Platform][] = [
   [/(^|\.)youtube\.com$/, 'youtube'],
   [/(^|\.)twitch\.tv$/, 'twitch'],
@@ -49,6 +64,7 @@ export class EngineRouter {
   private filters: EngineQuery['filters'] = [];
   private ctx: PolicyContext | null = null;
   private ctxThresholds: ArrayLike<number> | undefined;
+  private outbox = new Map<PortLike, Outbox>();
 
   constructor(private deps: RouterDeps) {}
 
@@ -67,7 +83,7 @@ export class EngineRouter {
     return e.enabled && (this.filters.length > 0 || e.refineUncertain);
   }
 
-  /** Local scores for a batch went to its Port: ask the engine and post its answers there later. */
+  /** Local scores for a batch went to its Port: ask the engine and post its answers there as they come. */
   onLocalScores({ port, batchId, items, ids, scores, hidden }: LocalScores): void {
     if (hidden || !this.active || !this.deps.client.ready || !ids.length) return;
     const ctx = this.settings.engine.refineUncertain ? this.policy() : null;
@@ -76,8 +92,6 @@ export class EngineRouter {
     const texts = new Map<string, string>();
     for (const it of items) texts.set(it.id, it.text);
 
-    const asked: string[] = [];
-    const answers: Promise<EngineAnswer | null>[] = [];
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i]!;
       const text = texts.get(id);
@@ -85,19 +99,46 @@ export class EngineRouter {
       if (!text || !s) continue;
       const base = !!ctx && isUnsure(s, ctx);
       if (!base && !filters.length) continue;
-      asked.push(id);
-      answers.push(this.deps.client.ask({ text, platform, context, filters, base }));
+      void this.deps.client.ask({ text, platform, context, filters, base }).then((a) => {
+        if (a) this.queue(port, batchId, filters, id, a);
+      });
     }
-    if (!asked.length) return;
-    void Promise.all(answers).then((res) => {
-      const msg = followUp(batchId, asked, res, filters);
-      if (!msg) return;
-      try {
-        port.postMessage(msg);
-      } catch {
-        /* port closed meanwhile */
+  }
+
+  /** An answer for the next flush to its Port. */
+  private queue(port: PortLike, batchId: number, filters: EngineQuery['filters'], id: string, a: EngineAnswer): void {
+    let box = this.outbox.get(port);
+    if (!box) {
+      // first answer after a quiet spell: out once the answers that arrived with it are in
+      box = { batches: new Map(), timer: setTimeout(() => this.flush(port), 0) };
+      this.outbox.set(port, box);
+    }
+    let b = box.batches.get(batchId);
+    if (!b) box.batches.set(batchId, (b = { filters, ids: [], answers: [] }));
+    b.ids.push(id);
+    b.answers.push(a);
+  }
+
+  /** Post a Port's queued answers (one message per batch), then hold the next flush for FOLLOW_UP_MS. */
+  private flush(port: PortLike): void {
+    const box = this.outbox.get(port);
+    if (!box) return;
+    if (!box.batches.size) {
+      this.outbox.delete(port); // quiet for a whole interval: the next answer goes out right away
+      return;
+    }
+    const batches = box.batches;
+    box.batches = new Map();
+    box.timer = setTimeout(() => this.flush(port), FOLLOW_UP_MS);
+    try {
+      for (const [batchId, b] of batches) {
+        const msg = followUp(batchId, b.ids, b.answers, b.filters);
+        if (msg) port.postMessage(msg);
       }
-    });
+    } catch {
+      clearTimeout(box.timer); // port closed meanwhile
+      this.outbox.delete(port);
+    }
   }
 
   private policy(): PolicyContext {

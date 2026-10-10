@@ -10,16 +10,19 @@
 //   data-hush-wh    wave head, live count ("37")                            → "×37" badge
 //   data-hush-wm    wave member (folds into its head, takes no space)
 //   data-hush-run   on the LAST collapsed row of a run: run length ("3")    → "3 hidden · show"
+//                   (the runtime also makes that row a button: tabindex, role, aria-label)
 //   data-hush-open  user expanded a collapsed row
 //
 // Performance (measured in tests/stress): every selector is a compound of
-// plain attribute selectors on the row itself (plus :hover, and :dir(rtl) for
-// the mirrored rules of right-to-left chats), so Blink only ever matches
-// rows that carry data-hush-* and never walks ancestors or siblings: no row
-// selector scoping (:is(<rows>)), no sibling (+) or child (> *) combinators,
+// plain attribute selectors on the row itself (plus :hover, :focus-visible,
+// and :dir(rtl) for the mirrored rules of right-to-left chats), so Blink only
+// ever matches rows that carry data-hush-* and never walks ancestors or
+// siblings: no row selector scoping (:is(<rows>)), no sibling (+) combinators,
 // no CSS counters, no transitions on rows. Collapsed rows take no space
 // (display:none) except the one the runtime marks with data-hush-run, which
-// becomes the pill; the runtime keeps that mark in O(changed rows).
+// becomes the pill; the runtime keeps that mark in O(changed rows). The one
+// child (>) rule hides the pill row's own content, so that the row can stay
+// visible and take keyboard focus.
 //
 // Everything visual is driven by --hush-* custom properties declared with
 // zero specificity, so a theme can override them from anywhere, e.g.
@@ -140,6 +143,11 @@ export function decorationCss(platform: Platform | string, theme: Theme, opts: D
   const SHOWN = ['[data-hush-a="show"]', '[data-hush-a="dim"]', '[data-hush-a="highlight"]'];
   const RTL = ':dir(rtl)';
   const list = (sels: string[], suffix = '') => sels.map((s) => s + suffix).join(',');
+  // The pill's outline: each half draws it on its three outer sides (its left or right, top, bottom).
+  const ring = (side: 'left' | 'right', w: string, color: string) =>
+    `box-shadow:inset ${side === 'left' ? w : `-${w}`} 0 0 ${color},inset 0 ${w} 0 ${color},inset 0 -${w} 0 ${color}`;
+  const LINE = 'var(--hush-pill-line)';
+  const FOCUS = 'var(--hush-link)';
 
   let css = `
 :where(:root,:host){${vars}}
@@ -153,15 +161,19 @@ ${ACCENTED.map((c) => `[data-hush-c="${c}"]{--hush-accent:var(--hush-c-${c});--h
 
 /* The last row of a collapsed run is the pill ("3 hidden · show"). Its own
    content stays laid out but invisible and clipped; the pill halves come
-   first and sit at the top, however tall the hidden content next to them. */
+   first and sit at the top, however tall the hidden content next to them.
+   The row itself stays visible, since a hidden box cannot take keyboard focus
+   (the runtime makes the pill a button): its children are hidden instead, the
+   one rule that looks below a row, and text right in the row is transparent. */
 ${RUN}{
   display:flex!important;flex-wrap:wrap!important;align-items:flex-start!important;align-content:flex-start!important;
   box-sizing:border-box!important;height:26px!important;min-height:0!important;max-height:26px!important;
   margin:0!important;padding:3px 8px 3px var(--hush-indent)!important;border:0!important;border-radius:0!important;
-  overflow:hidden!important;visibility:hidden!important;opacity:1!important;
+  overflow:hidden!important;visibility:visible!important;opacity:1!important;color:transparent!important;
   background:none!important;box-shadow:none!important;cursor:pointer!important}
+${RUN}>*{visibility:hidden!important}
 ${RUN}::before,${RUN}::after{
-  display:block;flex:none;align-self:flex-start;visibility:visible;height:20px;box-sizing:border-box;margin:0;border:0;
+  display:block;flex:none;align-self:flex-start;height:20px;box-sizing:border-box;margin:0;border:0;
   font-size:11px;font-style:normal;line-height:20px;letter-spacing:.01em;white-space:pre;text-transform:none;
   background-color:var(--hush-pill-fill)}
 ${RUN}::before{
@@ -169,13 +181,18 @@ ${RUN}::before{
   padding:0 5px 0 18px;border-radius:999px 0 0 999px;
   font-weight:500;font-variant-numeric:tabular-nums;color:var(--hush-pill-fg);
   background-image:radial-gradient(circle at 9.5px 50%,var(--hush-accent,var(--hush-c-noise)) 0 3px,transparent 3.6px);
-  box-shadow:inset 1px 0 0 var(--hush-pill-line),inset 0 1px 0 var(--hush-pill-line),inset 0 -1px 0 var(--hush-pill-line)}
+  ${ring('left', '1px', LINE)}}
 ${RUN}::after{
   order:-1;content:"·  show";
   padding:0 10px 0 0;border-radius:0 999px 999px 0;
   font-weight:600;color:var(--hush-link);
-  box-shadow:inset -1px 0 0 var(--hush-pill-line),inset 0 1px 0 var(--hush-pill-line),inset 0 -1px 0 var(--hush-pill-line)}
-${RUN}:hover::before,${RUN}:hover::after{background-color:var(--hush-pill-hover)}
+  ${ring('right', '1px', LINE)}}
+${RUN}:hover::before,${RUN}:hover::after,${RUN}:focus-visible::before,${RUN}:focus-visible::after{background-color:var(--hush-pill-hover)}
+/* Keyboard focus: the pill's outline turns 2px, in the link color. The row's
+   own outline stays transparent, so that forced-colors mode still shows one. */
+${RUN}:focus-visible{outline:2px solid transparent!important;outline-offset:-2px!important}
+${RUN}:focus-visible::before{${ring('left', '2px', FOCUS)}}
+${RUN}:focus-visible::after{${ring('right', '2px', FOCUS)}}
 
 /* Wave head: "×37" floated into the row's top-right corner, so the text wraps
    around it instead of under it (on flex rows: a trailing item, same place). */
@@ -195,10 +212,12 @@ ${RUN}${RTL}{padding:3px var(--hush-indent) 3px 8px!important}
 ${RUN}${RTL}::before{
   direction:ltr;padding:0 18px 0 5px;border-radius:0 999px 999px 0;
   background-image:radial-gradient(circle at calc(100% - 9.5px) 50%,var(--hush-accent,var(--hush-c-noise)) 0 3px,transparent 3.6px);
-  box-shadow:inset -1px 0 0 var(--hush-pill-line),inset 0 1px 0 var(--hush-pill-line),inset 0 -1px 0 var(--hush-pill-line)}
+  ${ring('right', '1px', LINE)}}
 ${RUN}${RTL}::after{
   padding:0 0 0 10px;border-radius:999px 0 0 999px;
-  box-shadow:inset 1px 0 0 var(--hush-pill-line),inset 0 1px 0 var(--hush-pill-line),inset 0 -1px 0 var(--hush-pill-line)}
+  ${ring('left', '1px', LINE)}}
+${RUN}:focus-visible${RTL}::before{${ring('right', '2px', FOCUS)}}
+${RUN}:focus-visible${RTL}::after{${ring('left', '2px', FOCUS)}}
 ${list(SHOWN.map((s) => `[data-hush-wh]${s}${RTL}`), '::before')}{float:left;margin:${mirrored(p.wave)};direction:ltr}
 `;
 

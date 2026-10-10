@@ -1,4 +1,4 @@
-// Throwaway DOM probe for live chats. Not part of the build or test suite.
+// Dev tool: DOM probe for live chats. Not part of the build or test suite.
 //
 //   node tests/tools/probe-chat.mjs <url> <listSelector> <outDir> [seconds] [--headed]
 //

@@ -1,1 +1,3 @@
 .dist/
+# node shoot.mjs output; the README images are copies in docs/img/
+screenshots/

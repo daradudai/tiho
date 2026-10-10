@@ -1,7 +1,8 @@
 // Hush Engine HTTP API (engine/README.md) and its mapping to extension types.
 //
 //   GET  /health        → Health
-//   POST /v1/classify   ClassifyRequest → ClassifyResponse
+//   POST /v1/classify   ClassifyRequest → ClassifyResponse, or with `stream`
+//                       one ClassifyLine per text as it is answered (NDJSON)
 //
 // The engine accepts only extension / localhost origins, so it is called from
 // the background service worker (and extension pages), never from a content
@@ -30,6 +31,8 @@ export interface ClassifyRequest {
   base?: boolean;
   deadline_ms?: number;
   context?: string;
+  /** Answer as NDJSON, one line per text as soon as it is ready (engines without it send JSON). */
+  stream?: boolean;
 }
 
 export type BaseScores = Record<'toxic' | 'spam' | 'scam' | 'noise' | 'question' | 'clean' | 'positive' | 'negative', number>;
@@ -42,6 +45,37 @@ export interface ClassifyResponse {
   results: ClassifyResult[];
   ms: number;
   expired?: number;
+}
+
+/** A line of a streamed classify answer: a result per text in the order they finish, then a summary. */
+export type ClassifyLine = ClassifyResult | { done: true; ms: number; expired?: number };
+
+/** The JSON object per line of a response body, as the lines arrive (anything else is skipped). */
+export async function* ndjson<T extends object>(body: ReadableStream<Uint8Array>): AsyncGenerator<T> {
+  const reader = body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      buf += dec.decode(value, { stream: !done });
+      const lines = buf.split('\n');
+      buf = done ? '' : lines.pop()!;
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let v: unknown;
+        try {
+          v = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (v && typeof v === 'object') yield v as T;
+      }
+      if (done) return;
+    }
+  } finally {
+    reader.cancel().catch(() => {}); // the reader stopped early: close the connection
+  }
 }
 
 /** Engine base scores → a vector aligned with LABELS (the engine's extra `clean` is implied). */

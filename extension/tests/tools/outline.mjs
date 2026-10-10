@@ -1,4 +1,4 @@
-// Throwaway: print a structural outline of an HTML file.
+// Dev tool: print a structural outline of an HTML file.
 //   node tests/tools/outline.mjs <file.html> [selector] [maxDepth] [maxChildren]
 import { Window } from 'happy-dom';
 import fs from 'node:fs';

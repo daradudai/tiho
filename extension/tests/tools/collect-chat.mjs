@@ -1,4 +1,4 @@
-// Throwaway: collect diverse live-chat rows for fixtures. Not part of the build.
+// Dev tool: collect diverse live-chat rows for fixtures. Not part of the build.
 //
 //   node tests/tools/collect-chat.mjs <listSelector> <outDir> <minutes> <url...> [--yt-all] [--headed]
 //

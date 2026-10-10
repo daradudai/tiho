@@ -97,7 +97,7 @@ export function OnboardingApp() {
           <PresetPicker />
         </Step>
 
-        <Step n={3} title="Get the model" sub="Release builds include it; otherwise it downloads once. After that Hush works offline.">
+        <Step n={3} title="Get the model" sub="Release builds include it, so nothing is downloaded and Hush works offline from the first message.">
           <ModelStep />
         </Step>
       </section>

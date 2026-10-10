@@ -1,4 +1,4 @@
-// Throwaway: list currently-live big channels per platform.
+// Dev tool: list currently-live big channels per platform.
 //   node tests/tools/find-live.mjs twitch|kick|youtube
 import { chromium } from '@playwright/test';
 import fs from 'node:fs';

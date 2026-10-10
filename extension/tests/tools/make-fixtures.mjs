@@ -1,4 +1,4 @@
-// Throwaway: turn raw live captures (from collect-chat.mjs / probe-chat.mjs)
+// Dev tool: turn raw live captures (from collect-chat.mjs / probe-chat.mjs)
 // into small, sanitized HTML fixtures under tests/fixtures/<platform>/.
 //
 //   node tests/tools/make-fixtures.mjs <captureDir>

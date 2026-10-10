@@ -73,4 +73,4 @@ body:
     attributes:
       label: Hush and model version
       description: Side panel → Settings shows both.
-      placeholder: Hush 0.1.0, model v2-9L, WebGPU
+      placeholder: Hush 0.1.0, model v2-6L, WebGPU

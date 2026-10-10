@@ -457,6 +457,33 @@ describe('runtime: DOM churn', () => {
     expect(b.hasAttribute('data-hush-open')).toBe(true);
   });
 
+  it('the row that draws a pill is a button named after its run; the attributes follow the mark', async () => {
+    setup();
+    const button = (el: Element) => ['tabindex', 'role', 'aria-label'].map((n) => el.getAttribute(n));
+    const a = row('b'.repeat(40));
+    const b = row('c'.repeat(40));
+    await frame();
+    expect(button(a)).toEqual([null, null, null]);
+    expect(button(b)).toEqual(['0', 'button', '2 hidden messages, show']);
+    const c = row('d'.repeat(40));
+    await frame();
+    expect(button(b)).toEqual([null, null, null]);
+    expect(button(c)).toEqual(['0', 'button', '3 hidden messages, show']);
+
+    // written only when the mark changes, not every frame
+    const mo = new MutationObserver(() => {});
+    mo.observe(list, { subtree: true, attributes: true, attributeFilter: ['tabindex', 'role', 'aria-label'] });
+    row('nice play here'); // ends the run: the mark stays where it is
+    await frame();
+    port.replyAll(scorer);
+    rt.flushNow();
+    expect(mo.takeRecords()).toHaveLength(0);
+    mo.disconnect();
+
+    rt.stop();
+    expect(button(c)).toEqual([null, null, null]);
+  });
+
   it('fills the store: totals, counts, filtered log, perf', async () => {
     setup();
     row('!drop');
@@ -477,6 +504,28 @@ describe('runtime: DOM churn', () => {
     expect(rt.metrics.msgs).toBe(3);
   });
 
+  it('a pill is a button: Enter or Space opens its run, like a click', async () => {
+    setup();
+    const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    const a = row('b'.repeat(40));
+    const b = row('c'.repeat(40));
+    row('!drop'); // noise, shown: ends the run
+    const c = row('d'.repeat(40));
+    await frame();
+    expect(key(a, 'Enter')).toBe(true); // not the pill: left to the page
+    expect(key(b, 'x')).toBe(true);
+    expect(a.hasAttribute('data-hush-open')).toBe(false);
+    expect(key(b, 'Enter')).toBe(false); // handled
+    expect(a.hasAttribute('data-hush-open')).toBe(true);
+    expect(b.hasAttribute('data-hush-open')).toBe(true);
+    expect(b.hasAttribute('tabindex')).toBe(false); // no longer a button, at once
+    expect(c.hasAttribute('data-hush-open')).toBe(false); // another run
+    expect(key(c, ' ')).toBe(false);
+    expect(c.hasAttribute('data-hush-open')).toBe(true);
+    await frame();
+    for (const r of [a, b, c]) expect(A(r)).toBe('show');
+  });
+
   it('never writes inline styles on rows', async () => {
     setup();
     for (let i = 0; i < 50; i++) row(i % 3 ? `message number ${i} here` : 'x'.repeat(30));
@@ -489,15 +538,59 @@ describe('runtime: DOM churn', () => {
 });
 
 describe('runtime: a message seen again', () => {
-  /** The same message in a new node where the old one was (Kick re-mount, YouTube re-render). */
-  function remount(el: HTMLElement): HTMLElement {
+  /** A new node for the same message (Kick re-mount, YouTube re-render). */
+  function copyOf(el: HTMLElement): HTMLElement {
     const fresh = document.createElement('div');
     fresh.className = 'msg';
     for (const [k, v] of Object.entries(el.dataset)) if (!k.startsWith('hush')) fresh.dataset[k] = v;
     fresh.textContent = el.textContent;
+    return fresh;
+  }
+
+  /** The same message in a new node where the old one was. */
+  function remount(el: HTMLElement): HTMLElement {
+    const fresh = copyOf(el);
     el.replaceWith(fresh);
     return fresh;
   }
+
+  /** Decided and scrolled away (Kick unmounts it); returns the node it comes back in. */
+  async function scrolledAway(text: string): Promise<HTMLElement> {
+    const el = row(text, { user: 'eve' });
+    await frame();
+    port.replyAll(scorer);
+    rt.flushNow();
+    const back = copyOf(el);
+    el.remove();
+    await frame();
+    return back;
+  }
+
+  it('keeps its scores while their model is loaded, even once out of the cache', async () => {
+    setup();
+    const back = await scrolledAway('you are trash');
+    classifier.cache.clear(); // evicted meanwhile
+    list.appendChild(back);
+    await frame();
+    expect(port.items).toHaveLength(0);
+    expect(A(back)).toBe('hide');
+  });
+
+  it('after a model switch keeps its verdict while the new model scores it again', async () => {
+    setup();
+    const ready = (version: string) => port.emit({ type: 'status', status: { state: 'ready', backend: 'wasm', modelId: 'hush-lite', version } });
+    ready('6l');
+    const back = await scrolledAway('you are trash');
+    ready('3l'); // the other student
+    list.appendChild(back);
+    await frame();
+    expect(port.items.map((x) => x.text)).toEqual(['you are trash']); // asked again, not re-thresholded
+    expect(A(back)).toBe('hide'); // meanwhile the verdict it had, never held
+    port.replyAll(() => CLEAN); // the new model disagrees
+    rt.flushNow();
+    expect(A(back)).toBe('show');
+    expect(rt.store.totals.value).toEqual({ seen: 1, filtered: 0 });
+  });
 
   it('in a new node keeps its verdict: no "repeat", not counted, logged or classified again', async () => {
     setup();

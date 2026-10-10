@@ -22,20 +22,52 @@ export const READY: Health = {
 
 export const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-/** Answers every message: filter probability from `score(text, filterId)`, base when asked. */
+const encoder = new TextEncoder();
+const line = (v: unknown) => encoder.encode(JSON.stringify(v) + '\n');
+
+/**
+ * A streamed (NDJSON) answer the test writes as it goes. Like a real fetch
+ * body, it fails with an AbortError when the request's signal aborts.
+ */
+export function streamed(signal?: AbortSignal | null) {
+  let ctl!: ReadableStreamDefaultController<Uint8Array>;
+  let open = true;
+  const body = new ReadableStream<Uint8Array>({ start: (c) => void (ctl = c) });
+  const end = (err?: Error) => {
+    if (!open) return;
+    open = false;
+    if (err) ctl.error(err);
+    else ctl.close();
+  };
+  signal?.addEventListener('abort', () => end(new DOMException('aborted', 'AbortError')));
+  return {
+    response: new Response(body, { headers: { 'content-type': 'application/x-ndjson' } }),
+    /** One line per value. */
+    write: (...values: unknown[]) => values.forEach((v) => open && ctl.enqueue(line(v))),
+    /** Raw bytes as they would arrive in one chunk. */
+    chunk: (text: string) => open && ctl.enqueue(encoder.encode(text)),
+    end: () => end(),
+    fail: (err: Error) => end(err),
+  };
+}
+
+/** Answers every message: filter probability from `score(text, filterId)`, base when asked; streamed when asked. */
 export function answerAll(score: (text: string, filter: string) => number = () => 0.9) {
-  return (req: ClassifyRequest) =>
-    json({
-      results: req.messages.map((m) => ({
-        id: m.id,
-        filters: Object.fromEntries(req.filters.map((f) => [f.id, score(m.text, f.id)])),
-        ...(req.base
-          ? { base: { toxic: 0.8, spam: 0.01, scam: 0.01, noise: 0.02, question: 0.01, clean: 0.15, positive: 0.05, negative: 0.7 } }
-          : {}),
-        cached: false,
-      })),
-      ms: 12,
-    });
+  return (req: ClassifyRequest) => {
+    const results = req.messages.map((m) => ({
+      id: m.id,
+      filters: Object.fromEntries(req.filters.map((f) => [f.id, score(m.text, f.id)])),
+      ...(req.base
+        ? { base: { toxic: 0.8, spam: 0.01, scam: 0.01, noise: 0.02, question: 0.01, clean: 0.15, positive: 0.05, negative: 0.7 } }
+        : {}),
+      cached: false,
+    }));
+    if (!req.stream) return json({ results, ms: 12 });
+    const s = streamed();
+    s.write(...results, { done: true, ms: 12, expired: 0 });
+    s.end();
+    return s.response;
+  };
 }
 
 export class FakeEngine {

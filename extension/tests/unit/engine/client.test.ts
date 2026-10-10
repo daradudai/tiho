@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EngineStatus } from '../../../src/core/protocol';
 import { EngineClient, type EngineClientOptions, type EngineQuery } from '../../../src/engine-client/client';
-import { answerAll, deferred, FakeEngine, json, READY } from './fake-engine';
+import { answerAll, deferred, FakeEngine, json, READY, streamed } from './fake-engine';
 
 const F = [{ id: 'fback', question: 'Is this message backseating?' }];
 const q = (text: string, o: Partial<EngineQuery> = {}): EngineQuery => ({ text, filters: F, base: false, platform: 'twitch', ...o });
@@ -273,5 +273,118 @@ describe('EngineClient: classify', () => {
     expect(await c.test({ text: 'x', filters: F })).toEqual({ ok: false, error: 'Engine not ready: engine is loading' });
     fake.classify = () => new TypeError('Failed to fetch');
     expect(await c.test({ text: 'x', filters: F })).toEqual({ ok: false, error: 'Hush Engine is not running' });
+  });
+});
+
+describe('EngineClient: streamed answers', () => {
+  /** The next classify request answers with a stream the test writes. */
+  function streaming() {
+    const out: ReturnType<typeof streamed>[] = [];
+    fake.classify = (_req, call) => {
+      const s = streamed(call.signal);
+      out.push(s);
+      return s.response;
+    };
+    return out;
+  }
+
+  it('asks for a stream and settles each text as its line arrives', async () => {
+    const c = await connected();
+    const s = streaming();
+    const got: (string | null)[] = [];
+    const ask = (text: string) => c.ask(q(text)).then((a) => void got.push(a ? `${text} ${a.filters.fback}` : null));
+    void ask('one');
+    void ask('two');
+    void ask('three');
+    await vi.advanceTimersByTimeAsync(50);
+    expect(fake.classifyCalls[0]!.body!.stream).toBe(true);
+    s[0]!.write({ id: '1', filters: { fback: 0.7 }, cached: false });
+    await flush();
+    expect(got).toEqual(['two 0.7']);
+    await vi.advanceTimersByTimeAsync(300);
+    s[0]!.write({ id: '0', filters: { fback: 0.1 } }, { id: '2', error: 'expired' });
+    await flush();
+    expect(got).toEqual(['two 0.7', 'one 0.1', null]);
+    expect(c.status).toMatchObject({ answered: 2, expired: 1 });
+    s[0]!.write({ done: true, ms: 312, expired: 1 });
+    s[0]!.end();
+    await flush();
+    expect(c.status.state).toBe('ready');
+    expect(await c.ask(q('two'))).toEqual({ filters: { fback: 0.7 } }); // cached on arrival
+  });
+
+  it('reads lines split across chunks, several per chunk, and a last one without a newline', async () => {
+    const c = await connected();
+    const s = streaming();
+    const p = [c.ask(q('a')), c.ask(q('b')), c.ask(q('c')), c.ask(q('d'))];
+    await vi.advanceTimersByTimeAsync(50);
+    s[0]!.chunk('{"id":"0","filters":{"fb');
+    s[0]!.chunk('ack":0.25}}\n\n{"id":"1","filters":{"fback":0.5}}\nnot json\n[1,2]\n{"id":"2","fil');
+    s[0]!.chunk('ters":{"fback":0.75}}\n{"id":"3","filters":{"fback":1}}');
+    s[0]!.end();
+    expect((await Promise.all(p)).map((a) => a?.filters.fback)).toEqual([0.25, 0.5, 0.75, 1]);
+    expect(c.status.state).toBe('ready');
+  });
+
+  it('keeps answers that arrived when the deadline aborts the rest', async () => {
+    const c = await connected();
+    const s = streaming();
+    const a = c.ask(q('quick'));
+    const b = c.ask(q('stuck'));
+    await vi.advanceTimersByTimeAsync(50);
+    s[0]!.write({ id: '0', filters: { fback: 0.6 } });
+    await flush();
+    expect(await a).toEqual({ filters: { fback: 0.6 } });
+    let done = false;
+    void b.then(() => (done = true));
+    await vi.advanceTimersByTimeAsync(2450 + 499);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(2);
+    expect(await b).toBeNull();
+    s[0]!.write({ id: '1', filters: { fback: 0.9 } }); // too late: nobody reads it
+    await flush();
+    expect(c.status).toMatchObject({ state: 'ready', answered: 1, expired: 1 });
+  });
+
+  it('holds its request slot until the stream ends', async () => {
+    const c = await connected({ maxInflight: 1 });
+    const s = streaming();
+    const a = c.ask(q('first'));
+    await vi.advanceTimersByTimeAsync(50);
+    const b = c.ask(q('second'));
+    s[0]!.write({ id: '0', filters: { fback: 0.4 } });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(await a).not.toBeNull();
+    expect(fake.classifyCalls).toHaveLength(1); // answered, but the stream is still open
+    s[0]!.write({ done: true, ms: 120, expired: 0 });
+    s[0]!.end();
+    await flush();
+    expect(fake.classifyCalls).toHaveLength(2);
+    s[1]!.write({ id: '0', filters: { fback: 0.3 } });
+    s[1]!.end();
+    expect(await b).toEqual({ filters: { fback: 0.3 } });
+  });
+
+  it('marks the engine unreachable when the stream breaks off', async () => {
+    const c = await connected();
+    const s = streaming();
+    fake.health = () => new TypeError('Failed to fetch');
+    const a = c.ask(q('answered'));
+    const b = c.ask(q('lost'));
+    await vi.advanceTimersByTimeAsync(50);
+    s[0]!.write({ id: '0', filters: { fback: 0.2 } });
+    s[0]!.fail(new TypeError('network error'));
+    expect(await a).toEqual({ filters: { fback: 0.2 } });
+    expect(await b).toBeNull();
+    expect(c.status).toMatchObject({ state: 'unreachable', detail: 'Connection lost' });
+  });
+
+  it('takes a whole-batch JSON answer from an engine that cannot stream', async () => {
+    const c = await connected();
+    fake.classify = (req) => json({ results: req.messages.map((m) => ({ id: m.id, filters: { fback: m.text === 'x' ? 0.9 : 0.1 } })), ms: 40 });
+    const p = [c.ask(q('x')), c.ask(q('y'))];
+    await vi.advanceTimersByTimeAsync(50);
+    expect(fake.classifyCalls[0]!.body!.stream).toBe(true);
+    expect(await Promise.all(p)).toEqual([{ filters: { fback: 0.9 } }, { filters: { fback: 0.1 } }]);
   });
 });

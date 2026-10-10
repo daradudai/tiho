@@ -100,6 +100,10 @@ describe('cleanForModel', () => {
     expect(cleanForModel('Здравей')).toBe('Здравей');
     expect(cleanForModel('KEKW \u{E0000}')).toBe('KEKW');
   });
+  it('passes clean ASCII through as is, runs included; blanks still collapse', () => {
+    for (const s of ['LETSGOOOOOOOOO', 'W', 'gg !!!!!!!!!!']) expect(cleanForModel(s)).toBe(s);
+    expect(cleanForModel(' gg  wp ')).toBe('gg wp');
+  });
   it('caps length', () => {
     expect(cleanForModel('a b '.repeat(500)).length).toBeLessThanOrEqual(400);
   });

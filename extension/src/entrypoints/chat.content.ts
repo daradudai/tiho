@@ -1,5 +1,11 @@
 // Content script for every live-chat frame (YouTube live_chat iframe, Twitch,
 // Kick). Picks the platform adapter and starts the Hush runtime.
+//
+// One copy per frame: the background injects this script again into chats
+// that were open when Hush was installed or updated, so a frame can get it
+// twice. WXT invalidates the older copy's context as soon as a newer one starts
+// in the frame (an orphan of the previous version included); the older copy
+// then stops and the newer one runs.
 
 import { defineContentScript } from 'wxt/utils/define-content-script';
 import { detectAdapter, kick, twitch, youtube } from '../platforms';
@@ -30,6 +36,8 @@ export default defineContentScript({
     const adapter = adapterFor(location);
     if (!adapter) return;
     const hush = await startHush({ adapter });
+    // a newer copy started while this one was loading its settings
+    if (ctx.isInvalid) return hush.stop();
     ctx.onInvalidated(() => hush.stop());
   },
 });

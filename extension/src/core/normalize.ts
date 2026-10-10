@@ -273,21 +273,15 @@ export function cleanForModel(text: string): string {
   return s.length > MODEL_MAX ? s.slice(0, MODEL_MAX) : s;
 }
 
-/** Fast path: printable ASCII, single spaces, no runs ≥ 5, trimmed, short → nothing to clean. */
+/** Fast path: printable ASCII, single spaces, trimmed, short → nothing to clean. */
 function isClean(s: string): boolean {
   const n = s.length;
   if (n === 0 || n > MODEL_MAX) return false;
-  let prev = -1;
-  let run = 0;
+  let prev = 0;
   for (let i = 0; i < n; i++) {
     const c = s.charCodeAt(i);
-    if (c < 0x20 || c > 0x7e) return false;
-    if (c === prev) {
-      if (++run >= 5 || c === 0x20) return false;
-    } else {
-      prev = c;
-      run = 1;
-    }
+    if (c < 0x20 || c > 0x7e || (c === 0x20 && prev === 0x20)) return false;
+    prev = c;
   }
   return s.charCodeAt(0) !== 0x20 && s.charCodeAt(n - 1) !== 0x20;
 }

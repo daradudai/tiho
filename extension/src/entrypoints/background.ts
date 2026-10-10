@@ -1,14 +1,16 @@
 // Background service worker: routes classify traffic between content-script
 // Ports and the offscreen inference host, relays model status, aggregates
-// per-tab perf for the UI, opens the side panel / onboarding. When the
-// optional Hush Engine is on, it also forwards scored texts to it (the engine
-// only accepts extension origins, so content scripts cannot call it) and
+// per-tab perf for the UI, opens the side panel / onboarding, and injects the
+// content script into chats that were open when Hush was installed or updated.
+// When the optional Hush Engine is on, it also forwards scored texts to it (the
+// engine only accepts extension origins, so content scripts cannot call it) and
 // answers the UI's engine status / "Test filter" requests.
 //
 // Stateless-ish by design (MV3 SWs die after ~30 s idle): Ports from open
 // chats keep it alive; when it restarts, content scripts reconnect and the
 // offscreen document is asked to reconnect (or re-created).
 
+import { MatchPattern } from 'wxt/utils/match-patterns';
 import { PORT_CLASSIFY, type EngineStatus, type RuntimeMessage } from '../core/protocol';
 import { loadSettings, onSettingsChanged, type Settings } from '../core/settings';
 import type { ModelStatus, PerfStats } from '../core/types';
@@ -143,6 +145,9 @@ export default defineBackground(() => {
         void hub.kick();
         sendResponse({ ...hub.getStatus(), perf: hub.stats ?? undefined });
         return false;
+      case 'hush:reloadModel':
+        hub.reload();
+        return false;
       case 'hush:perf': {
         const tabId = sender.tab?.id;
         if (tabId !== undefined && 'stats' in msg) perf.set(tabId, { stats: msg.stats as TabPerf, at: Date.now() });
@@ -187,8 +192,44 @@ export default defineBackground(() => {
     if (details.reason === 'install') {
       void chrome.tabs.create({ url: chrome.runtime.getURL('/onboarding.html') });
     }
+    if (details.reason === 'install' || details.reason === 'update') void injectOpenChats();
   });
 });
+
+/**
+ * Chrome runs content scripts only in pages loaded after Hush was installed,
+ * and an update cuts the copies already running off from the extension (they
+ * stop themselves). Inject the manifest's content scripts into the chat frames
+ * open now, so those chats filter again without a reload. A frame that gets
+ * the script twice (it was still loading during the install) runs only the
+ * newer copy (chat.content.ts). Chats embedded in other sites (a Twitch embed,
+ * YouTube Studio) start with their next page load.
+ */
+async function injectOpenChats(): Promise<void> {
+  const jobs: Promise<void>[] = [];
+  for (const cs of chrome.runtime.getManifest().content_scripts ?? []) {
+    if (!cs.js?.length || !cs.matches?.length) continue;
+    const patterns = cs.matches.map((m) => new MatchPattern(m));
+    // whole sites, not just the matched paths: YouTube's chat is a frame of the watch page
+    const sites = [...new Set(cs.matches.map((m) => m.replace(/^(.*?:\/\/[^/]*)\/.*$/, '$1/*')))];
+    const tabs = await chrome.tabs.query({ url: sites, discarded: false }).catch(() => []);
+    for (const tab of tabs) if (tab.id !== undefined) jobs.push(injectChatFrames(tab.id, cs.js, patterns, !!cs.all_frames));
+  }
+  await Promise.all(jobs);
+}
+
+/** Inject `files` into the frames of a tab whose URL matches one of `patterns`. */
+async function injectChatFrames(tabId: number, files: string[], patterns: MatchPattern[], allFrames: boolean): Promise<void> {
+  const isChat = (url?: string) => !!url && patterns.some((p) => p.includes(url));
+  try {
+    const frames = await chrome.scripting.executeScript({ target: { tabId, allFrames }, func: () => location.href });
+    const documentIds = frames.filter((f) => isChat(f.result)).map((f) => f.documentId);
+    if (documentIds.length) await chrome.scripting.executeScript({ target: { tabId, documentIds }, files });
+  } catch (e) {
+    // closed, navigated away or showing an error page meanwhile: it gets the script on its next load
+    console.warn(`[hush] could not inject into tab ${tabId}:`, e);
+  }
+}
 
 function emptyPerf(s: { inferPerSec: number; cacheHitRate: number; p50ms: number; p95ms: number; queue: number }): TabPerf {
   return { msgsPerSec: 0, inferPerSec: s.inferPerSec, cacheHitRate: s.cacheHitRate, p50ms: s.p50ms, p95ms: s.p95ms, queue: s.queue };
