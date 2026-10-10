@@ -79,7 +79,7 @@ export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
 
 export async function loadSettings(): Promise<Settings> {
   const r = await chrome.storage.local.get(SETTINGS_KEY);
-  return mergeSettings(r[SETTINGS_KEY]);
+  return mergeSettings(r[SETTINGS_KEY] as Partial<Settings> | undefined);
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<Settings> {
@@ -90,7 +90,7 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
 
 export function onSettingsChanged(cb: (s: Settings) => void): () => void {
   const fn = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
-    if (area === 'local' && changes[SETTINGS_KEY]) cb(mergeSettings(changes[SETTINGS_KEY].newValue));
+    if (area === 'local' && changes[SETTINGS_KEY]) cb(mergeSettings(changes[SETTINGS_KEY].newValue as Partial<Settings> | undefined));
   };
   chrome.storage.onChanged.addListener(fn);
   return () => chrome.storage.onChanged.removeListener(fn);

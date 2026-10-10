@@ -1,12 +1,14 @@
 import { defineConfig } from 'wxt';
-import preact from '@preact/preset-vite';
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   srcDir: 'src',
-  outDir: '.output',
+  // Separate outDirs let parallel builds (tests, agents) not clobber each other.
+  outDir: process.env.HUSH_OUT ?? '.output',
   vite: () => ({
-    plugins: [preact()],
+    // Preact JSX via the built-in transformer (no plugin needed).
+    oxc: { jsx: { runtime: 'automatic', importSource: 'preact' } },
+    resolve: { alias: { react: 'preact/compat', 'react-dom': 'preact/compat' } },
     worker: { format: 'es' },
     build: { target: 'es2022', chunkSizeWarningLimit: 4096 },
   }),
