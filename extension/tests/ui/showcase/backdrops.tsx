@@ -1,11 +1,13 @@
 // Mock chat columns (Twitch / YouTube / Kick skins) that host the real bar and
-// the real decoration stylesheet. Dev-only: approximations of each site's chat.
+// the real row stylesheet. Dev-only: approximations of each site's chat, with
+// the row structure the adapters see on the live sites (Twitch: row > div >
+// .chat-line__message; YouTube: a flex renderer row; Kick: positioned rows of
+// a virtual list), so decorations are checked against the real box shapes.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Store } from '../../../src/core/store';
 import type { Action } from '../../../src/core/types';
 import { mountBar } from '../../../src/ui/bar';
-import { decorationCss } from '../../../src/ui/decorations';
 import { buildCss } from '../../../src/runtime/styles';
 import { CHAT, fakeActions, rnd, type FakeMsg } from './fake';
 
@@ -15,9 +17,8 @@ function useDecorations(platform: Platform, theme: 'dark' | 'light', decorate = 
   useEffect(() => {
     const el = document.createElement('style');
     el.id = 'hush-deco';
-    // Exactly what ships: the runtime's base sheet + the UI theme layer on top.
-    const rowSelector = '.bd-row';
-    el.textContent = buildCss({ rowSelector, decorate, theme }) + decorationCss(platform, theme, { decorate, rowSelector });
+    // Exactly what ships: the runtime's row stylesheet (decorations included).
+    el.textContent = buildCss({ platform, decorate, theme });
     document.head.appendChild(el);
     return () => el.remove();
   }, [platform, theme, decorate]);
@@ -73,20 +74,18 @@ export function ChatBackdrop({ platform, theme, store, live }: { platform: Platf
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
-  // Clicking a collapsed pill reveals the whole run (what the runtime does).
+  // Clicking a pill reveals its whole run (what the runtime does).
   const onClick = (e: MouseEvent) => {
-    const row = (e.target as Element).closest('[data-hush-a="collapse"]') as HTMLElement | null;
+    const row = (e.target as Element).closest('[data-hush-run]') as HTMLElement | null;
     if (!row) return;
     const keys: string[] = [];
-    let n: Element | null = row;
-    while (n && n.getAttribute('data-hush-a') === 'collapse') {
+    for (let n: Element | null = row; n && n.matches('[data-hush-a="collapse"],[data-hush-a="hide"]'); n = n.previousElementSibling)
       keys.push((n as HTMLElement).dataset.key!);
-      n = n.previousElementSibling;
-    }
-    setRows((rs) => rs.map((r) => (keys.includes(r.key) ? { ...r, peek: true } : r)));
+    setRows((rs) => rs.map((r) => (keys.includes(r.key) && act(r) === 'collapse' ? { ...r, peek: true } : r)));
   };
 
   const act = (r: Row): Action => (!enabled ? 'show' : (r.a ?? actions[r.c]));
+  const runs = runMarks(rows, act);
 
   return (
     <div class={`bd bd-${platform}`} data-theme={theme}>
@@ -101,6 +100,7 @@ export function ChatBackdrop({ platform, theme, store, live }: { platform: Platf
             data-hush-a={act(r)}
             data-hush-r={r.r}
             data-hush-wh={r.w ? String(r.w) : undefined}
+            data-hush-run={runs.get(r.key)}
             data-hush-open={r.peek ? '' : undefined}
           >
             <RowBody platform={platform} m={r} />
@@ -110,6 +110,26 @@ export function ChatBackdrop({ platform, theme, store, live }: { platform: Platf
       <Composer platform={platform} />
     </div>
   );
+}
+
+/** The runtime's pill-run marks: the last collapsed row of each run → run length (hidden rows take no space). */
+function runMarks(rows: Row[], act: (r: Row) => Action): Map<string, string> {
+  const marks = new Map<string, string>();
+  let n = 0;
+  let last = '';
+  for (const r of rows) {
+    const a = r.peek ? 'show' : act(r);
+    if (a === 'hide') continue;
+    if (a === 'collapse') {
+      n++;
+      last = r.key;
+      continue;
+    }
+    if (n) marks.set(last, String(n));
+    n = 0;
+  }
+  if (n) marks.set(last, String(n));
+  return marks;
 }
 
 function Header({ platform }: { platform: Platform }) {
@@ -152,9 +172,10 @@ function RowBody({ platform, m }: { platform: Platform; m: FakeMsg }) {
           </span>
           <span class="yt-msg">{m.text}</span>
         </span>
+        <span class="yt-menu">⋮</span>
       </>
     );
-  return (
+  const line = (
     <span class="tw-line">
       {m.badges?.includes('mod') && <span class="tw-badge">⚔</span>}
       <span class="tw-user" style={{ color: m.color }}>
@@ -163,6 +184,17 @@ function RowBody({ platform, m }: { platform: Platform; m: FakeMsg }) {
       <span class="tw-colon">: </span>
       <span class="tw-text">{m.text}</span>
     </span>
+  );
+  if (platform === 'kick')
+    return (
+      <div class="kk-group">
+        <div class="kk-msg">{line}</div>
+      </div>
+    );
+  return (
+    <div>
+      <div class="tw-msg">{line}</div>
+    </div>
   );
 }
 

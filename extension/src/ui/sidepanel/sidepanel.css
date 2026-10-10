@@ -907,21 +907,31 @@ body {
   background: var(--surface-2);
   box-shadow: inset 0 0 0 1px var(--line);
 }
-.sp-engine[data-ok] {
+.sp-engine[data-tone="ok"] {
   background: color-mix(in srgb, var(--ok) 8%, var(--surface-2));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 25%, transparent);
 }
+.sp-engine[data-tone="err"] {
+  background: color-mix(in srgb, var(--err) 6%, var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--err) 22%, transparent);
+}
 .sp-engine-dot {
+  --dot: var(--text-3);
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex: none;
-  background: var(--text-3);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-3) 18%, transparent);
+  background: var(--dot);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot) 20%, transparent);
 }
-.sp-engine[data-ok] .sp-engine-dot {
-  background: var(--ok);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+.sp-engine[data-tone="ok"] .sp-engine-dot {
+  --dot: var(--ok);
+}
+.sp-engine[data-tone="load"] .sp-engine-dot {
+  --dot: var(--accent);
+}
+.sp-engine[data-tone="err"] .sp-engine-dot {
+  --dot: var(--err);
 }
 .sp-engine-dot.is-checking {
   animation: sp-blink 0.9s ease-in-out infinite alternate;
@@ -948,11 +958,106 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.sp-engine-stats {
+  margin-top: 6px;
+  padding: 0 2px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
 .sp-engine-url {
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-top: 8px;
+}
+.sp-setup {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.sp-setup summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 620;
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+}
+.sp-setup summary::-webkit-details-marker {
+  display: none;
+}
+.sp-setup summary .ico {
+  color: var(--accent);
+}
+.sp-setup ol {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  line-height: 1.5;
+}
+.sp-setup b {
+  color: var(--text);
+  font-weight: 600;
+}
+.sp-setup code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--surface-3);
+}
+.sp-setup-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.sp-context {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+}
+.k-input.sp-context-input {
+  height: auto;
+  min-height: 52px;
+  padding: 7px 10px;
+  line-height: 1.45;
+  resize: vertical;
+  font-family: inherit;
+}
+.sp-ai-sub {
+  font-size: 12px;
+  font-weight: 620;
+  color: var(--text);
+}
+.sp-ai-sub span {
+  font-weight: 520;
+  color: var(--text-2);
+}
+.sp-ai-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.45;
+}
+.sp-engine-url + .sp-ai-hint {
+  margin-top: 12px;
+}
+.sp-rule-note {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--warn);
 }
 .sp-inline-toggle {
   display: flex;
@@ -1003,6 +1108,64 @@ body {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 10px;
+}
+.sp-suggest + .sp-rules {
+  margin-top: 6px;
+}
+.sp-test {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.sp-test-out {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sp-test-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px 34px 64px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.sp-test-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-2);
+}
+.sp-test-bar {
+  height: 5px;
+  border-radius: 5px;
+  background: var(--track);
+  overflow: hidden;
+}
+.sp-test-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--text-3);
+  transition: width var(--dur) var(--ease);
+}
+.sp-test-p {
+  text-align: right;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+.sp-test-verdict {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.sp-test-row[data-hit] .sp-test-name,
+.sp-test-row[data-hit] .sp-test-verdict {
+  color: var(--text);
+}
+.sp-test-row[data-hit] .sp-test-bar i {
+  background: var(--accent);
 }
 
 /* settings */

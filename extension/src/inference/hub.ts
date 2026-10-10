@@ -4,6 +4,9 @@
 //   content Port ("hush:classify") ──{classify, batchId}──▶ hub ──{classify, id: gid}──▶ offscreen Port
 //   content Port ◀──{scores, batchId}── hub ◀──{scores, id: gid}── offscreen Port
 //
+// Local scores are also handed to `onScores` (the background forwards them to
+// the optional Hush Engine, whose answers go to the same Port later).
+//
 // The SW may be killed at any time; nothing here must survive it: content
 // scripts reconnect their Ports (with backoff) and the offscreen document
 // reconnects when asked (MSG_OFFSCREEN_HELLO) or when it is re-created.
@@ -15,7 +18,7 @@ import type { FromOffscreen, InferenceStats, ToOffscreen } from './messages';
 
 export interface PortLike {
   name: string;
-  sender?: { tab?: { id?: number } };
+  sender?: { tab?: { id?: number }; url?: string };
   postMessage(m: unknown): void;
   disconnect?(): void;
   onMessage: { addListener(cb: (m: any) => void): void };
@@ -29,12 +32,23 @@ export interface HubDeps {
   broadcast(m: { type: 'hush:status'; status: ModelStatus }): void;
   /** Persist the last status (chrome.storage.session) so a restarted SW answers quickly. */
   saveStatus?(s: ModelStatus): void;
+  /** Local scores for a batch were posted to its Port (ids / scores as sent). */
+  onScores?(r: LocalScores): void;
   now?: () => number;
+}
+
+export interface LocalScores {
+  port: PortLike;
+  batchId: number;
+  items: ClassifyItem[];
+  ids: string[];
+  scores: number[][];
 }
 
 interface Inflight {
   port: PortLike;
   batchId: number;
+  items: ClassifyItem[];
   at: number;
 }
 
@@ -146,7 +160,7 @@ export class InferenceHub {
       return;
     }
     const id = this.gid++;
-    this.inflight.set(id, { port, batchId: m.batchId, at: this.now() });
+    this.inflight.set(id, { port, batchId: m.batchId, items: m.items, at: this.now() });
     if (this.off) {
       this.sendOff({ type: 'classify', id, items: m.items });
       return;
@@ -175,6 +189,7 @@ export class InferenceHub {
           ms: m.ms,
           backend: m.backend,
         } satisfies PortResponse);
+        this.deps.onScores?.({ port: f.port, batchId: f.batchId, items: f.items, ids: m.ids, scores: m.scores });
         return;
       }
       case 'error': {

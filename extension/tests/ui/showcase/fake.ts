@@ -41,6 +41,8 @@ export const CHAT: FakeMsg[] = [
   { author: 'devonk', color: '#5f9ea0', text: 'is the tournament on saturday or sunday?', c: 'question', r: 'question · 95%' },
   { author: 'grr_gamer', color: '#cd5c5c', text: 'ok this patch honestly ruined the game', c: 'negative', r: 'negative · 81%' },
   { author: 'lucky_luna', color: '#ffa07a', text: 'GG that was clean', c: 'positive', r: 'positive · 90%' },
+  { author: 'clip_chimp', color: '#e67e22', text: 'NO WAY he hit that from across the map, somebody clip it', c: 'positive', r: 'positive · 93%', w: 14 },
+  { author: 'bigbrain', color: '#1e90ff', text: 'does anyone know which map pool they use for the finals?', c: 'question', r: 'question · 91%' },
 ];
 
 const AUTHORS = ['zoe_plays', 'kaito', 'marek_pl', 'Juli', 'bigbrain', 'ostrich', 'leo_br', 'nadia', 'yuki', 'rook'];

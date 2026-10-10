@@ -12,6 +12,8 @@
 //   --cpu=4                 extra A/B run at 100 msg/s with CDP CPU throttling ×N (0 = skip)
 //   --bar=10,100            extra A/B runs WITH the in-chat bar at these rates (0 = skip);
 //                           all other scenarios measure the runtime alone (bar not mounted)
+//   --barab=10,50,150       bar A/B at these rates (0 = skip): Hush runs in both halves, the
+//                           in-chat bar is unmounted / mounted — the bar's own cost
 //   --mode=bundle|extension bundle: runtime bundled into the page (default);
 //                           extension: load the built extension (.output-runtime) unpacked
 //   --headed                show the browser
@@ -42,7 +44,7 @@ const opt = Object.fromEntries(
 const RATES = String(opt.rates ?? '10,50,100,200').split(',').map(Number);
 const SECS = Number(opt.secs ?? 6);
 const ROUNDS = Number(opt.rounds ?? 6);
-const SKINS = String(opt.skins ?? 'twitch,youtube').split(',');
+const SKINS = String(opt.skins ?? 'twitch,youtube').split(',').filter((s) => s === 'twitch' || s === 'youtube'); // --skins=none: skip
 const SOAK = Number(opt.soak ?? 300);
 const CPU = Number(opt.cpu ?? 4);
 const MODE = String(opt.mode ?? 'bundle');
@@ -232,7 +234,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
  * the same machine load. Reported deltas are medians of per-cycle differences.
  */
 async function paired(skin, rate, cpu = 1, variant = '') {
-  const { ctx, page, cdp } = await open(skin, true, cpu, variant === 'with bar' ? '' : '&bar=0');
+  // 'bar A/B': the toggled thing is the bar (unmounted / mounted), not Hush
+  const barAB = variant === 'bar A/B';
+  const { ctx, page, cdp } = await open(skin, true, cpu, variant === 'with bar' || barAB ? '' : '&bar=0');
   await page.evaluate(() => window.__mock.start(200));
   await wait(WARM_JIT);
   await page.evaluate((r) => window.__mock.start(r), rate);
@@ -241,7 +245,7 @@ async function paired(skin, rate, cpu = 1, variant = '') {
   const hush = [];
   for (let k = 0; k < ROUNDS; k++) {
     for (const on of k % 2 ? [true, false] : [false, true]) {
-      await page.evaluate((v) => window.__hush.setEnabled(v), on);
+      await page.evaluate(([v, bar]) => (bar ? window.__hush.setBar(v) : window.__hush.setEnabled(v)), [on, barAB]);
       await wait(1000);
       await page.evaluate(() => {
         window.__mock.resetStats();
@@ -275,6 +279,7 @@ async function paired(skin, rate, cpu = 1, variant = '') {
     dTask: diff((r) => per(r, 'task')),
     dScript: diff((r) => per(r, 'script')),
     dStyleLayout: diff(sl),
+    dOther: diff((r) => (r.cdp.task - r.cdp.script - r.cdp.style - r.cdp.layout) / (r.sent || 1)),
     task: { base: med(base.map((r) => per(r, 'task'))), hush: med(hush.map((r) => per(r, 'task'))) },
     script: { base: med(base.map((r) => per(r, 'script'))), hush: med(hush.map((r) => per(r, 'script'))) },
     styleLayout: { base: med(base.map(sl)), hush: med(hush.map(sl)) },
@@ -287,7 +292,7 @@ async function paired(skin, rate, cpu = 1, variant = '') {
     decided: ['rule', 'cache', 'model', 'timeout'].map((key) => sum(hush.map((r) => r.runtime.decided[key]))),
     filtered: med(hush.map((r) => r.runtime.totals.filtered / Math.max(1, r.runtime.totals.seen))),
   };
-  const tag = `${skin}-${rate}${cpu > 1 ? `-cpu${cpu}` : ''}${variant ? '-' + variant.replace(/W+/g, '') : ''}`;
+  const tag = `${skin}-${rate}${cpu > 1 ? `-cpu${cpu}` : ''}${variant ? '-' + variant.replace(/\W+/g, '') : ''}`;
   fs.writeFileSync(path.join(runsDir, `paired-${tag}.json`), JSON.stringify({ res, base, hush }, null, 2));
   console.log(
     `${tag.padEnd(16)} Δtask ${res.dTask.toFixed(3)} ms/msg  Δscript ${res.dScript.toFixed(3)}  Δstyle+layout ${res.dStyleLayout.toFixed(3)}  ` +
@@ -298,15 +303,17 @@ async function paired(skin, rate, cpu = 1, variant = '') {
 }
 
 const results = [];
+const barResults = [];
 const started = new Date();
 for (const skin of SKINS) {
   for (const rate of skin === 'twitch' ? RATES : RATES.filter((r) => r === 100 || r === 200)) results.push(await paired(skin, rate));
 }
 for (const r of String(opt.bar ?? '10,100').split(',').map(Number).filter(Boolean)) results.push(await paired('twitch', r, 1, 'with bar'));
 if (CPU > 1) results.push(await paired('twitch', 100, CPU));
+for (const r of String(opt.barab ?? '10,50,150').split(',').map(Number).filter(Boolean)) barResults.push(await paired('twitch', r, 1, 'bar A/B'));
 const soakRes = SOAK > 0 ? await soak(SOAK) : null;
 await browser?.close();
-fs.writeFileSync(path.join(runsDir, 'summary.json'), JSON.stringify({ results, soak: soakRes }, null, 2));
+fs.writeFileSync(path.join(runsDir, 'summary.json'), JSON.stringify({ results, barResults, soak: soakRes }, null, 2));
 
 // ───────────────────────── report ─────────────────────────
 
@@ -332,7 +339,7 @@ lines.push(
     '(a forced layout, like the real sites). The Hush runtime runs with the real adapters, ' +
     'preset *chill* (hold 250 ms) and a simulated inference Port (25 ms + 0.4 ms/item per batch, keyword scores) — ' +
     'the model itself runs in the offscreen document, off the page main thread. ' +
-    'The in-chat bar (UI workstream) is mounted only in rows marked *(with bar)* and in the soak, so the runtime and the bar are measured separately.',
+    'The in-chat bar is mounted only in rows marked *(with bar)*, in the bar A/B and in the soak, so the runtime and the bar are measured separately.',
 );
 lines.push('');
 lines.push(
@@ -368,6 +375,26 @@ for (const r of results)
       `${f(r.styleLayout.base, 3)} → ${f(r.styleLayout.hush, 3)} |`,
   );
 lines.push('');
+if (barResults.length) {
+  lines.push('## In-chat bar — Twitch skin, bar unmounted vs mounted (Hush running in both halves)');
+  lines.push('');
+  lines.push(
+    'Same paired design, but the toggle is the bar itself (unmounted / remounted in place), so the deltas are the cost of the bar alone: ' +
+      'rendering its live counters plus any style / layout / paint it causes in the page. *Other* is task time outside script and ' +
+      'style + layout (paint, compositing commits, …).',
+  );
+  lines.push('');
+  lines.push(
+    '| msg/s | msgs per window | Δ main thread ms/msg | Δ main thread ms/s | Δ script ms/msg | Δ style+layout ms/msg | Δ other ms/msg | long tasks off / on | frames >33 ms off / on |',
+  );
+  lines.push('|---|---|---|---|---|---|---|---|---|');
+  for (const r of barResults)
+    lines.push(
+      `| ${r.rate} | ${r.msgs} | ${sign(r.dTask)} | ${sign(r.dTask * r.rate, 2)} | ${sign(r.dScript)} | ${sign(r.dStyleLayout)} | ${sign(r.dOther)} | ` +
+        `${r.longTasks.base} / ${r.longTasks.hush} | ${r.over33.base} / ${r.over33.hush} |`,
+    );
+  lines.push('');
+}
 if (soakRes) {
   const s0 = soakRes.samples[0];
   const s1 = soakRes.samples.at(-1);
@@ -393,8 +420,11 @@ if (soakRes) {
   );
   lines.push('');
 }
-lines.push('Targets: < 0.3 ms main-thread per message attributable to Hush; no long task > 50 ms caused by Hush (max slice).');
+lines.push('Targets: < 0.3 ms main-thread per message attributable to Hush, and < 0.3 ms for the in-chat bar on its own at 10–150 msg/s; no long task > 50 ms caused by Hush (max slice).');
 lines.push('');
 lines.push(`Raw per-run JSON: ${code('tests/stress/.runs/')} (git-ignored).`);
-fs.writeFileSync(OUT, lines.join('\n') + '\n');
+// Keep the hand-written analysis (everything from "## Findings" on) across re-runs.
+const prev = fs.existsSync(OUT) ? fs.readFileSync(OUT, 'utf8') : '';
+const notes = prev.indexOf('\n## Findings');
+fs.writeFileSync(OUT, lines.join('\n') + '\n' + (notes >= 0 ? prev.slice(notes) : ''));
 console.log(`\nwrote ${OUT}`);

@@ -1,8 +1,10 @@
 // Side panel live state: one connection to the active tab, exposed as signals.
 
 import { computed, signal } from '@preact/signals';
+import type { EngineStatus } from '../../core/protocol';
 import type { LogEntry } from '../../core/store';
-import { connectLive, type ActiveTab, type LiveConnection, type LiveSnapshot } from '../bridge';
+import { connectLive, getEngineStatus, onEngineStatus, type ActiveTab, type LiveConnection, type LiveSnapshot } from '../bridge';
+import { settings } from '../kit/kit';
 
 export const live = signal<LiveSnapshot | null>(null);
 export const activeTab = signal<ActiveTab | null>(null);
@@ -15,7 +17,11 @@ export const filtered = signal<LogEntry[]>([]);
 /** Session-local "answered" marks for the questions inbox. */
 export const done = signal<Set<string>>(new Set());
 
+/** Hush Engine connection (pushed by the background on change, polled for counters). */
+export const engineStatus = signal<EngineStatus | null>(null);
+
 let conn: LiveConnection | null = null;
+let engineWatch = false;
 
 function mergeLog(prev: LogEntry[], next: LogEntry[], cap: number): LogEntry[] {
   if (!next.length) return prev;
@@ -46,4 +52,19 @@ export function startLive(): LiveConnection {
 
 export function connection(): LiveConnection | null {
   return conn;
+}
+
+/** Re-read the engine status; `fresh` makes the background check the engine now. */
+export async function refreshEngine(fresh = false): Promise<void> {
+  engineStatus.value = await getEngineStatus(settings.value.engine.url, fresh);
+}
+
+export function startEngineStatus(pollMs = 5000): void {
+  if (engineWatch) return;
+  engineWatch = true;
+  void refreshEngine();
+  onEngineStatus((s) => (engineStatus.value = s));
+  setInterval(() => {
+    if (settings.value.engine.enabled) void refreshEngine();
+  }, pollMs);
 }

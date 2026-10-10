@@ -1,0 +1,71 @@
+name: Bug report
+description: Something is broken in the extension or in Hush Engine.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a message that was filtered wrongly, use the **Wrong verdict** template instead.
+        For security problems, do not open an issue; see SECURITY.md.
+  - type: dropdown
+    id: part
+    attributes:
+      label: Where
+      options:
+        - Chat page (bar, message decorations, filtering)
+        - Popup
+        - Side panel
+        - Welcome page / model download
+        - Hush Engine
+        - Building from source
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open https://www.twitch.tv/<channel>
+        2. Switch to the Focus preset
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Page URL
+      description: The stream or chat URL where it happens, if it is a chat-page problem.
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome 156, Windows 11
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Hush version, model status
+      description: The popup's footer shows the model status (for example "Ready · WebGPU"). Side panel → Settings shows versions.
+      placeholder: Hush 0.1.0, Ready · CPU (WASM)
+  - type: textarea
+    id: extensions
+    attributes:
+      label: Other chat extensions
+      description: 7TV, BetterTTV, FrankerFaceZ and similar change the chat's markup.
+      placeholder: 7TV
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console errors
+      description: |
+        Errors that mention Hush, from the page's DevTools console, or from chrome://extensions → Hush → "service worker" / "offscreen.html" (Inspect views).
+        For Hush Engine, the console output and `engine/logs/llama-server.log`.
+      render: text

@@ -36,6 +36,17 @@ describe('mountBar', () => {
     expect(document.querySelector('hush-bar')).toBeNull();
   });
 
+  it('draws the mark and chip glyphs as images, not inline SVG (a paint chunk each, every frame)', async () => {
+    const { root, dispose } = setup();
+    await flush();
+    expect(root.querySelectorAll('.hb-chip svg, .hush-live svg').length).toBe(0);
+    const ico = root.querySelector('.hb-chip[data-c="toxic"] .hb-chip-ico') as HTMLElement;
+    expect(ico.style.backgroundImage).toContain('data:image/svg+xml');
+    expect(decodeURIComponent(ico.style.backgroundImage)).toContain('color="#ff6470"'); // dark theme toxic
+    expect((root.querySelector('.hush-live') as HTMLElement).style.backgroundImage).toContain('data:image/svg+xml');
+    dispose();
+  });
+
   it('chip click cycles the category action', async () => {
     const { root, actions, dispose } = setup();
     await flush();

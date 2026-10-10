@@ -62,10 +62,12 @@
   text-align: center;
   opacity: 0.7;
 }
-.bd-twitch .bd-row {
+/* row > div > .chat-line__message, as on twitch.tv */
+.bd-twitch .tw-msg {
+  position: relative;
   padding: 5px 20px;
 }
-.bd-twitch .bd-row:hover {
+.bd-twitch .tw-msg:hover {
   background-color: rgba(127, 127, 140, 0.12);
 }
 .tw-user {
@@ -171,6 +173,23 @@
 .yt-author[data-mod] {
   color: #5e84f1;
 }
+.yt-content {
+  flex: 1 1 auto;
+}
+/* the per-message menu YouTube shows on hover */
+.yt-menu {
+  flex: none;
+  width: 24px;
+  margin: 0 -8px 0 4px;
+  padding-top: 2px;
+  text-align: center;
+  font-size: 16px;
+  opacity: 0.7;
+  visibility: hidden;
+}
+.bd-youtube .bd-row:hover .yt-menu {
+  visibility: visible;
+}
 .bd-youtube .bd-composer {
   padding: 12px 24px;
   border-top: 1px solid var(--yt-line);
@@ -212,8 +231,20 @@
 .kk-ico {
   opacity: 0.6;
 }
+/* rows of Kick's virtual list are positioned (absolute there; relative here) */
 .bd-kick .bd-row {
-  padding: 3px 12px;
+  position: relative;
+}
+.bd-kick .kk-group {
+  position: relative;
+  padding: 0 8px;
+}
+.bd-kick .kk-msg {
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+.bd-kick .kk-msg:hover {
+  background-color: rgba(127, 127, 140, 0.14);
 }
 .bd-kick .tw-user {
   font-weight: 700;

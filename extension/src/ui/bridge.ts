@@ -7,10 +7,12 @@
 //   popup ──chrome.tabs.sendMessage(tabId, {type:'hush:getSnapshot'})──▶ content (one-shot)
 //         ──chrome.runtime.sendMessage({type:'hush:getPerf'})──▶ background (fallback)
 //   any page ──{type:'hush:getStatus'}──▶ background → ModelStatus
+//   any page ──{type:'hush:engine:getStatus' | 'hush:engine:test'}──▶ background → Hush Engine
 //
 // The content side is one call: `serveLive(store, handlers)` (runtime agent).
 // Nothing is pushed unless a page is listening.
 
+import type { EngineStatus, EngineTestRequest, EngineTestResult, RuntimeMessage } from '../core/protocol';
 import type { Store, LogEntry, WaveInfo } from '../core/store';
 import type { Category, ModelStatus, PerfStats } from '../core/types';
 import { loadSettings, saveSettings, type UserRule } from '../core/settings';
@@ -350,6 +352,8 @@ export function onModelStatus(cb: (s: ModelStatus) => void): () => void {
 
 export interface EngineHealth {
   ok: boolean;
+  /** The engine runs but its model is not ready yet. */
+  loading?: boolean;
   model?: string;
   device?: string;
   version?: string;
@@ -357,22 +361,112 @@ export interface EngineHealth {
   error?: string;
 }
 
+/** Direct /health check from an extension page (fallback when the background does not answer). */
 export async function checkEngine(url: string, timeoutMs = 1500): Promise<EngineHealth> {
   const t0 = performance.now();
   try {
     const res = await fetch(`${url.replace(/\/+$/, '')}/health`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const j = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    return {
-      ok: true,
+    const info = {
       model: (j.model as string) ?? (j.decision_model as string) ?? undefined,
       device: (j.device as string) ?? undefined,
       version: (j.version as string) ?? undefined,
       ms: Math.round(performance.now() - t0),
     };
+    if (j.ok === false) return { ...info, ok: false, loading: j.status !== 'error', error: (j.detail as string) || (j.status as string) || 'Not ready' };
+    return { ...info, ok: true };
   } catch (e) {
     const msg = (e as Error)?.name === 'TimeoutError' ? 'Not responding' : 'Not running';
     return { ok: false, error: msg };
+  }
+}
+
+function asEngineStatus(r: unknown): EngineStatus | null {
+  const o = r as { status?: unknown } | null;
+  const s = (o && typeof o.status === 'object' ? o.status : r) as EngineStatus | null;
+  return s && typeof s === 'object' && typeof s.state === 'string' && typeof s.url === 'string' ? s : null;
+}
+
+/**
+ * Hush Engine status from the background, which polls the engine while it is
+ * enabled; `fresh` re-checks now. Falls back to a direct health check of
+ * `url` when the background does not answer.
+ */
+export async function getEngineStatus(url: string, fresh = false): Promise<EngineStatus> {
+  try {
+    const s = asEngineStatus(await chrome.runtime.sendMessage({ type: 'hush:engine:getStatus', fresh } satisfies RuntimeMessage));
+    if (s) return s;
+  } catch {
+    /* no background */
+  }
+  const h = await checkEngine(url);
+  return {
+    state: h.ok ? 'ready' : h.loading ? 'loading' : h.error === 'Not running' || h.error === 'Not responding' ? 'unreachable' : 'error',
+    url,
+    detail: h.ok ? undefined : h.error,
+    model: h.model,
+    device: h.device,
+    version: h.version,
+    pingMs: h.ms,
+    answered: 0,
+    expired: 0,
+    latencyMs: 0,
+    checkedAt: Date.now(),
+  };
+}
+
+/** Live engine status broadcasts ({type:'hush:engine:status'}). */
+export function onEngineStatus(cb: (s: EngineStatus) => void): () => void {
+  const fn = (msg: any) => {
+    if (msg?.type === 'hush:engine:status') {
+      const s = asEngineStatus(msg);
+      if (s) cb(s);
+    }
+  };
+  try {
+    chrome.runtime.onMessage.addListener(fn);
+  } catch {
+    return () => {};
+  }
+  return () => chrome.runtime.onMessage.removeListener(fn);
+}
+
+/** "NVIDIA GeForce RTX 3090 (24 GB)" → "RTX 3090 (24 GB)" */
+function shortDevice(d: string | undefined): string {
+  return (d ?? '').replace(/^(NVIDIA\s+)?(GeForce\s+)?/i, '').trim();
+}
+
+/** Human-readable engine status for extension pages. */
+export function engineSummary(s: EngineStatus | null): { title: string; sub: string; tone: 'ok' | 'load' | 'err' | 'idle' } {
+  if (!s) return { title: 'Checking…', sub: '', tone: 'load' };
+  switch (s.state) {
+    case 'off':
+      return { title: 'Off', sub: 'Turn on to use custom filters', tone: 'idle' };
+    case 'connecting':
+      return { title: 'Connecting…', sub: s.url, tone: 'load' };
+    case 'ready':
+      return {
+        title: 'Connected',
+        sub: [s.model, shortDevice(s.device), s.latencyMs ? `~${s.latencyMs} ms per answer` : ''].filter(Boolean).join(' · '),
+        tone: 'ok',
+      };
+    case 'loading':
+      return { title: 'Loading the model…', sub: s.detail || 'Takes up to a minute', tone: 'load' };
+    case 'unreachable':
+      return { title: 'Not running', sub: `Nothing answers at ${s.url.replace(/^https?:\/\//, '')}`, tone: 'err' };
+    case 'error':
+      return { title: 'Engine problem', sub: s.detail || 'See the engine window for details', tone: 'err' };
+  }
+}
+
+/** Ask the engine about one sample message ("Test filter"); waits for the answer. */
+export async function testEngine(req: EngineTestRequest): Promise<EngineTestResult> {
+  try {
+    const r = (await chrome.runtime.sendMessage({ type: 'hush:engine:test', ...req } satisfies RuntimeMessage)) as EngineTestResult | undefined;
+    return r && typeof r.ok === 'boolean' ? r : { ok: false, error: 'The extension background did not answer' };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message ?? e) };
   }
 }
 

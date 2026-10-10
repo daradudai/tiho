@@ -9,11 +9,12 @@ import type { PresetId } from '../../core/settings';
 import type { Action, Category, ModelStatus } from '../../core/types';
 import { modelSummary } from '../model-status';
 import { CATEGORIES } from '../../core/types';
-import { Mark } from '../brand';
+import { LiveMark } from '../brand';
 import { Diverging, Ring, Sparkline } from '../charts';
 import { ago, compact, grouped, pct, rate, vibeWord } from '../format';
 import { Icon } from '../icons';
-import { ACTION_META, CATEGORY_META, CHIP_CATEGORIES, PRESET_META, PRESET_ORDER, PLATFORM_SURFACE, nextAction } from '../tokens';
+import { iconImage } from './glyphs';
+import { ACTION_META, CATEGORY_META, CHIP_CATEGORIES, PRESET_META, PRESET_ORDER, PLATFORM_SURFACE, nextAction, type Theme } from '../tokens';
 import type { View } from './view';
 
 const SHORT: Record<Category, string> = {
@@ -35,10 +36,11 @@ type Menu = { kind: 'chip'; cat: Category; x: number; y: number } | { kind: 'pre
 export interface BarProps {
   v: View;
   actions: BarActions;
-  waveRef: (el: SVGPathElement | null) => void;
+  /** The live mark (activity pulses, see mountBar). */
+  markRef: (el: HTMLElement | null) => void;
 }
 
-export function Bar({ v, actions, waveRef }: BarProps) {
+export function Bar({ v, actions, markRef }: BarProps) {
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [tip, setTip] = useState<Tip | null>(null);
@@ -46,6 +48,7 @@ export function Bar({ v, actions, waveRef }: BarProps) {
   const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tipWarm = useRef(0);
 
+  const calm = useCalm(v);
   const settings = v.settings.value;
   const theme = v.theme.value;
   const platform = v.platform.value || 'default';
@@ -83,13 +86,16 @@ export function Bar({ v, actions, waveRef }: BarProps) {
   };
 
   // Tooltips: delegated, short delay, instant when moving between items.
+  // Text is read when shown (data-tip="calm" is computed from the totals then),
+  // so live numbers never rewrite attributes while chat flows.
   const onOver = (e: PointerEvent) => {
     const t = (e.target as Element).closest?.('[data-tip]') as HTMLElement | null;
     if (!t || menu || open) return;
     if (tipTimer.current) clearTimeout(tipTimer.current);
     const show = () => {
       const p = place(t);
-      setTip({ title: t.dataset.tip!, sub: t.dataset.tipSub, x: p.x, y: p.y, below: true });
+      const text = t.dataset.tip === 'calm' ? calmTip(v.totals.peek()) : { title: t.dataset.tip!, sub: t.dataset.tipSub };
+      setTip({ ...text, x: p.x, y: p.y, below: true });
       tipWarm.current = performance.now();
     };
     if (performance.now() - tipWarm.current < 600) show();
@@ -147,17 +153,17 @@ export function Bar({ v, actions, waveRef }: BarProps) {
       onPointerOut={onOut}
     >
       <div class="hb-row" role="toolbar" aria-label="Hush chat filter">
-        <MarkButton v={v} open={open} onToggle={toggleOpen} waveRef={waveRef} />
+        <MarkButton calm={calm} open={open} onToggle={toggleOpen} markRef={markRef} />
         {settings.enabled ? (
           <>
-            <CalmText v={v} />
+            <CalmText calm={calm} />
             <PresetSwitch
               preset={settings.preset}
               menuOpen={menu?.kind === 'preset'}
               onPick={(p) => actions.setPreset(p)}
               onOpenMenu={openPresetMenu}
             />
-            <Chips v={v} actions={actions} onMenu={openChipMenu} />
+            <Chips v={v} theme={theme} actions={actions} onMenu={openChipMenu} />
           </>
         ) : (
           <div class="hb-paused">
@@ -220,43 +226,44 @@ export function Bar({ v, actions, waveRef }: BarProps) {
 const RING_R = 13;
 const RING_C = 2 * Math.PI * RING_R;
 
-function MarkButton({ v, open, onToggle, waveRef }: { v: View; open: boolean; onToggle: () => void; waveRef: (el: SVGPathElement | null) => void }) {
-  const offset = useComputed(() => {
+function calmTip(t: { seen: number; filtered: number }): { title: string; sub: string } {
+  return t.seen
+    ? { title: `${pct(t.filtered / t.seen)} of chat hushed`, sub: `${grouped(t.filtered)} of ${grouped(t.seen)} messages` }
+    : { title: 'Waiting for chat', sub: 'Hush will start counting soon' };
+}
+
+/**
+ * Share of chat hushed in whole percents, with a little hysteresis: a ratio
+ * hovering around x.5 % would otherwise flip the ring and the number (and
+ * repaint them) on every update.
+ */
+function useCalm(v: View): ReadonlySignal<number | null> {
+  const shown = useRef<number | null>(null);
+  return useComputed(() => {
     const t = v.totals.value;
-    const r = t.seen > 0 ? t.filtered / t.seen : 0;
-    return String(RING_C * (1 - Math.min(1, r)));
+    if (!t.seen) return (shown.current = null);
+    const exact = (100 * t.filtered) / t.seen;
+    if (shown.current === null || Math.abs(exact - shown.current) >= 0.75) shown.current = Math.round(exact);
+    return shown.current;
   });
-  const label = useComputed(() => {
-    const t = v.totals.value;
-    return t.seen ? `${pct(t.filtered / t.seen)} of chat hushed` : 'Waiting for chat';
-  });
-  const sub = useComputed(() => {
-    const t = v.totals.value;
-    return t.seen ? `${grouped(t.filtered)} of ${grouped(t.seen)} messages` : 'Hush will start counting soon';
-  });
+}
+
+function MarkButton({ calm, open, onToggle, markRef }: { calm: ReadonlySignal<number | null>; open: boolean; onToggle: () => void; markRef: (el: HTMLElement | null) => void }) {
+  const offset = useComputed(() => (RING_C * (1 - Math.min(100, calm.value ?? 0) / 100)).toFixed(2));
+  const empty = useComputed(() => (calm.value ? undefined : '')); // a zero-length round-capped stroke would still draw a dot
   return (
-    <button
-      class="hb-mark"
-      aria-label="Hush — open live stats"
-      aria-expanded={open}
-      onClick={onToggle}
-      data-tip={label}
-      data-tip-sub={sub}
-    >
+    <button class="hb-mark" aria-label="Hush — open live stats" aria-expanded={open} onClick={onToggle} data-tip="calm">
       <svg class="hb-ring" width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
         <circle cx="15" cy="15" r={RING_R} class="hb-ring-track" />
-        <circle cx="15" cy="15" r={RING_R} class="hb-ring-fill" stroke-dasharray={`${RING_C} ${RING_C}`} stroke-dashoffset={offset} />
+        <circle cx="15" cy="15" r={RING_R} class="hb-ring-fill" stroke-dasharray={`${RING_C} ${RING_C}`} stroke-dashoffset={offset} data-empty={empty} />
       </svg>
-      <Mark size={18} waveRef={waveRef} />
+      <LiveMark size={18} liveRef={markRef} />
     </button>
   );
 }
 
-function CalmText({ v }: { v: View }) {
-  const value = useComputed(() => {
-    const t = v.totals.value;
-    return t.seen ? pct(t.filtered / t.seen) : '—';
-  });
+function CalmText({ calm }: { calm: ReadonlySignal<number | null> }) {
+  const value = useComputed(() => (calm.value === null ? '—' : `${calm.value}%`));
   return (
     <div class="hb-calm" aria-hidden="true">
       <b>{value}</b>
@@ -322,8 +329,31 @@ function PresetMenu({ current, x, y, onPick }: { current: PresetId; x: number; y
 
 /* ── Category chips ───────────────────────────────────────────────── */
 
-function Chips({ v, actions, onMenu }: { v: View; actions: BarActions; onMenu: (c: Category, el: Element) => void }) {
+function Chips({ v, theme, actions, onMenu }: { v: View; theme: Theme; actions: BarActions; onMenu: (c: Category, el: Element) => void }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState('');
+
+  // Edge fades when the chips overflow: static overlays toggled from scroll /
+  // resize callbacks (geometry is read only then, never per counter update).
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const sync = () => {
+      const max = el.scrollWidth - el.clientWidth;
+      setEdges(max <= 1 ? '' : `${el.scrollLeft > 1 ? 'l' : ''}${el.scrollLeft < max - 1 ? 'r' : ''}`);
+    };
+    sync();
+    el.addEventListener('scroll', sync, { passive: true });
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(sync) : null;
+    ro?.observe(el);
+    if (inner.current) ro?.observe(inner.current);
+    return () => {
+      el.removeEventListener('scroll', sync);
+      ro?.disconnect();
+    };
+  }, []);
+
   const onWheel = (e: WheelEvent) => {
     const el = scroller.current;
     if (!el || el.scrollWidth <= el.clientWidth) return;
@@ -333,10 +363,14 @@ function Chips({ v, actions, onMenu }: { v: View; actions: BarActions; onMenu: (
     }
   };
   return (
-    <div class="hb-chips" ref={scroller} onWheel={onWheel}>
-      {CHIP_CATEGORIES.map((c) => (
-        <Chip key={c} cat={c} v={v} action={v.settings.value.actions[c]} actions={actions} onMenu={onMenu} />
-      ))}
+    <div class="hb-chips" data-edges={edges || undefined}>
+      <div class="hb-chips-scroll" ref={scroller} onWheel={onWheel}>
+        <div class="hb-chips-in" ref={inner}>
+          {CHIP_CATEGORIES.map((c) => (
+            <Chip key={c} cat={c} v={v} theme={theme} action={v.settings.value.actions[c]} actions={actions} onMenu={onMenu} />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -360,7 +394,7 @@ function useLongPress(cb: (el: Element) => void) {
   };
 }
 
-function Chip({ cat, v, action, actions, onMenu }: { cat: Category; v: View; action: Action; actions: BarActions; onMenu: (c: Category, el: Element) => void }) {
+function Chip({ cat, v, theme, action, actions, onMenu }: { cat: Category; v: View; theme: Theme; action: Action; actions: BarActions; onMenu: (c: Category, el: Element) => void }) {
   const n = useComputed(() => compact(v.counts.value[cat]));
   const zero = useComputed(() => (v.counts.value[cat] ? undefined : ''));
   const lp = useLongPress((el) => onMenu(cat, el));
@@ -387,9 +421,8 @@ function Chip({ cat, v, action, actions, onMenu }: { cat: Category; v: View; act
         onMenu(cat, e.currentTarget);
       }}
     >
-      <span class="hb-chip-ico">
-        <Icon name={cat} size={13} fill strokeWidth={1.7} />
-      </span>
+      {/* an image, not an inline <svg>: see glyphs.ts */}
+      <span class="hb-chip-ico" style={{ backgroundImage: iconImage({ name: cat, fill: true, strokeWidth: 1.7 }, meta.color[theme], action === 'dim' ? 0.45 : 1) }} />
       <span class="hb-chip-n">{n}</span>
     </button>
   );

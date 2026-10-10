@@ -1,11 +1,17 @@
 // mountBar: inserts the Hush bar into the platform's chat column, inside a
 // shadow root so the page's CSS and ours never meet.
+//
+// Cost model (tests/stress, bar A/B): the bar must stay invisible in the
+// page's main-thread profile while chat flows. Counters update ≤ 2×/s, in
+// frames the page renders anyway (see view.ts), inside a size/layout/paint-
+// contained row; motion is opacity / transform on its own layer (compositor).
+// Nothing animates per frame on the main thread.
 
 import { h, render } from 'preact';
 import { effect } from '@preact/signals';
 import type { BarActions } from '../../core/bar-actions';
 import type { Store } from '../../core/store';
-import { pulseWave } from '../brand';
+import { pulseMark } from '../brand';
 import tokensCss from '../tokens.css?inline';
 import barCss from './bar.css?inline';
 import { Bar } from './Bar';
@@ -19,6 +25,12 @@ export interface MountOptions {
 }
 
 export const BAR_TAG = 'hush-bar';
+
+/**
+ * Minimum ms between activity pulses of the mark. Even on the compositor a
+ * running animation costs the page a little style work per frame: keep it rare.
+ */
+const PULSE_MS = 6000;
 
 export function mountBar(anchor: BarAnchor, store: Store, actions: BarActions, opts: MountOptions = {}): () => void {
   const host = document.createElement(BAR_TAG);
@@ -41,25 +53,28 @@ export function mountBar(anchor: BarAnchor, store: Store, actions: BarActions, o
     host.style.setProperty('display', store.settings.value.showBar ? 'block' : 'none', 'important');
   });
 
-  // Activity pulse: at most every 700 ms, strength follows msgs/s.
-  let wave: SVGPathElement | null = null;
-  let lastPulse = 0;
+  // Activity pulse while chat flows: the mark's wave swells now and then,
+  // strength follows msgs/s. Compositor-only (see LiveMark), and sparse.
+  let mark: HTMLElement | null = null;
+  let lastPulse = -Infinity;
+  let lastSeen = -1;
   const disposePulse = effect(() => {
-    void store.totals.value;
+    const seen = view.totals.value.seen;
     const t = performance.now();
-    if (t - lastPulse < 700 || document.hidden || !wave) return;
+    const moved = seen !== lastSeen;
+    lastSeen = seen;
+    if (!moved || t - lastPulse < PULSE_MS || document.hidden || !mark) return;
     lastPulse = t;
-    const r = store.rate.peek();
-    const now = r[r.length - 1] ?? 0;
-    pulseWave(wave, Math.min(1, now / 60));
+    const r = view.rate.peek();
+    pulseMark(mark, Math.min(1, (r[r.length - 1] ?? 0) / 60));
   });
 
   render(
     h(Bar, {
       v: view,
       actions,
-      waveRef: (el: SVGPathElement | null) => {
-        wave = el;
+      markRef: (el: HTMLElement | null) => {
+        mark = el;
       },
     }),
     mount,

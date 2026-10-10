@@ -1,6 +1,6 @@
 # Hush Engine
 
-Optional local GPU server for the Hush extension. It runs the
+Optional local GPU server for the [Hush](../README.md) extension. It runs the
 [Clef-Flash](https://huggingface.co/Cloudflare/clef-flash) decision model (9B, Apache-2.0)
 through llama.cpp's `llama-server` and answers two kinds of questions about chat messages:
 
@@ -278,14 +278,18 @@ To benchmark a running engine:
 
 ```sh
 python -m uv venv .venv && python -m uv pip install --python .venv/Scripts/python.exe -e ".[dev]"
-.venv/Scripts/python -m pytest -q
+.venv/Scripts/python -m pytest -q -m "not integration"
 HUSH_TEST_BACKEND=http://127.0.0.1:7378 .venv/Scripts/python -m pytest -q tests/test_integration.py
 ```
 
+Without uv, `python -m venv .venv` and `.venv/Scripts/python -m pip install -e ".[dev]"` work too
+(on Linux and macOS the interpreter is `.venv/bin/python`).
+
 - Unit tests use a fake in-process backend.
-- `tests/test_integration.py` talks to a real llama-server running Clef-Flash. It is skipped if
-  none answers.
+- `tests/test_integration.py` (marker `integration`) talks to a real llama-server running
+  Clef-Flash. It is skipped if none answers.
 - Process-management tests use `tests/fake_llama_server.py`, so they need no GPU.
+- CI runs the unit tests on Linux (Python 3.10 and 3.12) and Windows (Python 3.12).
 
 Code layout (`hush_engine/`):
 

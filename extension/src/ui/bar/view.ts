@@ -1,9 +1,14 @@
-// Frame-aligned, rate-limited mirror of the runtime Store.
+// Rate-limited mirror of the runtime Store that rides the page's own frames.
 //
-// The runtime may write the store as often as it likes; the bar only ever
-// sees one batched update per animation frame, and each field has its own
-// cadence (counters ~8 fps, charts ~1-2 fps). Nothing runs while the tab is
-// hidden (rAF is paused).
+// The runtime writes the store from its frame callback (≤ 4×/s) and its 1 s
+// tick: tasks that render a frame anyway. The view applies a change right
+// there, in the same task, when the field's cadence allows it, so the bar's
+// DOM updates join a frame the page renders anyway instead of asking for
+// frames of their own (an extra frame per update was most of the bar's cost
+// in tests/stress). A change that comes too early waits for the next store
+// write that is due, or for a short trailing timer once chat goes quiet.
+// Each field has its own cadence (counters 2 fps, charts and status ≤ 1 fps);
+// nothing is applied while the tab is hidden.
 
 import { batch, effect, signal, type Signal } from '@preact/signals';
 import type { Store } from '../../core/store';
@@ -19,15 +24,18 @@ const CADENCE: Record<Key, number> = {
   platform: 0,
   channel: 0,
   model: 100,
-  counts: 125,
-  totals: 125,
-  perf: 500,
-  rate: 500,
+  counts: 500,
+  totals: 500,
+  perf: 1000,
+  rate: 1000,
   vibe: 1000,
-  waves: 400,
+  waves: 1000,
   questions: 300,
   filtered: 1000,
 };
+
+/** Grace after a field is due before its own timer applies it (a store write usually comes first). */
+const TRAIL_MS = 120;
 
 export function createView(store: Store): { view: View; dispose: () => void } {
   const keys = Object.keys(CADENCE) as Key[];
@@ -35,37 +43,26 @@ export function createView(store: Store): { view: View; dispose: () => void } {
   const last = {} as Record<Key, number>;
   const dirty = new Set<Key>();
   const disposers: (() => void)[] = [];
-  let raf = 0;
   let timer: ReturnType<typeof setTimeout> | 0 = 0;
 
-  const now = () => performance.now();
-
+  /** Apply every dirty field that is due; leave the rest to the next write or a trailing timer. */
   const flush = () => {
-    raf = 0;
-    const t = now();
+    if (timer) clearTimeout(timer);
+    timer = 0;
+    if (document.hidden) return; // applied on visibilitychange
+    const t = performance.now();
+    let wait = Infinity;
     batch(() => {
       for (const k of dirty) {
-        if (t - last[k] >= CADENCE[k] - 4) {
+        const due = last[k] + CADENCE[k] - t;
+        if (due <= 4) {
           view[k].value = (store[k] as Signal<unknown>).peek();
           last[k] = t;
           dirty.delete(k);
-        }
+        } else if (due < wait) wait = due;
       }
     });
-    if (dirty.size) schedule();
-  };
-
-  const schedule = () => {
-    if (raf || timer) return;
-    const t = now();
-    let wait = Infinity;
-    for (const k of dirty) wait = Math.min(wait, last[k] + CADENCE[k] - t);
-    const frame = () => {
-      timer = 0;
-      raf = requestAnimationFrame(flush);
-    };
-    if (wait <= 4) frame();
-    else timer = setTimeout(frame, wait);
+    if (dirty.size) timer = setTimeout(flush, wait + TRAIL_MS);
   };
 
   for (const k of keys) {
@@ -82,16 +79,21 @@ export function createView(store: Store): { view: View; dispose: () => void } {
           return;
         }
         dirty.add(k);
-        schedule();
+        flush();
       }),
     );
   }
+
+  const onVisible = () => {
+    if (!document.hidden && dirty.size) flush();
+  };
+  document.addEventListener('visibilitychange', onVisible);
 
   return {
     view: view as unknown as View,
     dispose: () => {
       for (const d of disposers) d();
-      if (raf) cancelAnimationFrame(raf);
+      document.removeEventListener('visibilitychange', onVisible);
       if (timer) clearTimeout(timer);
     },
   };

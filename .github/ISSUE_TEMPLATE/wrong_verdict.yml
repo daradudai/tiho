@@ -1,0 +1,76 @@
+name: Wrong verdict
+description: Hush hid, folded or tagged a message it should not have, or let one through that it should have caught.
+title: "[verdict] "
+labels: ["model", "wrong-verdict"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks, these reports are how the model gets better.
+        Please **leave out usernames**, yours and the author's. Paste only the message text.
+  - type: dropdown
+    id: direction
+    attributes:
+      label: What went wrong?
+      options:
+        - Hidden, folded or dimmed, but it was fine (false positive)
+        - Shown, but it should have been caught (false negative)
+        - Tagged with the wrong category
+        - Not detected as a question
+        - Wave not folded, or unrelated messages folded together
+    validations:
+      required: true
+  - type: textarea
+    id: message
+    attributes:
+      label: Message text
+      description: Exactly as it appeared in chat. Emotes as their names (e.g. KEKW). One message per line if you have several.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: got
+    attributes:
+      label: What Hush said
+      description: Hover the message, or check Side panel → Log. For example "toxic 0.94", "wave ×37", "link".
+      placeholder: toxic 0.31
+  - type: input
+    id: expected
+    attributes:
+      label: What it should be
+      description: One or more of toxic, spam, scam, noise, question, positive, negative, or clean.
+      placeholder: clean
+    validations:
+      required: true
+  - type: input
+    id: context
+    attributes:
+      label: Language and context
+      description: The language, and anything that makes the meaning clear (slang, a meme, what was happening on stream).
+      placeholder: "Polish; 'kurwa' here is excitement, not an insult"
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Twitch
+        - YouTube
+        - Kick
+    validations:
+      required: true
+  - type: dropdown
+    id: preset
+    attributes:
+      label: Preset and strictness
+      options:
+        - Chill, default strictness
+        - Focus, default strictness
+        - Questions, default strictness
+        - Raw
+        - Custom or changed strictness (say which below)
+  - type: input
+    id: version
+    attributes:
+      label: Hush and model version
+      description: Side panel → Settings shows both.
+      placeholder: Hush 0.1.0, model v2-9L, WebGPU

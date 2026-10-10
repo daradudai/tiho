@@ -1,0 +1,100 @@
+# Checks for every push to main and every pull request.
+#
+#   extension  typecheck, unit tests, production build without the model
+#              (the model is git-ignored; the build then expects to download it)
+#   engine     unit tests against the fake llama-server backend; the
+#              integration tests need a real GPU server and are deselected
+#
+# Playwright suites (stress, live smoke) need real chat logs, a display or live
+# streams, so they stay local.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  extension:
+    name: Extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Build (no bundled model)
+        run: npx wxt build
+        env:
+          HUSH_BUNDLE_MODEL: '0'
+
+      - name: Check build output
+        run: |
+          out=.output/chrome-mv3
+          for f in manifest.json background.js content-scripts/chat.js offscreen.html popup.html sidepanel.html onboarding.html \
+                   ort/ort-wasm-simd-threaded.asyncify.mjs ort/ort-wasm-simd-threaded.asyncify.wasm; do
+            test -s "$out/$f" || { echo "::error::missing $out/$f"; exit 1; }
+          done
+          if [ -d "$out/models" ]; then echo "::error::model files leaked into the build"; exit 1; fi
+          du -sh "$out"
+
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: hush-chrome-mv3-no-model
+          path: extension/.output/chrome-mv3
+          retention-days: 7
+
+  engine:
+    name: Engine (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: '3.10' }
+          - { os: ubuntu-latest, python: '3.12' }
+          - { os: windows-latest, python: '3.12' }
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: engine/pyproject.toml
+
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      - name: Unit tests
+        run: python -m pytest -q -m "not integration"

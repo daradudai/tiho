@@ -1,13 +1,14 @@
 // Toolbar popup (360 px): master switch, this site, live stats, preset,
-// strictness, model status, open dashboard.
+// strictness, model (and Hush Engine) status, open dashboard.
 
 import { signal, useComputed } from '@preact/signals';
 import { useEffect, useState } from 'preact/hooks';
+import type { EngineStatus } from '../../core/protocol';
 import type { PresetId } from '../../core/settings';
 import { PRESETS } from '../../core/settings';
 import type { Action, Category } from '../../core/types';
 import { Mark } from '../brand';
-import { getActiveTab, getPerf, getSnapshot, type ActiveTab, type LiveSnapshot } from '../bridge';
+import { engineSummary, getActiveTab, getEngineStatus, getPerf, getSnapshot, onEngineStatus, type ActiveTab, type LiveSnapshot } from '../bridge';
 import { Sparkline } from '../charts';
 import { compact, pct, rate, strictWord, vibeWord } from '../format';
 import { Icon, PlatformGlyph } from '../icons';
@@ -20,6 +21,7 @@ const tab = signal<ActiveTab | null>(null);
 const snap = signal<LiveSnapshot | null>(null);
 const perfOnly = signal<{ msgsPerSec: number } | null>(null);
 const rateSig = signal<number[]>([]);
+const engine = signal<EngineStatus | null>(null);
 
 export const SITE_NAME: Record<string, string> = { youtube: 'YouTube', twitch: 'Twitch', kick: 'Kick' };
 
@@ -34,6 +36,11 @@ async function refresh() {
     const p = await getPerf();
     perfOnly.value = p ? { msgsPerSec: p.stats.msgsPerSec } : null;
   }
+}
+
+async function refreshEngine() {
+  const e = settings.value.engine;
+  if (e.enabled) engine.value = await getEngineStatus(e.url);
 }
 
 async function openDashboard() {
@@ -57,10 +64,17 @@ export function PopupApp() {
     initModelStatus(1500);
     void refresh();
     const id = setInterval(refresh, 1000);
-    return () => clearInterval(id);
+    const off = onEngineStatus((s) => (engine.value = s));
+    const eid = setInterval(refreshEngine, 3000);
+    return () => {
+      clearInterval(id);
+      clearInterval(eid);
+      off();
+    };
   }, []);
 
   const s = settings.value;
+  useEffect(() => void refreshEngine(), [s.engine.enabled, s.engine.url]);
   const t = tab.value;
   const onSite = !!t?.platform;
   const siteOn = onSite ? s.sites[t!.platform!] : false;
@@ -107,7 +121,10 @@ export function PopupApp() {
       </main>
 
       <footer class="pp-foot">
-        <ModelLine />
+        <div class="pp-status">
+          <ModelLine />
+          {s.engine.enabled && <EngineLine />}
+        </div>
         <Button variant="primary" size="md" iconRight="arrowRight" onClick={openDashboard}>
           Dashboard
         </Button>
@@ -265,6 +282,19 @@ function Presets({ current }: { current: PresetId }) {
       </div>
       <p class="pp-preset-desc">{shown ? PRESET_META[shown].desc : 'Your own mix — tune it in the dashboard'}</p>
     </>
+  );
+}
+
+function EngineLine() {
+  const sum = engineSummary(engine.value);
+  return (
+    <span class="pp-model pp-engine" data-tone={sum.tone}>
+      <span class="pp-model-dot" />
+      <span>
+        <b>Hush Engine · {sum.title}</b>
+        {sum.sub && <em>{sum.sub}</em>}
+      </span>
+    </span>
   );
 }
 

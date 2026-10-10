@@ -1,3 +1,4 @@
+import { fnv1a } from './hash';
 import type { Action, Category, Platform } from './types';
 
 export type PresetId = 'raw' | 'chill' | 'focus' | 'questions' | 'custom';
@@ -11,13 +12,30 @@ export interface UserRule {
   enabled: boolean;
 }
 
+export interface EngineFilter {
+  id: string;
+  /**
+   * What to look for, as written by the user: a yes/no question about "this
+   * message", or the end of "Hide messages that …" (see engineQuestion).
+   */
+  question: string;
+  action: Action;
+  enabled: boolean;
+  /** Short name for lists and verdict reasons ("Backseating"); derived from the question when missing. */
+  label?: string;
+  /** Id of the built-in preset this filter was added from. */
+  preset?: string;
+}
+
 export interface EngineSettings {
   enabled: boolean;
   url: string;
   /** Natural-language custom filters answered by the decision model. */
-  filters: { id: string; question: string; action: Action; enabled: boolean }[];
+  filters: EngineFilter[];
   /** Ask the engine for a second opinion when the local model is unsure. */
   refineUncertain: boolean;
+  /** Stream context per channel ("Streamer is playing Elden Ring, no spoilers"), keyed by channelKey(). */
+  contexts: Record<string, string>;
 }
 
 export interface Settings {
@@ -63,7 +81,7 @@ export const DEFAULT_SETTINGS: Settings = {
   decorate: true,
   showBar: true,
   rules: [],
-  engine: { enabled: false, url: 'http://127.0.0.1:7377', filters: [], refineUncertain: true },
+  engine: { enabled: false, url: 'http://127.0.0.1:7377', filters: [], refineUncertain: true, contexts: {} },
   preferGpu: true,
 };
 
@@ -74,7 +92,58 @@ export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
   s.sites = { ...DEFAULT_SETTINGS.sites, ...(stored?.sites ?? {}) };
   s.actions = { ...DEFAULT_SETTINGS.actions, ...(stored?.actions ?? {}) };
   s.engine = { ...DEFAULT_SETTINGS.engine, ...(stored?.engine ?? {}) };
+  if (!Array.isArray(s.engine.filters)) s.engine.filters = [];
+  if (!s.engine.contexts || typeof s.engine.contexts !== 'object') s.engine.contexts = {};
   return s;
+}
+
+// ── Hush Engine custom filters ──
+//
+// A filter is stored as the user wrote it; what the engine is asked and the
+// key its answers travel under are derived from that text, so editing a
+// filter never reuses answers given to the old wording.
+
+/** "Is this …", "Does it …" — but not "are backseating …", which completes "messages that". */
+const QUESTION_START = /^(?:is|are|does|do|did|has|have|can|could|would|will|should|was|were)\s+(?:this|it|the|that|there|these|they|someone|anyone)\b/i;
+const MESSAGES_THAT = /^(?:(?:hide|dim|fold|collapse|highlight)\s+)?(?:(?:chat|live[- ]chat)\s+)?messages?\s+(?:that|which|who|where)\s+/i;
+
+/** The yes/no question the engine is asked for a filter. */
+export function engineQuestion(text: string): string {
+  const t = text.trim().replace(/\s+/g, ' ');
+  if (t.endsWith('?')) return t;
+  if (QUESTION_START.test(t)) return `${t}?`;
+  const phrase = t.replace(MESSAGES_THAT, '').replace(/[.!\s]+$/, '');
+  return `Chat messages that ${phrase}: is this message one of them?`;
+}
+
+/** Key a filter's answers travel under (engine request id, content-side score map). */
+export function filterKey(f: Pick<EngineFilter, 'question'>): string {
+  return `f${fnv1a(engineQuestion(f.question)).toString(36)}`;
+}
+
+/** Short human-readable name: the label, or the question without its "Is this message …" frame. */
+export function filterLabel(f: Pick<EngineFilter, 'question' | 'label'>, max = 32): string {
+  let t = f.label?.trim();
+  if (!t) {
+    t = f.question
+      .trim()
+      .replace(/\s+/g, ' ')
+      .replace(MESSAGES_THAT, '')
+      .replace(/^(?:is|does)\s+(?:this|the)\s+(?:chat\s+)?message\s+(?:about\s+)?/i, '')
+      .replace(/^(?:is|does)\s+it\s+/i, '')
+      .replace(/[?.!:\s]+$/, '');
+  }
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
+/** Filters the engine should answer right now (engine on, filter on, non-empty). */
+export function activeFilters(e: EngineSettings): EngineFilter[] {
+  return e.enabled ? e.filters.filter((f) => f.enabled && f.question.trim()) : [];
+}
+
+/** Key for per-channel engine settings ("twitch/xqc"). */
+export function channelKey(platform: string, channel: string): string {
+  return `${platform}/${channel.trim().toLowerCase()}`;
 }
 
 export async function loadSettings(): Promise<Settings> {

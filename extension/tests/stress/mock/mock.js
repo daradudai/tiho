@@ -6,10 +6,16 @@
 //
 //   window.__mock.start(rate) / stop() / stats() / resetStats()
 //   ?hush=1 → loads harness.js (the Hush runtime bundle) after the corpus.
+//   ?theme=light → the site's light theme (Twitch's default when logged out).
 (() => {
   'use strict';
   const skin = document.documentElement.dataset.skin;
   const qs = new URLSearchParams(location.search);
+  if (qs.get('theme') === 'light') {
+    // the markers the adapters read: Twitch's html class, YouTube's [dark] attribute
+    document.documentElement.classList.replace('tw-root--theme-dark', 'tw-root--theme-light');
+    document.documentElement.removeAttribute('dark');
+  }
   const YT = skin === 'youtube';
   const list = YT ? document.querySelector('#items') : document.querySelector('.chat-scrollable-area__message-container');
   const scroller = YT ? document.getElementById('item-scroller') : document.getElementById('scroller');

@@ -1,10 +1,16 @@
 // Content-script side of inference: one long-lived Port per frame to the
 // background, per-frame micro-batching, in-flight dedup and a bounded LRU of
 // scores keyed by normalized text. Rules-only when no model is available.
+//
+// Hush Engine answers arrive later as an `engine` follow-up for ids that
+// already have scores; they are attached to the cached score vectors in place
+// (ScoreVector.engine), so every row holding that vector sees them the next
+// time policy runs, and `onRescored` asks the runtime to run it now.
 
 import { LRU } from '../core/lru';
-import { PORT_CLASSIFY, type ClassifyItem, type PortRequest, type PortResponse } from '../core/protocol';
-import type { ModelStatus } from '../core/types';
+import type { EngineOpinion, ScoreVector } from '../core/policy';
+import { PORT_CLASSIFY, type ClassifyItem, type EngineFollowUp, type PortRequest, type PortResponse } from '../core/protocol';
+import { LABELS, type ModelStatus } from '../core/types';
 
 export interface ClassifierTransport {
   post(msg: PortRequest): void;
@@ -42,6 +48,8 @@ export interface ClassifierOptions {
   now?: () => number;
   onScores?(ids: string[]): void;
   onFailed?(ids: string[]): void;
+  /** Hush Engine answers were attached to the cached scores of these ids (verdicts may change). */
+  onRescored?(ids: string[]): void;
   onStatus?(s: ModelStatus): void;
 }
 
@@ -49,7 +57,7 @@ const LAT_RING = 256;
 
 export class ClassifierClient {
   status: ModelStatus | null = null;
-  readonly cache: LRU<string, number[]>;
+  readonly cache: LRU<string, ScoreVector>;
   /** Scores ever received over this client (any status). */
   answered = false;
   /** True once the extension context is gone: never reconnect. */
@@ -59,6 +67,8 @@ export class ClassifierClient {
   sent = 0;
   received = 0;
   failed = 0;
+  /** Texts the Hush Engine answered. */
+  refined = 0;
   private lat = new Float64Array(LAT_RING);
   private latN = 0;
 
@@ -102,7 +112,7 @@ export class ClassifierClient {
     return this.pending.size;
   }
 
-  lookup(id: string): number[] | undefined {
+  lookup(id: string): ScoreVector | undefined {
     return this.cache.get(id);
   }
 
@@ -237,6 +247,10 @@ export class ClassifierClient {
       this.setStatus(m.status);
       return;
     }
+    if (m.type === 'engine') {
+      this.mergeEngine(m);
+      return;
+    }
     const b = this.batches.get(m.batchId);
     if (m.type === 'error') {
       if (b) this.drop(m.batchId);
@@ -263,5 +277,27 @@ export class ClassifierClient {
       if (missing.length) this.opts.onFailed?.(missing);
     }
     this.opts.onScores?.(ids);
+  }
+
+  private mergeEngine(m: EngineFollowUp): void {
+    if (!Array.isArray(m.ids)) return;
+    const keys = m.filters ? Object.keys(m.filters) : [];
+    const ids: string[] = [];
+    for (let i = 0; i < m.ids.length; i++) {
+      const id = m.ids[i]!;
+      const s = this.cache.peek(id);
+      if (!s) continue; // evicted meanwhile: the engine opinion has nothing to refine
+      const op: EngineOpinion = s.engine ?? {};
+      for (const k of keys) {
+        const p = m.filters[k]![i];
+        if (typeof p === 'number' && Number.isFinite(p)) (op.filters ??= {})[k] = p;
+      }
+      const b = m.base?.[i];
+      if (Array.isArray(b) && b.length === LABELS.length) op.base = b;
+      s.engine = op;
+      ids.push(id);
+    }
+    this.refined += ids.length;
+    if (ids.length) this.opts.onRescored?.(ids);
   }
 }

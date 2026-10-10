@@ -3,9 +3,9 @@
 // background/offscreen inference is replaced by a simulated Port with
 // realistic batch latency (so hold / late-verdict paths are exercised).
 //
-// window.__hush = { runtime, stats(), reset() }
+// window.__hush = { runtime, stats(), reset(), setEnabled(on), setBar(on) }
 
-import { createBarActions } from '../../src/core/bar-actions';
+import { createBarActions, type MountBar } from '../../src/core/bar-actions';
 import type { PortRequest, PortResponse } from '../../src/core/protocol';
 import { DEFAULT_SETTINGS, PRESETS, type PresetId, type Settings } from '../../src/core/settings';
 import { createStore } from '../../src/core/store';
@@ -91,6 +91,23 @@ const lat = new Float64Array(LAT_N);
 let latN = 0;
 let pendingShown = 0;
 
+// The bar can be unmounted / remounted in place (bar A/B with Hush running in
+// both halves): the runtime mounts it through this wrapper once, setBar()
+// toggles it afterwards with the same anchor, store and actions.
+const realMountBar = qs.get('bar') === '0' ? null : findMountBar();
+let barArgs: Parameters<MountBar> | null = null;
+let barOff: (() => void) | null = null;
+const mountBar: MountBar | null =
+  realMountBar &&
+  ((...args) => {
+    barArgs = args;
+    barOff = realMountBar(...args) || null;
+    return () => {
+      barOff?.();
+      barOff = null;
+    };
+  });
+
 let rt: HushRuntime;
 const classifier = new ClassifierClient(() => transport, {
   onScores: (ids) => rt.onScores(ids),
@@ -103,7 +120,7 @@ rt = new HushRuntime({
   settings,
   store,
   classifier,
-  mountBar: qs.get('bar') === '0' ? null : findMountBar(),
+  mountBar,
   barActions: createBarActions({
     getSettings: () => settings,
     save: (patch) => {
@@ -163,6 +180,15 @@ w.__hush = {
   setEnabled(on: boolean) {
     settings = { ...settings, enabled: on };
     rt.setSettings(settings);
+  },
+  /** Mount / unmount the in-chat bar in place (bar A/B; filtering keeps running). */
+  setBar(on: boolean) {
+    if (on && !barOff && barArgs && realMountBar) barOff = realMountBar(...barArgs) || null;
+    else if (!on && barOff) {
+      barOff();
+      barOff = null;
+    }
+    return !!document.querySelector('hush-bar');
   },
   reset() {
     const m = rt.metrics;

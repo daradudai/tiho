@@ -1,14 +1,19 @@
 // Background service worker: routes classify traffic between content-script
 // Ports and the offscreen inference host, relays model status, aggregates
-// per-tab perf for the UI, opens the side panel / onboarding.
+// per-tab perf for the UI, opens the side panel / onboarding. When the
+// optional Hush Engine is on, it also forwards scored texts to it (the engine
+// only accepts extension origins, so content scripts cannot call it) and
+// answers the UI's engine status / "Test filter" requests.
 //
 // Stateless-ish by design (MV3 SWs die after ~30 s idle): Ports from open
 // chats keep it alive; when it restarts, content scripts reconnect and the
 // offscreen document is asked to reconnect (or re-created).
 
-import { PORT_CLASSIFY, type RuntimeMessage } from '../core/protocol';
-import { loadSettings, onSettingsChanged } from '../core/settings';
+import { PORT_CLASSIFY, type EngineStatus, type RuntimeMessage } from '../core/protocol';
+import { loadSettings, onSettingsChanged, type Settings } from '../core/settings';
 import type { ModelStatus, PerfStats } from '../core/types';
+import { EngineClient } from '../engine-client/client';
+import { EngineRouter } from '../engine-client/router';
 import { InferenceHub, type PortLike } from '../inference/hub';
 import { MSG_OFFSCREEN_HELLO, PORT_OFFSCREEN } from '../inference/messages';
 
@@ -51,16 +56,33 @@ export default defineBackground(() => {
     await creating;
   }
 
+  const broadcast = (m: RuntimeMessage) => {
+    chrome.runtime.sendMessage(m).catch(() => {
+      /* no extension page open */
+    });
+  };
+
+  // per-tab perf (content scripts report ~1/s); also tells the engine router which channel a tab shows
+  const perf = new Map<number, { stats: TabPerf; at: number }>();
+  chrome.tabs.onRemoved.addListener((tabId) => perf.delete(tabId));
+
+  const engine = new EngineClient({
+    onStatus: (status: EngineStatus) => broadcast({ type: 'hush:engine:status', status }),
+  });
+
   const hub = new InferenceHub({
     ensureOffscreen,
-    broadcast: (m) => {
-      chrome.runtime.sendMessage(m).catch(() => {
-        /* no extension page open */
-      });
-    },
+    broadcast,
     saveStatus: (s) => {
       chrome.storage.session.set({ [STATUS_KEY]: s }).catch(() => {});
     },
+    onScores: (r) => router.onLocalScores(r),
+  });
+
+  const router = new EngineRouter({
+    client: engine,
+    thresholds: () => hub.getStatus().thresholds,
+    tabInfo: (tabId) => perf.get(tabId)?.stats,
   });
 
   chrome.storage.session
@@ -68,11 +90,22 @@ export default defineBackground(() => {
     .then((r) => hub.restoreStatus(r[STATUS_KEY] as ModelStatus | undefined))
     .catch(() => {});
 
-  // GPU preference from settings.
-  loadSettings()
-    .then((s) => hub.setDevice(s.preferGpu ? 'auto' : 'wasm'))
+  // GPU preference and Hush Engine from settings.
+  const applySettings = (s: Settings) => {
+    hub.setDevice(s.preferGpu ? 'auto' : 'wasm');
+    engine.configure(s.engine.enabled, s.engine.url);
+    router.setSettings(s);
+  };
+  const settingsLoaded = loadSettings()
+    .then(applySettings)
     .catch(() => {});
-  onSettingsChanged((s) => hub.setDevice(s.preferGpu ? 'auto' : 'wasm'));
+  onSettingsChanged(applySettings);
+
+  async function engineStatus(fresh: boolean): Promise<EngineStatus> {
+    await settingsLoaded;
+    const s = engine.status;
+    return fresh || s.state === 'connecting' ? engine.check() : s;
+  }
 
   // If an offscreen document survived a SW restart, reattach right away.
   hasOffscreen()
@@ -88,10 +121,6 @@ export default defineBackground(() => {
       hub.attachOffscreen(port as unknown as PortLike);
     }
   });
-
-  // ── per-tab perf (content scripts report ~1/s) ──
-  const perf = new Map<number, { stats: TabPerf; at: number }>();
-  chrome.tabs.onRemoved.addListener((tabId) => perf.delete(tabId));
 
   async function perfForUi(): Promise<{ stats: TabPerf; inference: unknown } | null> {
     let best: { stats: TabPerf; at: number } | undefined;
@@ -122,6 +151,18 @@ export default defineBackground(() => {
       case 'hush:getPerf':
         perfForUi().then(sendResponse, () => sendResponse(null));
         return true;
+      case 'hush:engine:getStatus':
+        engineStatus(!!(msg as { fresh?: boolean }).fresh).then(sendResponse, () => sendResponse(null));
+        return true;
+      case 'hush:engine:test': {
+        // extension pages only (the side panel), never content scripts
+        if (!sender.url?.startsWith(chrome.runtime.getURL(''))) return false;
+        const { text, filters, context, platform } = msg as Extract<RuntimeMessage, { type: 'hush:engine:test' }>;
+        settingsLoaded
+          .then(() => engine.test({ text, filters, context, platform }))
+          .then(sendResponse, (e: unknown) => sendResponse({ ok: false, error: String((e as Error)?.message ?? e) }));
+        return true;
+      }
       case 'hush:openSidePanel': {
         // Must call sidePanel.open synchronously inside the user-gesture-carrying message.
         const tab = sender.tab;

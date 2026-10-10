@@ -402,12 +402,13 @@ describe('runtime: DOM churn', () => {
     const b = row('c'.repeat(40), { key: 'x2' });
     await frame();
     expect(A(a)).toBe('collapse');
-    // consecutive pills read as one: the second continues the run
-    expect(a.hasAttribute('data-hush-g')).toBe(false);
-    expect(b.hasAttribute('data-hush-g')).toBe(true);
+    // consecutive pills read as one: the run's last row carries its length
+    expect(a.hasAttribute('data-hush-run')).toBe(false);
+    expect(b.getAttribute('data-hush-run')).toBe('2');
     expect(rt.reveal('x1')).toBe(true);
     expect(A(a)).toBe('show');
     expect(a.hasAttribute('data-hush-open')).toBe(true);
+    expect(b.getAttribute('data-hush-run')).toBe('1');
     b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(b.hasAttribute('data-hush-open')).toBe(true);
   });

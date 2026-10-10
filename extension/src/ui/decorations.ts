@@ -1,76 +1,95 @@
-// Message decorations: the visual theme layer for chat rows, injected into the
-// chat document (light DOM of the platform page / chat iframe). Pure attribute
-// selectors, so applying a verdict stays a single attribute write per row.
+// Message decorations: the visual layer for chat rows. The runtime injects it
+// into the chat document (light DOM of the platform page / chat iframe) as its
+// one row stylesheet (src/runtime/styles.ts); the onboarding demo and the UI
+// showcase use it on their own (writing the same attributes, run marks included).
 //
-// Row attributes (contract with src/runtime/styles.ts):
+// Row attributes (contract with src/runtime/engine.ts):
 //   data-hush-a     show | highlight | dim | collapse | hide | pending
 //   data-hush-c     toxic | scam | spam | noise | negative | question | positive | clean
-//   data-hush-r     short reason ("toxic · 94%", "wave ×37", "!command")   → hover chip
-//   data-hush-wh    wave head, live count ("37")                           → "×37" badge
+//   data-hush-r     short reason ("toxic 0.94", "link")                     → hover chip
+//   data-hush-wh    wave head, live count ("37")                            → "×37" badge
 //   data-hush-wm    wave member (folds into its head, takes no space)
+//   data-hush-run   on the LAST collapsed row of a run: run length ("3")    → "3 hidden · show"
 //   data-hush-open  user expanded a collapsed row
 //
-// Works on its own or layered over the runtime's base sheet (buildCss): every
-// selector is prefixed with `html` so it wins on specificity regardless of
-// injection order, and it also sets the runtime's `--hush-*` variables.
+// Performance (measured in tests/stress): every selector is a compound of
+// plain attribute selectors on the row itself, so Blink only ever matches
+// rows that carry data-hush-* and never walks ancestors or siblings: no row
+// selector scoping (:is(<rows>)), no sibling (+) or child (> *) combinators,
+// no CSS counters, no transitions on rows. Collapsed rows take no space
+// (display:none) except the one the runtime marks with data-hush-run, which
+// becomes the pill; the runtime keeps that mark in O(changed rows).
 //
-// Collapsed rows: consecutive `collapse` siblings merge into ONE thin pill
-// ("3 hidden · show") drawn on the LAST row of the run and counted with a CSS
-// counter, so the runtime never has to compute run lengths. Clicking that row
-// should reveal the run (walk previousElementSibling while collapsed).
+// Everything visual is driven by --hush-* custom properties declared with
+// zero specificity, so a theme can override them from anywhere, e.g.
+//   document.documentElement.style.setProperty('--hush-c-toxic', '#f00')
 
 import type { Platform } from '../core/types';
-import { CATEGORIES } from '../core/types';
 import { BRAND, CATEGORY_META, type Theme } from './tokens';
 
 interface PlatformDeco {
   /** Left inset of the pill so it lines up with message text. */
   indent: string;
-  /** Rows are static-positioned; safe to make them a containing block on hover. */
-  relative: boolean;
+  /** Margin of the "×37" wave badge (floated into the row's top-right corner; a trailing item on flex rows). */
+  wave: string;
+  /**
+   * Rows are positioned already (Kick's virtual list: absolute rows), so the
+   * hover chip anchors to them as they are. Elsewhere the hovered row becomes
+   * position:relative (no offsets: nothing moves) to anchor the chip.
+   */
+  positioned: boolean;
 }
 
 const PLATFORM_DECO: Record<Platform, PlatformDeco> = {
-  twitch: { indent: '20px', relative: true },
-  youtube: { indent: '24px', relative: true },
-  kick: { indent: '12px', relative: true },
+  // row > div > .chat-line__message (padding 5px 20px, 20px lines)
+  twitch: { indent: '20px', wave: '6px 10px 0 6px', positioned: false },
+  // yt-live-chat-text-message-renderer: flex row, padding 4px 24px, 16px lines
+  youtube: { indent: '24px', wave: '3px 0 0 8px', positioned: false },
+  // div[data-index] (absolute) > .px-2 > .px-2 (padding-block 4px, ~22px lines)
+  kick: { indent: '16px', wave: '6px 12px 0 6px', positioned: true },
 };
 
 const THEME_DECO: Record<Theme, Record<string, string>> = {
   dark: {
     'pill-fill': 'rgba(255,255,255,0.055)',
     'pill-line': 'rgba(255,255,255,0.08)',
-    'pill-fg': '#9d9dac',
-    'pill-hover': 'rgba(255,255,255,0.09)',
-    'tip-bg': '#2b2b35',
+    'pill-fg': '#a3a3b2',
+    'pill-hover': 'rgba(255,255,255,0.11)',
+    'tip-bg': '#26262f',
     'tip-fg': '#f4f4f8',
-    'tip-line': 'rgba(255,255,255,0.15)',
-    'tip-shadow': '0 6px 18px -4px rgba(0,0,0,0.6)',
-    'edge-alpha': '62%',
-    'tint-alpha': '15%',
-    'wave-fill': 'rgba(132,135,255,0.16)',
+    'tip-line': 'rgba(255,255,255,0.12)',
+    'tip-shadow': '0 4px 14px -2px rgba(0,0,0,0.55)',
+    'wave-bg': 'rgba(132,135,255,0.16)',
+    'hl-mix': '15%',
     dim: '0.38',
   },
   light: {
     'pill-fill': 'rgba(16,16,40,0.045)',
-    'pill-line': 'rgba(16,16,40,0.08)',
-    'pill-fg': '#6b6b7c',
-    'pill-hover': 'rgba(16,16,40,0.075)',
+    'pill-line': 'rgba(16,16,40,0.09)',
+    'pill-fg': '#62626f',
+    'pill-hover': 'rgba(16,16,40,0.09)',
     'tip-bg': '#1d1d24',
     'tip-fg': '#f6f6f8',
     'tip-line': 'rgba(255,255,255,0.06)',
-    'tip-shadow': '0 6px 18px -4px rgba(16,16,40,0.35)',
-    'edge-alpha': '70%',
-    'tint-alpha': '11%',
-    'wave-fill': 'rgba(79,82,224,0.1)',
+    'tip-shadow': '0 4px 14px -2px rgba(16,16,40,0.3)',
+    'wave-bg': 'rgba(79,82,224,0.1)',
+    'hl-mix': '11%',
     dim: '0.42',
   },
 };
 
+/** Opacity of the quiet category edge, as a hex alpha appended to the category color. */
+const EDGE_ALPHA: Record<Theme, string> = { dark: '9e', light: 'b3' };
+
+/** Categories with an accent color (`clean` has none). */
+const ACCENTED = ['toxic', 'scam', 'spam', 'noise', 'negative', 'question', 'positive'] as const;
+/** Categories that get the quiet left edge when shown / dimmed (noise would stripe half the chat). */
+const EDGED = ['toxic', 'scam', 'spam', 'negative', 'question', 'positive'] as const;
+
 export interface DecorationOptions {
-  /** settings.decorate: category edges, highlight glow and reason chips. Collapse/dim/hide always apply. */
+  /** settings.decorate: category edges, highlight glow, reveal marks and reason chips. Hide/dim/collapse/highlight always apply. */
   decorate?: boolean;
-  /** The adapter's rowSelector; scopes every rule to chat rows (recommended). */
+  /** Ignored (kept for compatibility): selectors are attribute-only, see the header. */
   rowSelector?: string;
 }
 
@@ -79,117 +98,107 @@ export function decorationCss(platform: Platform | string, theme: Theme, opts: D
   const t = THEME_DECO[theme];
   const decorate = opts.decorate ?? true;
   const accent = BRAND.accent[theme];
-  const R = opts.rowSelector ? `:is(${opts.rowSelector})` : '';
-  const H = `html ${R}`; // specificity bump over the runtime base sheet
 
   const vars = [
-    ...CATEGORIES.map((c) => `--hush-${c}:${CATEGORY_META[c].color[theme]};--hush-c-${c}:${CATEGORY_META[c].color[theme]};`),
+    ...ACCENTED.map((c) => {
+      const color = CATEGORY_META[c].color[theme];
+      return `--hush-c-${c}:${color};--hush-e-${c}:${color}${EDGE_ALPHA[theme]};`;
+    }),
+    `--hush-c-highlight:${accent};--hush-link:${accent};--hush-wave-fg:${accent};`,
     ...Object.entries(t).map(([k, v]) => `--hush-${k}:${v};`),
-    `--hush-link:${accent};--hush-c-highlight:${accent};`,
-    `--hush-indent:${p.indent};`,
-    // runtime base-sheet variables, themed
-    `--hush-dim-opacity:${t.dim};--hush-badge-bg:${t['tip-bg']};--hush-badge-fg:${t['tip-fg']};--hush-badge-line:${t['tip-line']};`,
-    `--hush-wave-bg:${t['wave-fill']};--hush-wave-fg:${accent};`,
+    `--hush-indent:${p.indent};--hush-edge-w:2px;`,
   ].join('');
 
-  const perCat = CATEGORIES.map((c) => `${R}[data-hush-c="${c}"]{--hush-accent:var(--hush-${c})}`).join('\n');
-
-  // A collapsed row that is part of a pill run.
-  const COLQ = '[data-hush-a="collapse"]:not([data-hush-open]):not([data-hush-wm])';
-  const RC = `${R}${COLQ}`;
-  const LAST = `${H}${COLQ}:not(:has(+${RC}))`;
-  const font = 'font-family:inherit;letter-spacing:.01em;';
+  // A collapsed row that is not expanded; RUN is the one that draws the run's pill.
+  const COL = '[data-hush-a="collapse"]:not([data-hush-open])';
+  const RUN = '[data-hush-run][data-hush-a="collapse"]:not([data-hush-open])';
+  const SHOWN = ['[data-hush-a="show"]', '[data-hush-a="dim"]', '[data-hush-a="highlight"]'];
+  const list = (sels: string[], suffix = '') => sels.map((s) => s + suffix).join(',');
 
   let css = `
-:root{${vars}}
-${perCat}
+:where(:root,:host){${vars}}
+${ACCENTED.map((c) => `[data-hush-c="${c}"]{--hush-accent:var(--hush-c-${c});--hush-edge:var(--hush-e-${c})}`).join('\n')}
 
-${H}[data-hush-a="pending"]{visibility:hidden!important}
-${H}[data-hush-a="hide"]:not([data-hush-open]),${H}[data-hush-wm]:not([data-hush-open]){display:none!important}
+[data-hush-a="pending"]{visibility:hidden!important}
+[data-hush-a="hide"],[data-hush-wm]:not([data-hush-open]),${COL}:not([data-hush-run]){display:none!important}
+[data-hush-a="dim"]{opacity:var(--hush-dim)!important}
+[data-hush-a="dim"]:hover{opacity:1!important}
+[data-hush-a="highlight"]{background-color:color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) var(--hush-hl-mix),transparent)!important;box-shadow:inset 3px 0 0 var(--hush-accent,var(--hush-c-highlight))!important}
 
-${H}[data-hush-a="dim"]:not([data-hush-open]){opacity:var(--hush-dim)!important;transition:opacity 120ms ease}
-${H}[data-hush-a="dim"]:not([data-hush-open]):hover{opacity:.95!important}
-
-/* collapse: count runs with a CSS counter */
-${H}${COLQ}{counter-increment:hush-run}
-${H}:not(${COLQ})+${RC},${H}${COLQ}:first-child{counter-reset:hush-run}
-/* rows inside a run (all but the last) fold to nothing but keep a box so they still count */
-${H}${COLQ}:has(+${RC}),${H}${COLQ}:has(+${RC}):hover{
-  display:block!important;height:0!important;min-height:0!important;max-height:0!important;padding:0!important;margin:0!important;
-  border:0!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important;background:none!important;box-shadow:none!important}
-/* the last row of a run becomes the pill */
-${LAST},${LAST}:hover{
-  display:flex!important;align-items:center!important;gap:0!important;box-sizing:border-box!important;
-  height:auto!important;min-height:0!important;max-height:none!important;
-  padding:3px 8px 3px var(--hush-indent)!important;margin:0!important;border-radius:0!important;
-  background:none!important;box-shadow:none!important;border:0!important;opacity:1!important;visibility:visible!important;
-  font-size:0!important;line-height:0!important;overflow:hidden!important;cursor:pointer!important}
-${H}${COLQ}>*{display:none!important}
-${LAST}::before{
-  content:counter(hush-run) " hidden";
-  display:inline-flex;align-items:center;height:20px;box-sizing:border-box;visibility:visible;
+/* The last row of a collapsed run is the pill ("3 hidden · show"). Its own
+   content stays laid out but invisible and clipped; the pill halves come
+   first and sit at the top, however tall the hidden content next to them. */
+${RUN}{
+  display:flex!important;flex-wrap:wrap!important;align-items:flex-start!important;align-content:flex-start!important;
+  box-sizing:border-box!important;height:26px!important;min-height:0!important;max-height:26px!important;
+  margin:0!important;padding:3px 8px 3px var(--hush-indent)!important;border:0!important;border-radius:0!important;
+  overflow:hidden!important;visibility:hidden!important;opacity:1!important;
+  background:none!important;box-shadow:none!important;cursor:pointer!important}
+${RUN}::before,${RUN}::after{
+  display:block;flex:none;align-self:flex-start;visibility:visible;height:20px;box-sizing:border-box;margin:0;border:0;
+  font-size:11px;font-style:normal;line-height:20px;letter-spacing:.01em;white-space:pre;text-transform:none;
+  background-color:var(--hush-pill-fill)}
+${RUN}::before{
+  order:-2;content:attr(data-hush-run) " hidden";
   padding:0 5px 0 18px;border-radius:999px 0 0 999px;
-  font-size:11px;font-weight:500;line-height:20px;${font}font-variant-numeric:tabular-nums;
-  color:var(--hush-pill-fg);
-  background:radial-gradient(circle at 9.5px 50%,var(--hush-accent,var(--hush-noise)) 0 3px,transparent 3.6px),var(--hush-pill-fill);
+  font-weight:500;font-variant-numeric:tabular-nums;color:var(--hush-pill-fg);
+  background-image:radial-gradient(circle at 9.5px 50%,var(--hush-accent,var(--hush-c-noise)) 0 3px,transparent 3.6px);
   box-shadow:inset 1px 0 0 var(--hush-pill-line),inset 0 1px 0 var(--hush-pill-line),inset 0 -1px 0 var(--hush-pill-line)}
-${LAST}::after{
-  content:"·  show";
-  display:inline-flex;align-items:center;height:20px;box-sizing:border-box;visibility:visible;
-  padding:0 10px 0 1px;border-radius:0 999px 999px 0;
-  font-size:11px;font-weight:600;line-height:20px;${font}white-space:pre;
-  color:var(--hush-link);background:var(--hush-pill-fill);
+${RUN}::after{
+  order:-1;content:"·  show";
+  padding:0 10px 0 0;border-radius:0 999px 999px 0;
+  font-weight:600;color:var(--hush-link);
   box-shadow:inset -1px 0 0 var(--hush-pill-line),inset 0 1px 0 var(--hush-pill-line),inset 0 -1px 0 var(--hush-pill-line)}
-${LAST}:hover::before{
-  background:radial-gradient(circle at 9.5px 50%,var(--hush-accent,var(--hush-noise)) 0 3px,transparent 3.6px),var(--hush-pill-hover)}
-${LAST}:hover::after{background:var(--hush-pill-hover)}
+${RUN}:hover::before,${RUN}:hover::after{background-color:var(--hush-pill-hover)}
 
-/* wave head: inline "×37" after the message */
-${H}[data-hush-wh]:not(${COLQ})::after{
-  content:"×" attr(data-hush-wh);
-  display:inline-block;margin-left:6px;padding:0 7px;border-radius:999px;vertical-align:1px;
-  font-size:10.5px;font-weight:650;line-height:17px;${font}font-variant-numeric:tabular-nums;white-space:nowrap;
-  color:var(--hush-link);background:var(--hush-wave-fill)}
+/* Wave head: "×37" floated into the row's top-right corner, so the text wraps
+   around it instead of under it (on flex rows: a trailing item, same place). */
+${list(SHOWN.map((s) => `[data-hush-wh]${s}`), '::before')}{
+  content:"×" attr(data-hush-wh);float:right;order:9;align-self:flex-start;position:static;
+  display:block;height:18px;margin:${p.wave};padding:0 7px;border-radius:999px;
+  font-size:11px;font-weight:650;font-style:normal;line-height:18px;letter-spacing:.01em;font-variant-numeric:tabular-nums;white-space:nowrap;
+  color:var(--hush-wave-fg);background:var(--hush-wave-bg)}
 `;
 
   if (decorate) {
+    const edged = EDGED.flatMap((c) => [`[data-hush-c="${c}"][data-hush-a="show"]`, `[data-hush-c="${c}"][data-hush-a="dim"]`]);
+    const tip = [...SHOWN, '[data-hush-open]'].map((s) => `[data-hush-r]${s}:hover`);
     css += `
 /* category edge (quiet) */
-${H}[data-hush-c]:not([data-hush-c="clean"]):not([data-hush-c="noise"]):is([data-hush-a="show"],[data-hush-a="dim"],[data-hush-open]):not(${COLQ}){
-  box-shadow:inset 2px 0 0 color-mix(in srgb,var(--hush-accent) var(--hush-edge-alpha),transparent)!important}
+${list(edged, ':not([data-hush-open])')}{box-shadow:inset var(--hush-edge-w) 0 0 var(--hush-edge)!important}
 
-/* highlight: tint + glow from the left edge */
-${H}[data-hush-a="highlight"]:not([data-hush-open]){
+/* highlight: the tint fades out from a glowing left edge */
+[data-hush-a="highlight"]{
   background-color:transparent!important;
-  background-image:linear-gradient(90deg,color-mix(in srgb,var(--hush-accent) var(--hush-tint-alpha),transparent),color-mix(in srgb,var(--hush-accent) 2%,transparent) 80%)!important;
-  box-shadow:inset 3px 0 0 var(--hush-accent),inset 22px 0 22px -22px color-mix(in srgb,var(--hush-accent) 55%,transparent)!important}
+  background-image:linear-gradient(90deg,color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) var(--hush-hl-mix),transparent),transparent 85%)!important;
+  box-shadow:inset 3px 0 0 var(--hush-accent,var(--hush-c-highlight)),inset 18px 0 18px -18px color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) 55%,transparent)!important}
 
-/* revealed by the user: dashed edge so it reads as "was hidden" */
-${H}[data-hush-open]{
+/* revealed by the user: a dashed edge, so it reads as "was hidden" */
+[data-hush-open]{
   box-shadow:none!important;
-  background-image:linear-gradient(var(--hush-accent,var(--hush-noise)) 50%,transparent 50%)!important;
+  background-image:linear-gradient(var(--hush-accent,var(--hush-c-noise)) 50%,transparent 50%)!important;
   background-size:2px 6px!important;background-repeat:repeat-y!important;background-position:0 0!important}
 
-/* reason chip on hover */
-${H}[data-hush-r]:not([data-hush-r=""]):not(${COLQ}):not([data-hush-c="clean"]):hover{${p.relative ? 'position:relative' : ''}}
-${H}[data-hush-r]:not([data-hush-r=""]):not(${COLQ}):not([data-hush-c="clean"]):hover::before{
+/* Reason chip on hover: a small tooltip straddling the row's top edge, in
+   the gap between this message and the previous one (it reaches 8px down:
+   above the first line's glyphs on every platform, and at most the previous
+   message's descenders above), 44px from the right so it clears the sites'
+   own hover actions there (Twitch's reply button, YouTube's menu). Never
+   over this message's text, and out of flow: neither this row nor any other moves. */
+${p.positioned ? '' : `${tip.join(',')}{position:relative}`}
+${list(tip, '::after')}{
   content:attr(data-hush-r);
-  position:absolute;top:3px;right:6px;bottom:auto;left:auto;z-index:3;
-  height:18px;margin:0;padding:0 8px 0 17px;border:0;border-radius:999px;box-sizing:border-box;
-  font-size:10.5px;font-weight:600;line-height:18px;${font}white-space:nowrap;
+  position:absolute;top:auto;right:44px;bottom:calc(100% - 8px);left:auto;z-index:5;float:none;order:0;
+  display:block;height:16px;max-width:calc(100% - 64px);margin:0;padding:0 7px 0 15px;border:0;border-radius:999px;box-sizing:border-box;overflow:hidden;
+  font-size:10px;font-weight:600;font-style:normal;line-height:16px;letter-spacing:.015em;text-overflow:ellipsis;white-space:nowrap;text-transform:none;
   color:var(--hush-tip-fg);
-  background:radial-gradient(circle at 9px 50%,var(--hush-accent) 0 3px,transparent 3.6px),var(--hush-tip-bg);
+  background:radial-gradient(circle at 8px 50%,var(--hush-accent,var(--hush-link)) 0 2.5px,transparent 3.1px),var(--hush-tip-bg);
   box-shadow:var(--hush-tip-shadow),inset 0 0 0 1px var(--hush-tip-line);
   pointer-events:none;
-  animation:hush-tip-in 120ms cubic-bezier(.2,.8,.2,1) 220ms both}
-@keyframes hush-tip-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+  animation:hush-tip-in 120ms cubic-bezier(.2,.8,.2,1) 180ms both}
+@keyframes hush-tip-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){${list(tip, '::after')}{animation:none}}
 `;
   }
-
-  css += `
-@media (prefers-reduced-motion:reduce){
-  ${H}[data-hush-a],${H}[data-hush-a]::before,${H}[data-hush-a]::after{transition:none!important;animation-duration:0ms!important;animation-delay:0ms!important}
-}
-`;
   return css;
 }

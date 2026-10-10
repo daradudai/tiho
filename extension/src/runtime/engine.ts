@@ -9,7 +9,8 @@
 //               misses → classifier queue; held rows stay invisible
 //  RESOLVE    : scores that arrived (coalesced with page frames), failed
 //               batches, hold timeouts
-//  WRITE phase: data-hush-a / -c / -r / -wh / -wm / -g attribute diffs only
+//  WRITE phase: data-hush-a / -c / -r / -wh / -wm attribute diffs, then
+//               data-hush-run on the last row of every changed pill run
 //  FLUSH      : classifier batch → Port; Store (≤ 4 Hz, one batch())
 //
 // No layout reads, no inline styles, one stylesheet. Rows are tracked in a
@@ -87,8 +88,12 @@ interface RowState {
   /** When the wave counter was last written (throttled: it relayouts the head row). */
   whAt: number;
   wm: boolean;
-  /** data-hush-g: pill continuing a run of pills. */
-  g: boolean;
+  /** Collapsed rows in this row's pill run up to and including it (0 when not collapsed). */
+  run: number;
+  /** data-hush-run value on the row (0 = none): only the run's last row carries it. */
+  rm: number;
+  /** Stamp of the last run re-count that covered this row. */
+  runAt: number;
   /** Visibility class last written: 0 takes no space, 1 pill, 2 visible (-1 unknown). */
   vis: number;
 }
@@ -110,22 +115,12 @@ const zeroCounts = (): Record<Category, number> => ({
   clean: 0,
 });
 
-/** 0 = takes no space (hidden / wave member), 1 = collapsed pill, 2 = visible. */
+/** 0 = takes no space (hidden / wave member), 1 = collapsed (part of a pill run), 2 = visible. */
 function visClass(el: Element): number {
   const a = el.getAttribute(ATTR.action);
   if (a === 'hide') return 0;
   if (a !== 'collapse' || el.hasAttribute(ATTR.open)) return 2;
   return el.hasAttribute(ATTR.waveMember) ? 0 : 1;
-}
-
-function prevIsPill(row: Element): boolean {
-  let s = row.previousElementSibling;
-  for (let k = 0; s && k < 16; k++) {
-    const v = visClass(s);
-    if (v !== 0) return v === 1;
-    s = s.previousElementSibling;
-  }
-  return false;
 }
 
 const PCT_SAMPLE = 512;
@@ -191,6 +186,9 @@ export class HushRuntime {
   private failedIds: string[] = [];
   private waveDirty = new Set<string>();
   private waveHeads = new Map<string, string>();
+  /** Rows (or neighbours of removed rows) whose pill run must be re-counted. */
+  private runDirty = new Set<Element>();
+  private runStamp = 0;
 
   private running = false;
   private active = false;
@@ -350,6 +348,7 @@ export class HushRuntime {
     st.revealed = true;
     row.setAttribute(ATTR.open, '');
     this.writeRow(row, st);
+    if (this.runDirty.size) this.writeRuns();
     try {
       row.scrollIntoView({ block: 'nearest' });
     } catch {
@@ -445,7 +444,7 @@ export class HushRuntime {
   }
 
   private styleOpts() {
-    return { decorate: this.settings.decorate, theme: this.theme };
+    return { decorate: this.settings.decorate, theme: this.theme, platform: this.adapter.platform };
   }
 
   /** Recompute verdicts for every live row (settings / thresholds changed). */
@@ -540,6 +539,7 @@ export class HushRuntime {
     this.held.clear();
     this.waveHeads.clear();
     this.waveDirty.clear();
+    this.runDirty.clear();
   }
 
   private isRow(n: Node): n is HTMLElement {
@@ -573,10 +573,14 @@ export class HushRuntime {
           else if (marked && n.nodeType === 1) (n as Element).setAttribute(ATTR.action, ''); // not a row: never hide
         }
         const removed = rec.removedNodes;
+        let regroup = false;
         for (let j = 0; j < removed.length; j++) {
           const n = removed[j]!;
-          if (n.nodeType === 1) this.onRemoved(n as HTMLElement);
+          if (n.nodeType === 1 && this.onRemoved(n as HTMLElement)) regroup = true;
         }
+        // a pill run lost a row, or two runs now touch: re-count around the gap
+        const near = regroup ? (rec.nextSibling ?? rec.previousSibling) : null;
+        if (near && near.nodeType === 1) this.runDirty.add(near as Element);
       } else {
         // subtree change inside a row (only when adapter.observeSubtree)
         const row = this.rowOf(rec.target);
@@ -587,10 +591,11 @@ export class HushRuntime {
     this.account(t0, 0);
   };
 
-  private onRemoved(n: HTMLElement): void {
+  /** Forget a removed row; true when it took space (pill runs around it may change). */
+  private onRemoved(n: HTMLElement): boolean {
     if (!this.live.delete(n)) {
       this.queue.delete(n);
-      return;
+      return false;
     }
     const st = this.states.get(n);
     if (st && this.byKey.get(st.key) === n) this.byKey.delete(st.key);
@@ -598,6 +603,7 @@ export class HushRuntime {
       st.deadline = 0;
       this.held.delete(n);
     }
+    return !!st && st.vis !== 0;
   }
 
   private onClick = (e: Event): void => {
@@ -606,19 +612,27 @@ export class HushRuntime {
     if (!row || row.parentElement !== this.list) return;
     e.preventDefault();
     e.stopPropagation();
-    // expand the whole run of pills (rows taking no space in between stay hidden)
-    let r: Element | null = row;
-    while (r) {
-      const v = visClass(r);
-      if (v === 2) break;
-      if (v === 1) {
-        r.setAttribute(ATTR.open, '');
-        const st = this.states.get(r);
-        if (st) st.revealed = true;
-      }
-      r = r.nextElementSibling;
-    }
+    // The pill stands for its whole run (it is drawn by the run's last row):
+    // expand every collapsed row of it; rows taking no space stay hidden. The
+    // attribute shows them now, the next frame settles their verdicts and runs.
+    this.revealRun(row, 'previousElementSibling');
+    this.revealRun(row.nextElementSibling, 'nextElementSibling');
+    this.schedule();
   };
+
+  private revealRun(from: Element | null, step: 'previousElementSibling' | 'nextElementSibling'): void {
+    for (let r = from; r; r = r[step]) {
+      const v = visClass(r);
+      if (v === 2) return;
+      if (v === 0) continue;
+      r.setAttribute(ATTR.open, '');
+      const st = this.states.get(r);
+      if (st) {
+        st.revealed = true;
+        this.dirty.add(r as HTMLElement);
+      }
+    }
+  }
 
   // ───────────────────────────── frame loop ─────────────────────────────
 
@@ -687,6 +701,7 @@ export class HushRuntime {
       this.dirty.clear();
     }
     if (this.waveDirty.size) this.writeWaveHeads(now);
+    if (this.runDirty.size) this.writeRuns();
 
     // FLUSH
     this.classifier?.flush();
@@ -731,6 +746,7 @@ export class HushRuntime {
         this.forget(row, prev);
         this.clearRow(row);
         row.setAttribute(ATTR.action, '');
+        if (prev.vis !== 2) this.runDirty.add(row);
         return;
       }
       // Not a message — or not hydrated yet (content rendered after insertion):
@@ -784,12 +800,16 @@ export class HushRuntime {
       wh: 0,
       whAt: 0,
       wm: a0 !== null && row.hasAttribute(ATTR.waveMember),
-      g: a0 !== null && row.hasAttribute(ATTR.group),
-      vis: -1,
+      run: 0,
+      rm: 0,
+      runAt: 0,
+      // a fresh row (no attributes) takes space like a visible one; a recycled one may have been a pill
+      vis: a0 === null ? 2 : -1,
     };
     if (a0 !== null) {
       if (row.hasAttribute(ATTR.waveHead)) row.removeAttribute(ATTR.waveHead);
       if (row.hasAttribute(ATTR.open)) row.removeAttribute(ATTR.open);
+      if (row.hasAttribute(ATTR.run)) row.removeAttribute(ATTR.run);
     }
     this.states.set(row, st);
     this.live.add(row);
@@ -1052,41 +1072,73 @@ export class HushRuntime {
       else row.removeAttribute(ATTR.waveMember);
       st.wm = wm;
     }
-    // Runs of pills read as one pill: a pill right after another visible pill
-    // (skipping rows that take no space) gets data-hush-g.
+    // Pill runs are re-counted once all rows of the frame are written
+    // (writeRuns). A row at the bottom that is not and was not collapsed
+    // cannot change any run: skip it (the common case).
     const vis = a === 'hide' || wm ? 0 : a === 'collapse' ? 1 : 2;
-    const g = vis === 1 && prevIsPill(row);
-    if (st.g !== g) {
-      if (g) row.setAttribute(ATTR.group, '');
-      else row.removeAttribute(ATTR.group);
-      st.g = g;
-    }
     if (st.vis !== vis) {
+      if (vis === 1 || st.vis === 1 || st.vis === -1 || row.nextElementSibling) this.runDirty.add(row);
       st.vis = vis;
-      this.regroupNext(row);
     }
+    if (vis !== 1 && st.rm) this.markRun(row, st, 0);
   }
 
-  /** The next visible sibling may start / continue a pill run differently now. */
-  private regroupNext(row: Element): void {
-    let s = row.nextElementSibling;
-    for (let k = 0; s && k < 16; k++) {
-      const v = visClass(s);
-      if (v === 0) {
-        s = s.nextElementSibling;
-        continue;
-      }
-      if (v === 1) {
-        const g = prevIsPill(s);
-        const st = this.states.get(s);
-        if (g !== s.hasAttribute(ATTR.group)) {
-          if (g) s.setAttribute(ATTR.group, '');
-          else s.removeAttribute(ATTR.group);
+  /**
+   * Consecutive collapsed rows (skipping rows that take no space) read as ONE
+   * pill, drawn by the run's last row, which carries the run length in
+   * data-hush-run; the run's other rows take no space. For each changed row:
+   * start at the nearest collapsed row before it (its prefix count is known)
+   * and re-count forward to the end of its run (of both runs, when the row
+   * now splits one), moving the mark to the last row. Appending at the
+   * bottom is O(1); a change inside a run is O(run).
+   */
+  private writeRuns(): void {
+    const stamp = ++this.runStamp;
+    const list = this.list;
+    for (const row of this.runDirty) {
+      // gone, or already covered by an earlier re-count in this pass
+      if (row.parentElement !== list || this.states.get(row)?.runAt === stamp) continue;
+      let from: Element = row;
+      let n = 0;
+      for (let s = row.previousElementSibling; s; s = s.previousElementSibling) {
+        const v = visClass(s);
+        if (v === 0) continue;
+        if (v === 1) {
+          from = s;
+          n = (this.states.get(s)?.run || 1) - 1;
         }
-        if (st) st.g = g;
+        break;
       }
-      return;
+      let last: Element | null = null;
+      for (let r: Element | null = from; r; r = r.nextElementSibling) {
+        const v = visClass(r);
+        if (v === 2) {
+          if (last) this.markRun(last, this.states.get(last), n);
+          last = null;
+          if (r !== row) break; // the run ends here
+          n = 0; // the changed row itself splits the run: re-count the part after it
+          continue;
+        }
+        const rs = this.states.get(r);
+        if (rs) {
+          rs.runAt = stamp;
+          rs.run = v === 1 ? n + 1 : 0;
+        }
+        if (v === 0) continue;
+        n++;
+        if (last) this.markRun(last, this.states.get(last), 0);
+        last = r;
+      }
+      if (last) this.markRun(last, this.states.get(last), n); // the run ends the list
     }
+    this.runDirty.clear();
+  }
+
+  private markRun(row: Element, st: RowState | undefined, n: number): void {
+    if (st ? st.rm === n : !n && !row.hasAttribute(ATTR.run)) return;
+    if (n) row.setAttribute(ATTR.run, String(n));
+    else row.removeAttribute(ATTR.run);
+    if (st) st.rm = n;
   }
 
   private writeWaveHeads(now: number): void {
@@ -1123,7 +1175,7 @@ export class HushRuntime {
     row.removeAttribute(ATTR.reason);
     row.removeAttribute(ATTR.waveHead);
     row.removeAttribute(ATTR.waveMember);
-    row.removeAttribute(ATTR.group);
+    row.removeAttribute(ATTR.run);
     row.removeAttribute(ATTR.open);
   }
 

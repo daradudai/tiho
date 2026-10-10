@@ -1,0 +1,27 @@
+name: Feature request
+description: An idea for Hush.
+title: "[idea] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the chat situation where Hush falls short today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like Hush to do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything you tried instead?
+      description: Rules, presets, strictness, other extensions.
+  - type: markdown
+    attributes:
+      value: |
+        Hush stays private (chat never leaves the device) and light on the page. Ideas that need a server or send chat text anywhere are out of scope.

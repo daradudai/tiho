@@ -58,12 +58,23 @@ chat('chat-twitch-dark-tooltip', 'platform=twitch&theme=dark', 340, 640, async (
   await pg.locator('.hb-chip[data-c="toxic"]').hover();
   await pg.waitForTimeout(450);
 });
-chat('chat-twitch-dark-hover', 'platform=twitch&theme=dark', 340, 640, async (pg) => {
-  await pg.locator('.bd-row[data-hush-c="question"]').first().hover();
-  await pg.waitForTimeout(500);
+// Reason chip on hover (the last question, right under a long wave head), the pill, a revealed run.
+for (const theme of ['dark', 'light']) {
+  for (const [p, w] of [['twitch', 340], ['youtube', 400], ['kick', 340]]) {
+    chat(`chat-${p}-${theme}-hover`, `platform=${p}&theme=${theme}`, w, 640, async (pg) => {
+      await pg.locator('.bd-row[data-hush-c="question"]').last().hover();
+      await pg.waitForTimeout(500);
+    });
+  }
+}
+chat('chat-twitch-light-pill', 'platform=twitch&theme=light', 340, 640, async (pg) => {
+  await pg.locator('.bd-row[data-hush-run]').last().hover({ force: true, position: { x: 50, y: 13 } }); // the row itself is visibility:hidden, its pill parts are not
+  await pg.waitForTimeout(200);
 });
-chat('chat-youtube-light-hover', 'platform=youtube&theme=light', 400, 640, async (pg) => {
-  await pg.locator('.bd-row[data-hush-c="negative"]').first().hover();
+chat('chat-twitch-dark-revealed', 'platform=twitch&theme=dark', 340, 640, async (pg) => {
+  await pg.locator('.bd-row[data-hush-run]').last().click({ force: true, position: { x: 50, y: 13 } });
+  await pg.waitForTimeout(200);
+  await pg.locator('.bd-row[data-hush-open]').last().hover();
   await pg.waitForTimeout(500);
 });
 chat('chat-twitch-dark-wide', 'platform=twitch&theme=dark&w=560', 560, 480);

@@ -5,9 +5,15 @@
 // reaches its threshold; thresholds come from the model config
 // (`hush.thresholds`) and are shifted by `strictness` in logit space for the
 // filtering labels (toxic, spam, scam, noise, negative).
+//
+// Hush Engine (optional): its answers arrive after the local scores and are
+// attached to the same cached score vector (ScoreVector.engine). A custom
+// filter that fires applies its action when that is stronger than the
+// category's; with "second opinion" on, the engine's own scores replace the
+// local ones (it is only asked when the local model was unsure).
 
 import { Sig, type RuleResult } from './rules';
-import type { Settings } from './settings';
+import { activeFilters, filterKey, filterLabel, type EngineSettings, type Settings } from './settings';
 import { LABELS, type Action, type Category, type Label, type Verdict } from './types';
 import type { WaveHit } from './waves';
 
@@ -51,20 +57,51 @@ export function effectiveThresholds(base: ArrayLike<number> | undefined | null, 
   return out;
 }
 
+/** What the Hush Engine said about a text. */
+export interface EngineOpinion {
+  /** Custom-filter probabilities by filter key. */
+  filters?: Record<string, number>;
+  /** The engine's scores aligned with LABELS (second opinion). */
+  base?: number[];
+}
+
+/** Local model scores (aligned with LABELS), optionally carrying the engine's opinion of the same text. */
+export type ScoreVector = number[] & { engine?: EngineOpinion };
+
+export function engineOpinion(scores: ArrayLike<number> | null | undefined): EngineOpinion | undefined {
+  return scores ? (scores as ScoreVector).engine : undefined;
+}
+
+/** A custom filter fires at this probability. */
+export const FILTER_THRESHOLD = 0.5;
+
+export interface PolicyFilter {
+  key: string;
+  action: Action;
+  label: string;
+}
+
 export interface PolicyContext {
   actions: Record<Category, Action>;
   thresholds: Float32Array;
   collapseWaves: boolean;
+  /** Enabled custom filters (empty when the engine is off). */
+  filters: PolicyFilter[];
+  /** Engine scores replace local ones when present. */
+  refine: boolean;
 }
 
 export function policyContext(
-  settings: Pick<Settings, 'actions' | 'strictness' | 'collapseWaves'>,
+  settings: Pick<Settings, 'actions' | 'strictness' | 'collapseWaves'> & { engine?: EngineSettings },
   baseThresholds?: ArrayLike<number> | null,
 ): PolicyContext {
+  const engine = settings.engine;
   return {
     actions: settings.actions,
     thresholds: effectiveThresholds(baseThresholds, settings.strictness),
     collapseWaves: settings.collapseWaves,
+    filters: engine ? activeFilters(engine).map((f) => ({ key: filterKey(f), action: f.action, label: filterLabel(f) })) : [],
+    refine: !!engine?.enabled && engine.refineUncertain,
   };
 }
 
@@ -112,21 +149,30 @@ function fmt(label: string, score: number): string {
 /**
  * Decide the verdict for one message.
  *
- * @param scores model probabilities aligned with LABELS, or null when the
- *   model has no opinion (not loaded, rule-decided, timed out).
- * @param source where `scores` came from ('model' | 'cache' | 'engine').
+ * @param local model probabilities aligned with LABELS (possibly carrying
+ *   the engine's opinion, see ScoreVector), or null when the model has no
+ *   opinion (not loaded, rule-decided, timed out).
+ * @param from where `local` came from ('model' | 'cache' | 'engine').
  */
 export function decide(
-  scores: ArrayLike<number> | null | undefined,
+  local: ArrayLike<number> | null | undefined,
   rule: RuleResult,
   wave: WaveHit | null | undefined,
   ctx: PolicyContext,
-  source: Verdict['source'] = 'model',
+  from: Verdict['source'] = 'model',
 ): Verdict {
   let category: Category;
   let action: Action;
   let reason: string;
   let src: Verdict['source'];
+
+  const engine = engineOpinion(local);
+  let scores = local;
+  let source = from;
+  if (engine?.base && ctx.refine) {
+    scores = engine.base;
+    source = 'engine';
+  }
 
   if (rule.user) {
     src = 'user';
@@ -158,6 +204,15 @@ export function decide(
     action = ctx.actions[category];
   }
 
+  if (engine?.filters && ctx.filters.length && !rule.user) {
+    const hit = firingFilter(engine.filters, ctx.filters);
+    if (hit && SEVERITY[hit.action] > SEVERITY[action]) {
+      action = hit.action;
+      reason = `filter: ${hit.label}`;
+      src = 'engine';
+    }
+  }
+
   let waveId: string | undefined;
   if (wave) {
     waveId = wave.id;
@@ -173,6 +228,42 @@ export function decide(
   if (scores) v.scores = Array.isArray(scores) ? (scores as number[]) : Array.from(scores);
   if (waveId) v.wave = waveId;
   return v;
+}
+
+/** The firing filter with the strongest action (most confident among equals). */
+function firingFilter(probs: Record<string, number>, filters: PolicyFilter[]): PolicyFilter | null {
+  let best: PolicyFilter | null = null;
+  let bestP = 0;
+  for (const f of filters) {
+    const p = probs[f.key];
+    if (p === undefined || !(p >= FILTER_THRESHOLD)) continue;
+    const d = best ? SEVERITY[f.action] - SEVERITY[best.action] : 1;
+    if (d > 0 || (d === 0 && p > bestP)) {
+      best = f;
+      bestP = p;
+    }
+  }
+  return best;
+}
+
+/** Logit distance from a threshold within which the local model counts as unsure (≈ 3× odds either way). */
+const UNSURE_LOGIT = 1.1;
+
+/**
+ * True when the local model is unsure about a label whose action would change
+ * what the viewer sees (dim or stronger): such texts are worth a second
+ * opinion from the engine. Confident calls and labels that only highlight
+ * are not, the engine's capacity is far below a busy chat's rate.
+ */
+export function isUnsure(scores: ArrayLike<number>, ctx: Pick<PolicyContext, 'actions' | 'thresholds'>): boolean {
+  for (const l of PRIORITY) {
+    const a = ctx.actions[l];
+    if (SEVERITY[a] < SEVERITY.dim || a === ctx.actions.clean) continue;
+    const i = LABEL_INDEX[l];
+    const p = Math.min(0.999, Math.max(0.001, scores[i] ?? 0));
+    if (Math.abs(logit(p) - logit(ctx.thresholds[i]!)) < UNSURE_LOGIT) return true;
+  }
+  return false;
 }
 
 /** True when a message could end up hidden/collapsed by the model under these settings (→ worth holding). */

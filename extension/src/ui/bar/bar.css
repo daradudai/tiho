@@ -1,4 +1,10 @@
-/* In-chat bar. Lives in a shadow root: nothing leaks in or out. */
+/* In-chat bar. Lives in a shadow root: nothing leaks in or out.
+ *
+ * Performance contract (it sits in a page that repaints chat all the time):
+ * the compact row is size/layout/paint-contained, so a counter update lays
+ * out and repaints only inside it; motion is opacity / transform only
+ * (compositor); nothing animates continuously, and the calm ring steps in
+ * whole percents without easing (an SVG stroke animates on the main thread). */
 
 :host {
   all: initial !important;
@@ -89,6 +95,8 @@ button:focus-visible,
     var(--hb-bg);
   border-bottom: 1px solid var(--hb-line);
   position: relative;
+  /* relayout boundary + paint isolation (explicit height, width from the column) */
+  contain: strict;
 }
 .hb[data-platform="youtube"] .hb-row {
   height: 38px;
@@ -115,8 +123,22 @@ button:focus-visible,
 .hb-mark:hover {
   background: var(--chip-hover);
 }
-.hb-mark svg:not(.hb-ring) {
+/* the live mark: two stacked images; the excited one fades in on activity (pulseMark) */
+.hush-live,
+.hush-live-busy {
+  display: block;
+  background-position: center;
+  background-size: contain;
+  background-repeat: no-repeat;
+}
+.hush-live {
   position: relative;
+}
+.hush-live-busy {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  will-change: opacity;
 }
 .hb-ring {
   position: absolute;
@@ -133,17 +155,13 @@ button:focus-visible,
   stroke: var(--accent);
   stroke-width: 2;
   stroke-linecap: round;
-  transition: stroke-dashoffset 400ms var(--ease-out);
-}
-.hush-wave {
-  transform-box: fill-box;
-  transform-origin: center;
 }
 .hb[data-off] .hb-mark {
   filter: grayscale(1);
   opacity: 0.6;
 }
-.hb[data-off] .hb-ring-fill {
+.hb[data-off] .hb-ring-fill,
+.hb-ring-fill[data-empty] {
   opacity: 0;
 }
 
@@ -255,39 +273,55 @@ button:focus-visible,
   }
 }
 
-/* Chips */
+/* Chips: a horizontal scroller with static edge fades (overlays toggled by
+   data-edges from scroll / resize events — no masks, no scroll timelines) */
 .hb-chips {
-  display: flex;
-  align-items: center;
-  gap: 1px;
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
   margin-left: 2px;
+}
+.hb-chips-scroll {
+  height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   overscroll-behavior: contain;
-  animation: hb-chip-fade linear both;
-  animation-timeline: scroll(self inline);
 }
-.hb-chips::-webkit-scrollbar {
+.hb-chips-scroll::-webkit-scrollbar {
   display: none;
 }
-@keyframes hb-chip-fade {
-  0% {
-    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent);
-    mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent);
-  }
-  3%,
-  97% {
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000 22px, #000 calc(100% - 22px), transparent);
-    mask-image: linear-gradient(90deg, transparent, #000 22px, #000 calc(100% - 22px), transparent);
-  }
-  100% {
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000 22px);
-    mask-image: linear-gradient(90deg, transparent, #000 22px);
-  }
+.hb-chips-in {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  width: max-content;
+  height: 100%;
+}
+.hb-chips::before,
+.hb-chips::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 22px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.hb-chips::before {
+  left: 0;
+  background: linear-gradient(90deg, var(--hb-bg), transparent);
+}
+.hb-chips::after {
+  right: 0;
+  background: linear-gradient(270deg, var(--hb-bg), transparent);
+}
+.hb-chips[data-edges*="l"]::before,
+.hb-chips[data-edges*="r"]::after {
+  opacity: 1;
 }
 
 .hb-chip {
@@ -314,18 +348,22 @@ button:focus-visible,
 .hb-chip:active {
   transform: scale(0.96);
 }
+/* the glyph is a background image in the category color (glyphs.ts) */
 .hb-chip-ico {
   position: relative;
-  display: grid;
-  color: var(--c);
-  transition: opacity var(--dur) var(--ease);
+  display: block;
+  flex: none;
+  width: 13px;
+  height: 13px;
+  background-position: center;
+  background-size: 13px 13px;
+  background-repeat: no-repeat;
 }
 .hb-chip[data-zero] .hb-chip-n {
   color: var(--text-3);
 }
 .hb-chip-n {
   min-width: 8px;
-  transition: opacity var(--dur) var(--ease);
 }
 /* state: highlight = tinted capsule */
 .hb-chip[data-a="highlight"] {
@@ -333,10 +371,9 @@ button:focus-visible,
   background: color-mix(in srgb, var(--c) 15%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 32%, transparent);
 }
-/* state: dim = faded */
-.hb-chip[data-a="dim"] .hb-chip-ico,
+/* state: dim = faded (the glyph image is drawn faded) */
 .hb-chip[data-a="dim"] .hb-chip-n {
-  opacity: 0.45;
+  color: var(--text-3);
 }
 /* state: collapse = folded line under the glyph */
 .hb-chip[data-a="collapse"] .hb-chip-ico::after {
@@ -351,23 +388,25 @@ button:focus-visible,
   opacity: 0.85;
 }
 .hb-chip[data-a="collapse"] .hb-chip-ico {
-  transform: translateY(-1px);
+  top: -1px;
 }
 /* state: hide = struck through */
 .hb-chip[data-a="hide"] {
   color: var(--text-3);
 }
+/* (a gradient, not a rotated bar: no transform node in an always-on row) */
 .hb-chip[data-a="hide"] .hb-chip-ico::after {
   content: "";
   position: absolute;
-  left: -1px;
-  right: -1px;
-  top: calc(50% - 0.9px);
-  height: 1.8px;
-  border-radius: 2px;
-  background: var(--c);
-  transform: rotate(-45deg);
-  box-shadow: 0 0 0 1.5px var(--hb-bg);
+  inset: 1px;
+  background: linear-gradient(
+    135deg,
+    transparent calc(50% - 2.3px),
+    var(--hb-bg) calc(50% - 2.3px) calc(50% - 0.9px),
+    var(--c) calc(50% - 0.9px) calc(50% + 0.9px),
+    var(--hb-bg) calc(50% + 0.9px) calc(50% + 2.3px),
+    transparent calc(50% + 2.3px)
+  );
 }
 
 /* Status + expand */
@@ -1032,8 +1071,5 @@ button:focus-visible,
   }
   .hb-spin {
     animation: none;
-  }
-  .hb-chips {
-    animation-duration: auto !important;
   }
 }
