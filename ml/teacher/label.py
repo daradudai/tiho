@@ -17,16 +17,18 @@ import aiohttp
 
 LABELS = ["toxic", "spam", "scam", "noise", "question", "positive", "negative"]
 
+# Compact schema: one 6-way category + one 3-way tone question (~350 prompt
+# tokens/message; every extra question costs ~75-150 tokens of prefill).
 QUESTIONS = {
-    "toxic": {"type": "noul", "instructions": "Is this live-chat message toxic: an insult, harassment, hate speech, a slur, a threat, or sexual harassment toward anyone (streamer, chatters, groups)? Banter and swearing without a target are not toxic."},
-    "spam": {"type": "noul", "instructions": "Is this live-chat message spam: flooding, a copypasta, a wall of repeated characters, words or emotes, or keyboard-mash gibberish?"},
-    "scam": {"type": "noul", "instructions": "Is this message self-promotion, a bot, a scam, a fake giveaway, begging for follows/subs, or a crypto / gambling / viewer-selling pitch?"},
-    "noise": {"type": "noul", "instructions": "Is this a low-effort reaction with no real content, e.g. a single emote or word like W, L, lol, KEKW, first, ?, 1, F?"},
-    "question": {"type": "noul", "instructions": "Does this message ask a genuine question (to the streamer or to chat)?"},
-    "tone": {"type": "choice", "instructions": "What is the tone of this message?",
-             "criteria": {"positive": "supportive, kind, grateful, excited hype",
-                          "neutral": "neutral, informational or plain reaction",
-                          "negative": "complaining, critical, annoyed or hostile"}},
+    "cat": {"type": "choice", "instructions": "Classify this live-chat message.", "criteria": {
+        "clean": "normal on-topic chat",
+        "question": "asks a genuine question",
+        "noise": "low-effort reaction: single emote/word (W, L, lol, first)",
+        "spam": "flood, copypasta, repeated chars/emotes, gibberish",
+        "scam": "self-promo, bot, scam, giveaway, crypto/gambling, follow-begging",
+        "toxic": "insult, harassment, hate, slur, threat"}},
+    "tone": {"type": "choice", "instructions": "What is the tone of this message?", "criteria": {
+        "positive": "supportive, kind, hype", "neutral": "neutral", "negative": "complaining, critical, hostile"}},
 }
 
 PLAT = {"twitch": "Twitch", "youtube": "YouTube", "kick": "Kick"}
@@ -49,10 +51,11 @@ async def worker(name, q: asyncio.Queue, session, url, out, stats):
                 async with session.post(url, json=body, timeout=aiohttp.ClientTimeout(total=120)) as r:
                     data = await r.json()
                 a = data["answers"]
-                t = {k: round(a[k]["noul"], 4) for k in ["toxic", "spam", "scam", "noise", "question"]}
-                probs = a["tone"]["probabilities"]
-                t["positive"] = round(probs["positive"], 4)
-                t["negative"] = round(probs["negative"], 4)
+                cat = a["cat"]["probabilities"]
+                tone = a["tone"]["probabilities"]
+                t = {k: round(cat[k], 4) for k in ["toxic", "spam", "scam", "noise", "question", "clean"]}
+                t["positive"] = round(tone["positive"], 4)
+                t["negative"] = round(tone["negative"], 4)
                 row["t"] = t
                 out.write(json.dumps(row, ensure_ascii=False) + "\n")
                 stats["n"] += 1
