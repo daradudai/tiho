@@ -25,4 +25,11 @@ export interface PlatformAdapter {
   theme(doc: Document): 'dark' | 'light';
   /** Logged-in viewer name if detectable (messages mentioning them are never hidden). */
   viewer?(doc: Document): string | null;
+  /**
+   * Runtime hint (optional, default false): observe the chat list with
+   * `subtree` + `characterData` so rows whose content is patched in place
+   * (recycled / virtualized rows, content rendered after insertion) are
+   * re-extracted. Costs more per mutation; enable only where needed.
+   */
+  observeSubtree?: boolean;
 }
