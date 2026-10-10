@@ -1,0 +1,3 @@
+# local bench data/results (sampled from ml/data/raw, never commit)
+.data/
+.profile*/

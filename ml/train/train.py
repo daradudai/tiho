@@ -40,8 +40,8 @@ def load_jsonl(pattern: str) -> list[dict]:
     return rows
 
 
-def to_example(r: dict) -> tuple[str, list[float], list[float]] | None:
-    """-> (text, target[7], mask[7])"""
+def to_example(r: dict, w: float = 1.0) -> tuple[str, list[float], list[float], float] | None:
+    """-> (text, target[7], mask[7], weight)"""
     tgt = [0.0] * 7
     mask = [0.0] * 7
     if "t" in r:  # teacher soft labels, every head supervised
@@ -55,7 +55,7 @@ def to_example(r: dict) -> tuple[str, list[float], list[float]] | None:
                 tgt[i], mask[i] = float(v), 1.0
     if not any(mask):
         return None
-    return r["text"], tgt, mask
+    return r["text"], tgt, mask, w
 
 
 class DS(Dataset):
@@ -75,6 +75,7 @@ def collate(tok, max_len):
         enc = tok(texts, padding=True, truncation=True, max_length=max_len, return_tensors="pt")
         enc["labels"] = torch.tensor([b[1] for b in batch], dtype=torch.float32)
         enc["mask"] = torch.tensor([b[2] for b in batch], dtype=torch.float32)
+        enc["w"] = torch.tensor([b[3] for b in batch], dtype=torch.float32)
         return enc
     return fn
 
@@ -123,6 +124,7 @@ def main(a):
     teacher = load_jsonl(a.teacher)
     public = load_jsonl(a.public) if a.public else []
     synth = load_jsonl(a.synth) if a.synth else []
+    silver = load_jsonl(a.silver) if a.silver else []
     gold = load_jsonl(a.gold) if a.gold else []
     gold_texts = {g["text"] for g in gold}
     teacher = [r for r in teacher if r["text"] not in gold_texts]
@@ -131,11 +133,13 @@ def main(a):
     val_t, train_t = teacher[:n_val], teacher[n_val:]
     random.shuffle(public)
     public = public[: int(len(train_t) * a.public_ratio)] if a.public_ratio > 0 else []
-    train_rows = train_t + public + synth * a.synth_repeat
-    train_ex = [e for e in map(to_example, train_rows) if e]
+    silver = [r for r in silver if r["text"] not in gold_texts]
+    train_ex = [e for e in (to_example(r) for r in train_t + synth * a.synth_repeat) if e]
+    train_ex += [e for e in (to_example(r, a.public_w) for r in public) if e]
+    train_ex += [e for e in (to_example(r, a.silver_w) for r in silver) if e]
     val_ex = [e for e in map(to_example, val_t) if e]
     gold_ex = [e for e in map(to_example, gold) if e]
-    print(f"train {len(train_ex)} (teacher {len(train_t)}, public {len(public)}, synth {len(synth)}x{a.synth_repeat}) | val {len(val_ex)} | gold {len(gold_ex)}", flush=True)
+    print(f"train {len(train_ex)} (teacher {len(train_t)}, silver {len(silver)} w{a.silver_w}, public {len(public)}, synth {len(synth)}x{a.synth_repeat}) | val {len(val_ex)} | gold {len(gold_ex)}", flush=True)
 
     tok = AutoTokenizer.from_pretrained(a.base)
     model = AutoModelForSequenceClassification.from_pretrained(
@@ -159,10 +163,11 @@ def main(a):
         for batch in dl:
             labels = batch.pop("labels").cuda()
             mask = batch.pop("mask").cuda()
+            w = batch.pop("w").cuda().unsqueeze(1)
             batch = {k: v.cuda() for k, v in batch.items()}
             with torch.autocast("cuda", dtype=torch.bfloat16):
                 logits = model(**batch).logits.float()
-            loss = (bce(logits, labels) * mask * lw).sum() / mask.sum().clamp(min=1)
+            loss = (bce(logits, labels) * mask * lw * w).sum() / (mask * w).sum().clamp(min=1)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
@@ -177,7 +182,9 @@ def main(a):
         print(f"== epoch {ep} val(teacher agreement) mAP {score:.3f}", json.dumps(m), flush=True)
         if gold_ex:
             gm = metrics(predict(model, tok, [e[0] for e in gold_ex], max_len=a.max_len), gold_ex)
-            print(f"== epoch {ep} GOLD", json.dumps(gm), flush=True)
+            gscore = float(np.mean([v["ap"] for v in gm.values()]))
+            print(f"== epoch {ep} GOLD mAP {gscore:.3f}", json.dumps(gm), flush=True)
+            score = gscore
         if score > best:
             best = score
             model.save_pretrained(out / "best")
@@ -193,6 +200,9 @@ if __name__ == "__main__":
     ap.add_argument("--public", default="data/public.jsonl")
     ap.add_argument("--synth", default="data/synth*.jsonl")
     ap.add_argument("--gold", default="data/gold.jsonl")
+    ap.add_argument("--silver", default="data/silver.jsonl")
+    ap.add_argument("--silver-w", type=float, default=3.0)
+    ap.add_argument("--public-w", type=float, default=0.5)
     ap.add_argument("--public-ratio", type=float, default=0.5)
     ap.add_argument("--synth-repeat", type=int, default=2)
     ap.add_argument("--out", default="runs/v1")
