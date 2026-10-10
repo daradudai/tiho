@@ -24,6 +24,13 @@ export interface HushModelConfig {
   sizes?: Record<string, number>;
   version?: string;
   placeholder?: boolean;
+  /**
+   * Per-file overrides when variants are different students sharing one
+   * tokenizer (e.g. a 6-layer model for WebGPU and a 3-layer one for WASM):
+   * each variant is calibrated separately.
+   */
+  variant_thresholds?: Record<string, Record<string, number> | number[]>;
+  variant_info?: Record<string, { layers?: number; version?: string }>;
 }
 
 export interface LoadProgress {
@@ -199,7 +206,7 @@ export class HushModel {
     this.padId = (tokenizer as unknown as { pad_token_id?: number }).pad_token_id ?? 0;
     const probe = tokenizer.encode('a');
     this.eosId = probe.length >= 2 ? probe[probe.length - 1]! : null;
-    const t = cfg.thresholds;
+    const t = cfg.variant_thresholds?.[variant] ?? cfg.thresholds;
     this.thresholds = LABELS.map((l, j) => {
       if (this.labelIndex[j]! < 0) return 1; // label missing from this model: never fires
       const v = Array.isArray(t) ? t[cfg.labels.indexOf(l)] : (t as Record<string, number> | undefined)?.[l];
@@ -208,7 +215,7 @@ export class HushModel {
   }
 
   get version(): string {
-    return this.cfg.version ?? 'unknown';
+    return this.cfg.variant_info?.[this.variant]?.version ?? this.cfg.version ?? 'unknown';
   }
 
   /**
