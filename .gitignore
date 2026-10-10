@@ -1,0 +1,23 @@
+# data & models never go to git
+ml/data/
+ml/.venv/
+ml/runs/
+ml/out/
+ml/*.log
+ml/*.err
+engine/vendor/
+engine/*.log
+engine/*.err
+engine/.venv/
+**/__pycache__/
+*.onnx
+*.gguf
+*.safetensors
+# extension
+extension/node_modules/
+extension/.output/
+extension/.wxt/
+extension/test-results/
+extension/playwright-report/
+extension/public/models/
+.DS_Store
