@@ -1,0 +1,4 @@
+logs/
+.pytest_cache/
+*.egg-info/
+bench/results*.json

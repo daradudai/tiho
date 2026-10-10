@@ -1,0 +1,145 @@
+/* Hush design tokens.
+ * Theme is selected by a `data-theme="dark|light"` attribute on any ancestor
+ * (html for extension pages, the shadow wrapper for the in-chat bar).
+ * Category colors must match src/ui/tokens.ts (checked by tests/ui/tokens.test.ts). */
+
+:root,
+:host {
+  --font-ui: "Inter var", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
+  --fs-2xl: 24px;
+  --fs-3xl: 32px;
+
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-pill: 999px;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+
+  --dur-fast: 90ms;
+  --dur: 140ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --grad-brand: linear-gradient(135deg, #7c83ff 0%, #a78bfa 52%, #5ab2ff 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root,
+  :host {
+    --dur-fast: 0ms;
+    --dur: 0ms;
+  }
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #09090c;
+  --bg-glow: rgba(110, 112, 255, 0.1);
+  --surface-1: #111116;
+  --surface-2: #17171e;
+  --surface-3: #1f1f28;
+  --surface-hover: rgba(255, 255, 255, 0.045);
+  --surface-press: rgba(255, 255, 255, 0.08);
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.13);
+  --highlight: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  --text: #ededf3;
+  --text-2: #a4a4b4;
+  --text-3: #6f6f80;
+  --text-inv: #0b0b10;
+
+  --accent: #8487ff;
+  --accent-solid: #6366f1;
+  --accent-solid-hover: #7275f5;
+  --accent-soft: rgba(124, 127, 250, 0.15);
+  --accent-line: rgba(132, 135, 255, 0.45);
+  --on-accent: #ffffff;
+
+  --ok: #4cd69a;
+  --warn: #edc04f;
+  --err: #ff6470;
+  --info: #5ab2ff;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px -6px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 24px 60px -12px rgba(0, 0, 0, 0.7), 0 4px 14px rgba(0, 0, 0, 0.4);
+  --focus: 0 0 0 2px #09090c, 0 0 0 4px rgba(132, 135, 255, 0.7);
+
+  --c-toxic: #ff6470;
+  --c-scam: #ff9452;
+  --c-spam: #edc04f;
+  --c-noise: #98a2b6;
+  --c-negative: #ee7bc2;
+  --c-question: #5ab2ff;
+  --c-positive: #4cd69a;
+  --c-clean: #b9bac6;
+
+  --tint-alpha: 14%;
+  --track: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f6f8;
+  --bg-glow: rgba(99, 102, 241, 0.08);
+  --surface-1: #ffffff;
+  --surface-2: #f4f4f7;
+  --surface-3: #eaeaef;
+  --surface-hover: rgba(16, 16, 40, 0.04);
+  --surface-press: rgba(16, 16, 40, 0.07);
+  --line: rgba(16, 16, 40, 0.08);
+  --line-strong: rgba(16, 16, 40, 0.14);
+  --highlight: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+
+  --text: #15151c;
+  --text-2: #5b5b6c;
+  --text-3: #8b8b9b;
+  --text-inv: #ffffff;
+
+  --accent: #4f52e0;
+  --accent-solid: #5457e8;
+  --accent-solid-hover: #4649dc;
+  --accent-soft: rgba(84, 87, 232, 0.1);
+  --accent-line: rgba(84, 87, 232, 0.4);
+  --on-accent: #ffffff;
+
+  --ok: #138a55;
+  --warn: #9c7400;
+  --err: #d42f42;
+  --info: #1a72d1;
+
+  --shadow-sm: 0 1px 2px rgba(16, 16, 40, 0.06);
+  --shadow-md: 0 8px 24px -8px rgba(16, 16, 40, 0.16), 0 2px 6px rgba(16, 16, 40, 0.06);
+  --shadow-lg: 0 24px 60px -16px rgba(16, 16, 40, 0.24), 0 4px 14px rgba(16, 16, 40, 0.08);
+  --focus: 0 0 0 2px #ffffff, 0 0 0 4px rgba(84, 87, 232, 0.55);
+
+  --c-toxic: #d42f42;
+  --c-scam: #c9560f;
+  --c-spam: #9c7400;
+  --c-noise: #667085;
+  --c-negative: #bc3185;
+  --c-question: #1a72d1;
+  --c-positive: #138a55;
+  --c-clean: #7a7b88;
+
+  --tint-alpha: 10%;
+  --track: rgba(16, 16, 40, 0.08);
+}

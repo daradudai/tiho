@@ -1,0 +1,238 @@
+/* Approximate chat skins (dev-only showcase). */
+
+.bd {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+.bd-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+.bd-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.bd-composer {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ── Twitch ── */
+.bd-twitch {
+  font-family: Inter, Roobert, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 13px;
+  line-height: 20px;
+}
+.bd-twitch[data-theme="dark"] {
+  background: #18181b;
+  color: #efeff1;
+  --tw-line: rgba(255, 255, 255, 0.1);
+  --tw-input: #2f2f35;
+  --tw-btn: #9147ff;
+}
+.bd-twitch[data-theme="light"] {
+  background: #ffffff;
+  color: #0e0e10;
+  --tw-line: rgba(0, 0, 0, 0.1);
+  --tw-input: #e6e6ea;
+  --tw-btn: #9147ff;
+}
+.bd-twitch .bd-head {
+  height: 50px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--tw-line);
+}
+.bd-twitch .tw-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.bd-twitch .tw-ico {
+  width: 30px;
+  text-align: center;
+  opacity: 0.7;
+}
+.bd-twitch .bd-row {
+  padding: 5px 20px;
+}
+.bd-twitch .bd-row:hover {
+  background-color: rgba(127, 127, 140, 0.12);
+}
+.tw-user {
+  font-weight: 700;
+}
+.tw-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 4px;
+  border-radius: 3px;
+  background: #00ad03;
+  color: #fff;
+  font-size: 11px;
+  vertical-align: -3px;
+}
+.tw-text {
+  word-wrap: break-word;
+}
+.bd-twitch .bd-composer {
+  padding: 10px;
+  flex-direction: column;
+  align-items: stretch;
+}
+.bd-twitch .bd-input {
+  height: 38px;
+  border-radius: 6px;
+  background: var(--tw-input);
+  padding: 9px 10px;
+  opacity: 0.8;
+}
+.bd-twitch .bd-send {
+  align-self: flex-end;
+  padding: 5px 10px;
+  border-radius: 4px;
+  background: var(--tw-btn);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ── YouTube ── */
+.bd-youtube {
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+}
+.bd-youtube[data-theme="dark"] {
+  background: #0f0f0f;
+  color: #fff;
+  --yt-line: rgba(255, 255, 255, 0.1);
+  --yt-author: #aaaaaa;
+  --yt-input: #272727;
+}
+.bd-youtube[data-theme="light"] {
+  background: #fff;
+  color: #0f0f0f;
+  --yt-line: rgba(0, 0, 0, 0.1);
+  --yt-author: #606060;
+  --yt-input: #f2f2f2;
+}
+.bd-youtube .bd-head {
+  height: 48px;
+  padding: 0 16px 0 24px;
+  border-bottom: 1px solid var(--yt-line);
+  font-size: 16px;
+  font-weight: 500;
+}
+.yt-caret {
+  font-size: 11px;
+  opacity: 0.7;
+}
+.bd-dots {
+  opacity: 0.8;
+}
+.bd-youtube .bd-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 4px 24px;
+  min-height: 24px;
+}
+.yt-av {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  margin-right: 16px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+}
+.yt-content {
+  padding-top: 4px;
+  min-width: 0;
+}
+.yt-author {
+  color: var(--yt-author);
+  font-weight: 500;
+  margin-right: 8px;
+}
+.yt-author[data-mod] {
+  color: #5e84f1;
+}
+.bd-youtube .bd-composer {
+  padding: 12px 24px;
+  border-top: 1px solid var(--yt-line);
+}
+.bd-youtube .bd-input {
+  flex: 1;
+  height: 32px;
+  border-radius: 16px;
+  background: var(--yt-input);
+  padding: 8px 14px;
+  opacity: 0.8;
+}
+
+/* ── Kick ── */
+.bd-kick {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 22px;
+}
+.bd-kick[data-theme="dark"] {
+  background: #0f1012;
+  color: #ffffff;
+  --kk-line: rgba(255, 255, 255, 0.08);
+  --kk-input: #191b1f;
+}
+.bd-kick[data-theme="light"] {
+  background: #ffffff;
+  color: #0f1012;
+  --kk-line: rgba(0, 0, 0, 0.08);
+  --kk-input: #eef0f2;
+}
+.bd-kick .bd-head {
+  height: 48px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--kk-line);
+  font-weight: 700;
+  font-size: 15px;
+}
+.kk-ico {
+  opacity: 0.6;
+}
+.bd-kick .bd-row {
+  padding: 3px 12px;
+}
+.bd-kick .tw-user {
+  font-weight: 700;
+}
+.bd-kick .bd-composer {
+  padding: 10px 12px 12px;
+}
+.bd-kick .bd-input {
+  flex: 1;
+  height: 40px;
+  border-radius: 6px;
+  background: var(--kk-input);
+  padding: 9px 12px;
+  opacity: 0.8;
+}
+.bd-kick .bd-send {
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: #53fc18;
+  color: #0b0e0f;
+  font-weight: 700;
+}

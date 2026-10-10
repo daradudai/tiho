@@ -1,0 +1,47 @@
+html[data-view="chat"] body {
+  background: #0b0b0d;
+  height: 100vh;
+}
+html[data-view="chat"][data-theme="light"] body {
+  background: #e9e9ee;
+}
+.sc-stage {
+  height: 100vh;
+}
+.sc-popup {
+  width: 360px;
+}
+.sc-sidepanel {
+  height: 100vh;
+}
+.sc-overview {
+  padding: 32px;
+}
+.sc-overview h1 {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+.sc-overview p {
+  color: var(--text-2);
+  margin: 6px 0 24px;
+}
+.sc-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+}
+.sc-grid figure {
+  margin: 0;
+}
+.sc-grid figcaption {
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: var(--text-2);
+}
+.sc-grid iframe {
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-md);
+  background: var(--bg);
+}
