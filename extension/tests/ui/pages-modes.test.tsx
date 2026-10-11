@@ -5,7 +5,7 @@ import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PRESETS, SETTINGS_KEY, mergeSettings, type Settings } from '../../src/core/settings';
-import type { InChat } from '../../src/core/store';
+import type { InChat, LogEntry } from '../../src/core/store';
 import { SNAPSHOT_V, type LiveSnapshot } from '../../src/ui/bridge';
 import { settings, settingsReady } from '../../src/ui/kit/kit';
 import { plainModelStatus } from '../../src/ui/model-status';
@@ -266,6 +266,33 @@ describe('side panel', () => {
     await act(() => byText('[role="tab"]', 'Log')!.click());
     expect(el.querySelector('.sp-h2')?.textContent).toBe('Hidden messages');
     expect(el.querySelector('.sp-h2-sub')?.textContent).toBe('What Hush hid or folded since you opened this panel, newest first');
+  });
+
+  it('Mood is a word in its tone (the score only in a tooltip); Log and Inbox say how sure in words, the raw score in a tooltip', async () => {
+    stored({ uiMode: 'advanced' });
+    await act(() => render(<SidePanelApp initialTab="live" />, el));
+    await tick();
+    const entry = (key: string, category: LogEntry['verdict']['category'], reason: string, scores: number[]): LogEntry => ({
+      msg: { key, author: 'someone', text: 'some text', ts: Date.now(), platform: 'twitch', channel: 'scores' },
+      verdict: { category, action: category === 'question' ? 'highlight' : 'hide', reason, source: 'model', scores },
+    });
+    const model = { ...snap().model, thresholds: [0.22, 0.53, 0.22, 0.44, 0.52, 0.26, 0.1] };
+    const filtered = [entry('f1', 'toxic', 'toxic · likely', [0.25, 0, 0, 0, 0, 0, 0])];
+    const questions = [entry('q1', 'question', 'question · certain', [0, 0, 0, 0, 0.96, 0, 0])];
+    await act(() => void lastPort!.onMessage.emit({ type: 'snapshot', snapshot: snap({ channel: 'scores', vibe: new Array(60).fill(-0.04), model, filtered, questions, ts: Date.now() + 1 }) }));
+
+    const mood = el.querySelector('.sp-metric[data-vibe]')!;
+    expect(mood.textContent).toBe('Neutral');
+    expect(mood.getAttribute('data-vibe')).toBe('mid');
+    expect(mood.getAttribute('title')).toContain('-0.04');
+
+    await act(() => byText('[role="tab"]', 'Log')!.click());
+    const reason = el.querySelector('.sp-reason')!;
+    expect(reason.textContent).toBe('toxic · likely');
+    expect(reason.getAttribute('title')).toBe('toxic · likely\nModel: toxic 25%, threshold 22%');
+
+    await act(() => [...el.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith('Inbox'))!.click()); // "Inbox" + its count
+    expect(el.querySelector('.sp-q-body')?.getAttribute('title')).toBe('Show in chat\nquestion · certain\nModel: question 96%, threshold 52%');
   });
 
   it('Settings starts with Mode, and switching it changes uiMode and nothing else (C7)', async () => {

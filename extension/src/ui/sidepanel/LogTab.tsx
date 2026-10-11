@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import type { LogEntry } from '../../core/store';
 import type { Category } from '../../core/types';
 import { markNotFiltered } from '../bridge';
-import { ago, compact } from '../format';
+import { ago, compact, scoreDetail } from '../format';
 import { Icon } from '../icons';
 import { Empty, useTick } from '../kit/kit';
 import { ACTION_META, CATEGORY_META } from '../tokens';
@@ -103,6 +103,8 @@ function LogItem({ e, onAllow }: { e: LogEntry; onAllow: (e: LogEntry, scope: 'a
   const blur = SENSITIVE.has(c);
   const notLabel = c === 'question' || c === 'positive' || c === 'clean' ? 'Wrong call' : `Not ${c}`;
   const reason = e.verdict.reason || CATEGORY_META[c].label.toLowerCase();
+  // the raw score stays one hover away (the reason says how sure, in words)
+  const detail = scoreDetail(e.verdict, live.value?.model.thresholds);
   return (
     <article class="sp-log" data-c={c} data-ask={ask ? '' : undefined}>
       <Avatar name={e.msg.author} />
@@ -111,7 +113,7 @@ function LogItem({ e, onAllow }: { e: LogEntry; onAllow: (e: LogEntry, scope: 'a
           <b>
             <bdi>{e.msg.author}</bdi>
           </b>
-          <span class="sp-reason" data-c={c} title={reason}>
+          <span class="sp-reason" data-c={c} title={detail ? `${reason}\n${detail}` : reason}>
             <Icon name={c} size={11} fill />
             <span>{reason}</span>
           </span>

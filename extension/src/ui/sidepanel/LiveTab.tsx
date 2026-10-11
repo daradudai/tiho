@@ -57,8 +57,8 @@ export function LiveTab() {
       <Card
         title={<Titled title="Mood" window="last 5 min" />}
         action={
-          <span class="sp-metric" data-vibe={vibeTone(mood)}>
-            <b>{vibeWord(mood)}</b> {signed(mood)}
+          <span class="sp-metric" data-vibe={vibeTone(mood)} title={`${signed(mood)} on a scale from −1 (all negative) to +1 (all positive), last 15 s`}>
+            <b>{vibeWord(mood)}</b>
           </span>
         }
       >

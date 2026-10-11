@@ -306,6 +306,67 @@ describe('Advanced bar', () => {
     dispose();
   });
 
+  it('orders chips by what they have to say: the one shown alone, what Hush changes, then the rest with messages in chat', async () => {
+    const quiet = busyChat();
+    quiet.byCat.noise = 0;
+    const { store, root, $$, dispose } = setup({ settings: advanced, inChat: quiet });
+    await flush();
+    // a CSS order (the chips never move in the DOM, so focus stays put); ties keep the DOM order
+    const order = () =>
+      $$('.hb-chip')
+        .sort((a, b) => Number(a.style.order) - Number(b.style.order))
+        .map((c) => c.dataset.c);
+    // Clean: hide, hide, fold, highlight; then the categories shown as they are, an empty one last
+    expect(order()).toEqual(['toxic', 'scam', 'spam', 'question', 'negative', 'positive', 'noise']);
+    const positive = $$('.hb-chip').find((c) => c.dataset.c === 'positive')!;
+    positive.focus();
+    store.solo.value = 'positive';
+    await flush();
+    expect(order()[0]).toBe('positive');
+    expect(root.activeElement).toBe(positive);
+    dispose();
+  });
+
+  it('chips that do not fit are hidden behind "+N", which opens the live view (narrow chats)', async () => {
+    // The bar learns which chips wrapped from an IntersectionObserver: this one reports what the test says.
+    let report: (out: string[]) => void = () => {};
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        targets: Element[] = [];
+        constructor(cb: IntersectionObserverCallback) {
+          report = (out) => cb(this.targets.map((t) => ({ target: t, intersectionRatio: out.includes((t as HTMLElement).dataset.c!) ? 0 : 1 }) as any), this as any);
+        }
+        observe(t: Element) {
+          this.targets.push(t);
+        }
+        disconnect() {}
+      },
+    );
+    try {
+      const { $, $$, dispose } = setup({ settings: advanced, inChat: busyChat() });
+      await flush();
+      expect($('.hb-more')).toBeNull();
+      report(['noise', 'negative', 'positive']);
+      await flush();
+      expect($$('.hb-chip[data-over]').map((c) => c.dataset.c)).toEqual(['noise', 'negative', 'positive']);
+      const more = $('.hb-more');
+      expect(more.textContent).toBe('+3');
+      expect(more.getAttribute('aria-label')).toBe('3 more categories: Noise, Negative, Positive. Show live view');
+      expect(more.dataset.tip).toBe('Noise · Negative · Positive');
+      more.click();
+      await flush();
+      expect($('.hb-panel')).not.toBeNull();
+      expect($('.hb-more').getAttribute('aria-expanded')).toBe('true');
+      report([]);
+      await flush();
+      expect($('.hb-more')).toBeNull();
+      dispose();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('right-click opens the chip menu: Show only first, then the actions', async () => {
     const { store, $, $$, actions, dispose } = setup({ settings: advanced, inChat: busyChat() });
     await flush();

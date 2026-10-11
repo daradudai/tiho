@@ -250,7 +250,7 @@ describe('runtime: model path + hold', () => {
     rt.flushNow();
     expect(A(bad)).toBe('hide');
     expect(C(bad)).toBe('toxic');
-    expect(bad.getAttribute('data-hush-r')).toBe('toxic · 97%');
+    expect(bad.getAttribute('data-hush-r')).toBe('toxic · certain');
     expect(A(ok)).toBe('show');
     expect(C(ok)).toBe('clean');
   });
@@ -307,7 +307,7 @@ describe('runtime: model path + hold', () => {
     rt.flushNow();
     expect(C(mod)).toBe('toxic');
     expect(A(mod)).toBe('show');
-    expect(mod.getAttribute('data-hush-r')).toBe('toxic · 97% · always shown');
+    expect(mod.getAttribute('data-hush-r')).toBe('toxic · certain · always shown');
     expect(A(paid)).toBe('show');
   });
 

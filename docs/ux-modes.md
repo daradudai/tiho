@@ -39,13 +39,13 @@ These settle the points where the proposals disagreed.
 | Advanced preset names | Raw · **Clean** · **Quiet** · Questions (ids stay `raw`, `chill`, `focus`, `questions`) | Same words everywhere. Only labels change, so no storage migration. |
 | Peek | **Show hidden** in both modes, per tab | Answers a first-timer's "what did it take?" without categories. |
 | Solo | Advanced only. Every other category is **hidden** (not dimmed or folded). | Most literal reading of "only that one". It is the cleanest precision check at 50 msg/s and the cheapest to build (one stylesheet). |
-| Solo row readout | A visible tag on every soloed row: `spam · 97% · folded` | Merges the always-visible reason (first-timer) with the normal action (native). |
+| Solo row readout | A visible tag on every soloed row: `spam · certain · folded` | Merges the always-visible reason (first-timer) with the normal action (native). |
 | Chip click | Solo. Changing an action moves to right-click / long-press and the panel's `▾` | The owner's "easy click". Also ends accidental hides from blind click-to-cycle. |
 | Counts | One definition, **in chat now**, on chips, panel rows, the Solo pill, the popup and the side panel | Never mix windows on one surface (streamer-pro's `Sp 13` vs `6 in chat` problem). |
 | Basic row decorations | No category edges and no hover reason chips. The question glow, pills, `×N` and the dashed "opened" edge stay. | Most of the clutter in `live-twitch-chat.png`. |
 | Basic side panel | One page: level, Advanced switch, privacy. Not linked from Basic. | Basic users don't need it. Anyone who opens it still lands somewhere useful. |
 | Model status in Basic | Only when not ready: progress ring on the mark (no number), amber dot on error | No jargon and no numbers. |
-| Percent signs | Only in model confidence (`toxic · 94%`, Advanced), cache hits (labelled) and download progress (Advanced) | Each of these describes one message or one process. None claims to describe the chat as a whole. |
+| Percent signs | Only in cache hits (labelled) and download progress (Advanced). Model confidence is a word, measured against the label's calibrated threshold: `maybe` (under it: only Strict catches it), `likely`, `very likely`, `certain` (`toxic · likely`). The raw score is a tooltip in the side panel's Log and Inbox (`Model: toxic 25%, threshold 22%`). | Each percentage describes one process. A raw score reads wrong: thresholds differ per label (toxic 22%, negative 10%), so `toxic · 25%` is a confident call. |
 
 ## 4. Shared contract
 
@@ -263,7 +263,7 @@ Show hidden and Solo are **variants of the stylesheet `buildCss` produces**. The
 - A reason that ends in `always shown` (`[data-hush-r$="always shown"]`) gets no action word.
 - No reason (clean rows): the category word stands in for it (`other · shown`).
 - On a wave head of X: `×` + `attr(data-hush-wh)` + `  ` + the text above.
-- Examples: `spam · 97% · folded`, `toxic · 94% · hidden`, `blocked: giveaway · hidden`, `filter: backseating · hidden`, `repeat ×4 · folded`, `spam · 81% · always shown`, `×37  noise · 95% · shown`.
+- Examples: `spam · certain · folded`, `toxic · likely · hidden`, `blocked: giveaway · hidden`, `filter: backseating · hidden`, `repeat ×4 · folded`, `spam · very likely · always shown`, `×37  noise · certain · shown`.
 - On Kick (absolute rows): verify the float does not make rows overlap. If it does, put the tag `position:absolute` inside the row there; Kick rows are positioned already (`PLATFORM_DECO.kick.positioned`).
   - Verified live: no overlap. But Kick's list is virtualized, and when most mounted rows take no space it mounts and unmounts rows about 1,000 times a second, and the soloed rows flicker. So on Kick (`PLATFORM_DECO.kick.virtual`) the other categories are `visibility:hidden` and keep their place instead of `display:none`.
 
@@ -273,7 +273,7 @@ Show hidden and Solo are **variants of the stylesheet `buildCss` produces**. The
 |---|---|
 | Category → action mapping | The saved settings, unchanged. Solo never edits `actions` or `preset`. Verdicts, the log, the inbox, waves and counts are computed exactly as without Solo. The tag shows the normal action. |
 | Settings changes during Solo | Applied as usual: `reevaluateAll` re-decides the live rows, and rows move in or out of the list live. Dragging strictness in the side panel while soloed on Spam is the tuning loop. Changing X's action keeps Solo on, and the tags update. |
-| Protected authors (broadcaster, mods, VIPs, paid, own messages, mentions of the viewer) | Classified as usual. Shown when in X, hidden like the rest when not. Policy change (A, `core/policy.ts`): when `rule.protect` caps an action of dim or stronger to `show`, the reason gets ` · always shown` appended (`toxic · 94% · always shown`). The hover chip shows it too. |
+| Protected authors (broadcaster, mods, VIPs, paid, own messages, mentions of the viewer) | Classified as usual. Shown when in X, hidden like the rest when not. Policy change (A, `core/policy.ts`): when `rule.protect` caps an action of dim or stronger to `show`, the reason gets ` · always shown` appended (`toxic · certain · always shown`). The hover chip shows it too. |
 | User rules / custom AI filters | Under the category of their verdict. The tag names the source (`blocked: …`, `allowed: …`, `filter: …`). |
 | Waves | Heads of X show with `×N`; members stay folded. |
 | Counts | `inChat` is unchanged. The Solo pill reads `inChat.byCat[X]`, which equals the number of soloed message rows on screen (wave members excluded on both sides). |
@@ -337,7 +337,7 @@ It never shows a number.
    - Below 520 px it is a pill with a menu; at 520 px and wider, a segmented control (as today).
    - Labels: `Raw`, `Clean`, `Quiet`, `Q&A`, or `Custom`.
    - **During Solo, the Solo pill takes this place** (6.4).
-3. **Chips** (scroll, as today): one per `CHIP_CATEGORIES` entry, with `compact(inChat.byCat[c])`.
+3. **Chips**: one per `CHIP_CATEGORIES` entry, with `compact(inChat.byCat[c])`, as many as fit. The soloed chip comes first, then the categories Hush changes (hide, fold, dim, highlight), then the ones it shows as they are, those with messages in chat now first. The rest wrap out of sight, and a `+N` button (tooltip: their names) opens the panel, which lists all of them. The Solo pill, eye, model dot and chevron never give way to chips (at 340 px: three chips and `+4`).
    - **Click:** `setSolo(c)` when `c` is not soloed, `setSolo(null)` when it is. `aria-pressed` while soloed. During Solo the other chips get `data-faded` and stay clickable (to switch).
    - **Right-click / long-press:** chip menu (6.4).
    - Tooltip title `${SHORT[c]} · ${verb}` (e.g. `Spam · folded`); sub `8 in chat now · Click: show only these · Right-click: change`. When soloed, the sub is `Showing only these · Click: show everything`.
@@ -476,7 +476,7 @@ Today's popup, with these changes:
 
 - **Live:**
   - **Hero:** title `In chat now`, big `13 hidden or folded` (not `13 hidden` above `9 hidden`), sub `9 hidden · 4 folded · 152 messages`, and a button `Show hidden in chat` / `Hide again` (sends `peek`). The ring and the % are removed.
-  - Cards: `Messages per second · last 60 s` (now / avg / peak, as today) and `Mood · last 5 min`.
+  - Cards: `Messages per second · last 60 s` (now / avg / peak, as today) and `Mood · last 5 min`. Mood is a word in its colour (`Positive`, `Neutral`, `Negative`); its score is only in a tooltip.
   - **Categories:**
     - Card title `Categories · in chat now`.
     - Each row shows the count and a bar with its share of `inChat.rows`, without the % text.
@@ -555,7 +555,7 @@ The mockups use these symbols:
 | `! $ # ~ :( ? +` | Toxic, scam, spam, noise, negative, question, positive |
 | `*` | Model dot |
 | `v` / `^` | Chevron |
-| `>` | More chips (scroll fade) |
+| `+4` | Chips that did not fit (opens the panel) |
 
 Widths are the bar at 340 px and the popup at 360 px.
 
@@ -655,7 +655,7 @@ Peeked rows are faded until hovered. Wave members stay inside `×5`.
 
 ```text
 +----------------------------------------------+
-| (~) Clean v  !1  $0  #8  ~158 :(22 > (o) * v |
+| (~) Clean v  !1  $0  #8  +4      (o)   *   v |
 +----------------------------------------------+
 ```
 
@@ -666,12 +666,12 @@ Peeked rows are faded until hovered. Wave members stay inside `×5`.
 
 ```text
 +----------------------------------------------+
-| (~) [# Only Spam · 8  ×]  !  $ [#] ~ > *  v  |
+| (~) [# Only Spam · 8  ×] [#]  !     +5  *  v |
 +----------------------------------------------+
-|:spamton: POGGERS POGGE [spam · 97% · folded] |
+|:spamton: POGGERS P [spam · certain · folded] |
 |:lazy_dog: LOL LOL LOL L [repeat ×4 · folded] |
-| mod_rex: no spoilers  [spam · 81% · always   |
-|   pls no spoilers                   shown]   |
+| mod_rex: no spoilers  [spam · very likely ·  |
+|   pls no spoilers          always shown]     |
 |:bot_ivy: follow 4 fo [blocked: f4f · hidden] |
 +----------------------------------------------+
 ```
@@ -684,7 +684,7 @@ Peeked rows are faded until hovered. Wave members stay inside `×5`.
 
 ```text
 +----------------------------------------------+
-| (~) Clean v  !1  $0  #8  ~158 > (o)  *    ^  |
+| (~) Clean v  !1  $0  #8  +4      (o)   *   ^ |
 +----------------------------------------------+
 | IN CHAT NOW                                  |
 | 152 messages · 9 hidden · 4 folded           |
@@ -817,10 +817,9 @@ When the model is not ready, `Getting ready… Simple filters already work.` and
 | (~) Hush   [tw] caedrel · Live [  o] |
 | Live   Inbox   Log   Rules  Settings |
 +--------------------------------------+
-| IN CHAT NOW                          |
+| IN CHAT NOW [(o) Show hidden in chat]|
 | 13 hidden or folded                  |
 | 9 hidden · 4 folded · 152 messages   |
-|             [(o) Show hidden in chat]|
 +--------------------------------------+
 | Messages per second · last 60 s      |
 |   3 now · avg 2.4 · peak 7           |
@@ -894,7 +893,7 @@ Each item is a statement a test or a manual check can confirm. "Live" means the 
 - [ ] **A13** While peek or Solo is on, a click or Enter on a folded row does not set `data-hush-open`, and the platform's own click handler still receives the event.
 - [ ] **A14** While Solo is on, the list carries `data-hush-list` even with preset Raw, and rows that need the model are held up to `holdMs`. After exit both return to their usual values.
 - [ ] **A15** `reveal(key)` of a row outside the soloed category ends Solo and reveals the row.
-- [ ] **A16** A protected author's toxic message at 94% gets reason `toxic · 94% · always shown` and action `show`.
+- [ ] **A16** A protected author's toxic message at 94% gets reason `toxic · certain · always shown` and action `show`.
 - [ ] **A17** The snapshot has `v: 2` with `inChat`, `peek` and `solo`, and no `counts` or `totals`. The `solo` command with `cat: 'nope'` is ignored. `peek` and `solo` commands reach the runtime.
 - [ ] **A18** The stress harness at 100 and 200 msg/s shows no regression in per-message main-thread cost compared with today: the tally adds O(1) per write.
 

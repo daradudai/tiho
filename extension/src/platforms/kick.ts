@@ -22,6 +22,12 @@
 //    same time as the original gets an ordinal suffix (see remountKey).
 //  * Rows are NOT recycled in place (no text mutations observed on mounted
 //    rows across ~5k messages); content is complete at insertion.
+//  * The virtualizer measures each row (offsetHeight) as it mounts, before any
+//    content script has seen it, and again on every resize (ResizeObserver),
+//    places rows by those sizes (translateY) and mounts as many as it takes to
+//    fill the viewport (verified live 2026-10-11). A row that shrinks after it
+//    mounted pulls more rows in, so here a row waiting for its verdict takes
+//    no space (src/ui/decorations.ts, PlatformDeco.virtual).
 //  * No message id / user id in the DOM.
 
 import { Role } from '../core/types';

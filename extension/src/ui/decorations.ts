@@ -30,9 +30,9 @@
 // in one text change, with no write on any row. Show hidden brings hidden
 // and folded rows back in place, faded and tagged with why, and draws no
 // pills (so it has no child rule either). Solo hides every row of another
-// category (on Kick's virtual list they keep their place, invisible) and
-// shows the chosen one's in full, each tagged with its reason and what it
-// normally gets ("spam · 97% · folded"). Wave members stay folded in both.
+// category and shows the chosen one's in full, each tagged with its reason
+// and what it normally gets ("spam · 97% · folded"). Wave members stay
+// folded in both.
 //
 // Everything visual is driven by --hush-* custom properties declared with
 // zero specificity, so a theme can override them from anywhere, e.g.
@@ -55,9 +55,15 @@ interface PlatformDeco {
   positioned: boolean;
   /**
    * The list mounts only the rows near the viewport and places them from
-   * their measured heights (Kick). When most mounted rows take no space it
-   * keeps mounting and unmounting rows (about 1,000 a second, measured live),
-   * so Solo keeps the other categories' rows in place, invisible.
+   * their measured heights (Kick). It measures a row as it mounts, before
+   * Hush has written anything on it, and again whenever its size changes. A
+   * row born at full height that Hush then hides shrinks, which pulls more
+   * rows into the list, each born at full height again: with many rows
+   * hidden or folded (Quiet, Solo, Clean in a spammy chat) Kick mounted and
+   * unmounted 350 to 800 rows a second and fell below 20 fps (measured live).
+   * So there a row with no verdict yet takes no space (virtualList): its
+   * verdict can only make it grow, and a row that grows only pushes rows out
+   * of the list, so the list settles.
    */
   virtual: boolean;
 }
@@ -167,6 +173,11 @@ export function pillRuns(actions: readonly string[]): (string | undefined)[] {
   return out;
 }
 
+/** The platform's chat list is virtual: a row with no verdict yet must take no space there (see PlatformDeco.virtual). */
+export function virtualList(platform: Platform | string): boolean {
+  return (PLATFORM_DECO[platform as Platform] ?? PLATFORM_DECO.twitch).virtual;
+}
+
 export function decorationCss(platform: Platform | string, theme: Theme, opts: DecorationOptions = {}): string {
   const p = PLATFORM_DECO[platform as Platform] ?? PLATFORM_DECO.twitch;
   const t = THEME_DECO[theme];
@@ -211,9 +222,7 @@ export function decorationCss(platform: Platform | string, theme: Theme, opts: D
   // Show hidden and Solo are variants of this sheet, not rules on top of it:
   // nothing could undo a display:none!important that is already there.
   const X = solo ? `[data-hush-c="${solo}"]` : '';
-  /** Solo: the rows of every other category (on a virtual list they keep their place, see PlatformDeco.virtual). */
-  const OTHER = solo ? `[data-hush-c]:not(${X})` : '';
-  const gone = plain ? [HIDE, WM, `${COL}:not([data-hush-run])`] : solo && !p.virtual ? [WM, OTHER] : [WM];
+  const gone = plain ? [HIDE, WM, `${COL}:not([data-hush-run])`] : solo ? [WM, `[data-hush-c]:not(${X})`] : [WM];
   /** Rows that carry a view's tag (::before), and rows that get the dashed "normally not shown" edge. */
   const tagged = solo ? [X] : peek ? [HIDE, COL] : [];
   const marked = solo ? [X + HIDE, X + COL] : tagged;
@@ -228,7 +237,6 @@ ${ACCENTED.map((c) => `[data-hush-c="${c}"]{--hush-accent:var(--hush-c-${c});--h
 ${gone.join(',')}{display:none!important}
 ${dim}[data-hush-a="highlight"]{background-color:color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) var(--hush-hl-mix),transparent)!important;box-shadow:inset 3px 0 0 var(--hush-accent,var(--hush-c-highlight))!important}
 `;
-  if (solo && p.virtual) css += `${OTHER}{visibility:hidden!important}\n`;
 
   if (plain)
     css += `

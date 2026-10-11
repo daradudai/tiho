@@ -50,7 +50,7 @@ describe('policy: custom filters', () => {
   it('never weakens a stronger category action', () => {
     const hl: EngineFilter = { ...BACKSEAT, action: 'highlight' };
     const v = decide(vec(TOXIC, p(hl, 0.99)), R(), null, ctxOf([hl]));
-    expect(v).toMatchObject({ category: 'toxic', action: 'hide', reason: 'toxic · 97%' });
+    expect(v).toMatchObject({ category: 'toxic', action: 'hide', reason: 'toxic · certain' });
     // …but highlights an otherwise shown message
     expect(decide(vec(CLEAN, p(hl, 0.99)), R(), null, ctxOf([hl])).action).toBe('highlight');
   });
@@ -108,7 +108,7 @@ describe('policy: second opinion', () => {
     const v = decide(vec([0.2, 0, 0, 0, 0, 0, 0], undefined, [0.99, 0, 0, 0, 0, 0, 0.5]), R(), null, ctxOf([], {}, {}, THR));
     expect(v).toMatchObject({ category: 'toxic', action: 'hide', source: 'engine' });
     expect(v.scores![0]).toBeGreaterThan(0.22);
-    expect(v.reason).toBe(`toxic · ${Math.round(v.scores![0]! * 100)}%`);
+    expect(v.reason).toBe('toxic · very likely'); // the averaged score, against the local threshold
   });
 
   it("the engine's raw scores are never read against the local thresholds", () => {

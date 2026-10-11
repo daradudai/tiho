@@ -8,7 +8,8 @@
 //
 // Advanced (streamers, mods): presets, category chips with what is in chat
 // now (click: show only that category, right-click: change what happens to
-// it), Show hidden, model status; expands into a live view.
+// it; as many as fit, "+N" for the rest), Show hidden, model status; expands
+// into a live view.
 //
 // Reads only the frame-throttled View, never the raw store.
 
@@ -18,10 +19,11 @@ import type { BarActions } from '../../core/bar-actions';
 import { advancedExtras, basicLevel, type BasicLevel, type PresetId, type Settings } from '../../core/settings';
 import type { Action, Category, ModelStatus, Platform } from '../../core/types';
 import { modelSummary, plainModelStatus, retryModel } from '../model-status';
+import { SEVERITY } from '../../core/policy';
 import { CATEGORIES } from '../../core/types';
 import { LiveMark } from '../brand';
 import { Diverging, Ring, Sparkline } from '../charts';
-import { ago, compact, grouped, rate, vibeTone, vibeWord } from '../format';
+import { ago, compact, grouped, rate, scoreDetail, vibeTone, vibeWord } from '../format';
 import { Icon } from '../icons';
 import { iconImage } from './glyphs';
 import {
@@ -229,7 +231,7 @@ export function Bar({ v, actions, markRef }: BarProps) {
               ) : (
                 <PresetSwitch preset={settings.preset} menuOpen={menu?.kind === 'preset'} onPick={(p) => actions.setPreset(p)} onOpenMenu={openPresetMenu} />
               )}
-              <Chips v={v} theme={theme} solo={solo} onSolo={(c) => actions.setSolo(c)} onMenu={openChipMenu} />
+              <Chips v={v} theme={theme} solo={solo} open={open} onSolo={(c) => actions.setSolo(c)} onMenu={openChipMenu} onMore={toggleOpen} />
               {!solo && <PeekButton peek={peek} onToggle={togglePeek} />}
             </>
           ) : (
@@ -664,72 +666,87 @@ function SoloPill({ v, cat, onEnd }: { v: View; cat: Category; onEnd: () => void
 
 /* ── Advanced: category chips ─────────────────────────────────────── */
 
+/**
+ * Where a chip stands in a narrow bar (lower first): the one shown alone, then
+ * the categories Hush changes (hidden first, then folded, dimmed,
+ * highlighted), then the ones it shows as they are, those with messages in
+ * chat now first. Ties keep CHIP_CATEGORIES order.
+ */
+function chipRank(c: Category, actions: Record<Category, Action>, solo: Category | null, byCat: Record<Category, number>): number {
+  return c === solo ? 0 : actions[c] !== 'show' ? 5 - SEVERITY[actions[c]] : byCat[c] ? 5 : 6;
+}
+
+/**
+ * As many chips as fit, by chipRank; the others wrap onto a line the row
+ * clips, and "+N" (they are all in the live view) stands in for them. An
+ * IntersectionObserver says which ones wrapped, so nothing here reads layout.
+ * The rank is a CSS order, so a chip that moves keeps keyboard focus; it
+ * changes with settings and Solo, and while chat flows only when a category
+ * shown as is gets its first message in chat or loses its last.
+ */
 function Chips({
   v,
   theme,
   solo,
+  open,
   onSolo,
   onMenu,
+  onMore,
 }: {
   v: View;
   theme: Theme;
   solo: Category | null;
+  open: boolean;
   onSolo: (c: Category | null) => void;
   onMenu: (c: Category, el: Element) => void;
+  onMore: () => void;
 }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const inner = useRef<HTMLDivElement>(null);
-  const [edges, setEdges] = useState('');
+  const box = useRef<HTMLDivElement>(null);
+  const [over, setOver] = useState<Category[]>([]);
+  const actions = v.settings.value.actions;
+  const ranks = useLive(() => CHIP_CATEGORIES.map((c) => chipRank(c, actions, solo, v.inChat.value.byCat)).join(), [actions, solo]).value.split(',');
 
-  // Edge fades when the chips overflow: static overlays toggled from scroll /
-  // resize callbacks (geometry is read only then, never per counter update).
   useEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    const sync = () => {
-      const max = el.scrollWidth - el.clientWidth;
-      setEdges(max <= 1 ? '' : `${el.scrollLeft > 1 ? 'l' : ''}${el.scrollLeft < max - 1 ? 'r' : ''}`);
-    };
-    sync();
-    el.addEventListener('scroll', sync, { passive: true });
-    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(sync) : null;
-    ro?.observe(el);
-    if (inner.current) ro?.observe(inner.current);
-    return () => {
-      el.removeEventListener('scroll', sync);
-      ro?.disconnect();
-    };
+    const el = box.current;
+    if (!el || typeof IntersectionObserver !== 'function') return;
+    const out = new Set<Category>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const c = (e.target as HTMLElement).dataset.c as Category;
+          if (e.intersectionRatio < 0.9) out.add(c);
+          else out.delete(c);
+        }
+        setOver(CHIP_CATEGORIES.filter((c) => out.has(c)));
+      },
+      { root: el, threshold: 0.9 },
+    );
+    for (const chip of el.querySelectorAll('.hb-chip')) io.observe(chip);
+    return () => io.disconnect();
   }, []);
 
-  // The chip shown alone stays in sight (the Solo pill is wider than the preset's).
-  useEffect(() => {
-    const el = scroller.current;
-    const chip = solo && el?.querySelector(`[data-c="${solo}"]`);
-    if (!el || !chip) return;
-    const c = chip.getBoundingClientRect();
-    const s = el.getBoundingClientRect();
-    if (c.left < s.left + 24) el.scrollLeft -= s.left + 24 - c.left;
-    else if (c.right > s.right - 24) el.scrollLeft += c.right - (s.right - 24);
-  }, [solo]);
-
-  const onWheel = (e: WheelEvent) => {
-    const el = scroller.current;
-    if (!el || el.scrollWidth <= el.clientWidth) return;
-    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-      el.scrollLeft += e.deltaY;
-      e.preventDefault();
-    }
-  };
   return (
-    <div class="hb-chips" data-edges={edges || undefined}>
-      <div class="hb-chips-scroll" ref={scroller} onWheel={onWheel}>
-        <div class="hb-chips-in" ref={inner}>
-          {CHIP_CATEGORIES.map((c) => (
-            <Chip key={c} cat={c} v={v} theme={theme} action={v.settings.value.actions[c]} solo={solo} onSolo={onSolo} onMenu={onMenu} />
+    <>
+      <div class="hb-chips" ref={box}>
+        <div class="hb-chips-in">
+          {CHIP_CATEGORIES.map((c, i) => (
+            <Chip key={c} cat={c} v={v} theme={theme} action={actions[c]} solo={solo} rank={Number(ranks[i])} over={over.includes(c)} onSolo={onSolo} onMenu={onMenu} />
           ))}
         </div>
       </div>
-    </div>
+      {over.length > 0 && (
+        <button
+          class="hb-more"
+          aria-expanded={open}
+          aria-label={`${over.length} more ${over.length === 1 ? 'category' : 'categories'}: ${over.map((c) => SHORT[c]).join(', ')}. ${open ? 'Hide' : 'Show'} live view`}
+          data-tip={over.map((c) => SHORT[c]).join(' · ')}
+          data-tip-sub="Click: open the live view, with every category"
+          onClick={onMore}
+        >
+          +{over.length}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -763,6 +780,8 @@ function Chip({
   theme,
   action,
   solo,
+  rank,
+  over,
   onSolo,
   onMenu,
 }: {
@@ -771,6 +790,10 @@ function Chip({
   theme: Theme;
   action: Action;
   solo: Category | null;
+  /** Its place in a narrow bar (chipRank). */
+  rank: number;
+  /** It did not fit in the bar ("+N" stands in for it). */
+  over: boolean;
   onSolo: (c: Category | null) => void;
   onMenu: (c: Category, el: Element) => void;
 }) {
@@ -788,6 +811,8 @@ function Chip({
       data-c={cat}
       data-zero={zero}
       data-faded={solo && !soloed ? '' : undefined}
+      data-over={over ? '' : undefined}
+      style={{ order: rank }}
       aria-pressed={soloed}
       aria-label={label}
       data-tip={`${SHORT[cat]} · ${verb}`}
@@ -1138,6 +1163,7 @@ function Waves({ v }: { v: View }) {
 
 function Questions({ v, actions }: { v: View; actions: BarActions }) {
   const qs = v.questions.value.slice(0, 3);
+  const thresholds = v.model.value.thresholds;
   return (
     <section class="hp-sec">
       <div class="hp-sec-head">
@@ -1147,7 +1173,11 @@ function Questions({ v, actions }: { v: View; actions: BarActions }) {
       {qs.length ? (
         <div class="hp-qs">
           {qs.map((q) => (
-            <button class="hp-q" onClick={() => actions.revealMessage(q.msg.key)} title="Show in chat">
+            <button
+              class="hp-q"
+              onClick={() => actions.revealMessage(q.msg.key)}
+              title={['Show in chat', q.verdict.reason, scoreDetail(q.verdict, thresholds)].filter(Boolean).join('\n')}
+            >
               <span class="hp-q-ico">
                 <Icon name="question" size={12} />
               </span>

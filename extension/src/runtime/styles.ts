@@ -12,7 +12,8 @@
 //   data-hush-open  user expanded a collapsed row
 // and the chat list itself may carry
 //   data-hush-list  rows without data-hush-a yet are invisible (hidden from
-//                   birth until their first verdict — no flash of unfiltered text)
+//                   birth until their first verdict — no flash of unfiltered text);
+//                   in a virtual list (Kick) they take no space either
 //
 // The row rules and all visuals live in src/ui/decorations.ts (themed per
 // platform and light/dark, Basic or Advanced); this module adds the list-level
@@ -29,7 +30,7 @@
 
 import type { UiMode } from '../core/settings';
 import type { Category, Platform } from '../core/types';
-import { decorationCss } from '../ui/decorations';
+import { decorationCss, virtualList } from '../ui/decorations';
 
 export const ATTR = {
   action: 'data-hush-a',
@@ -60,9 +61,12 @@ export interface StyleOptions {
 }
 
 export function buildCss(o: StyleOptions): string {
+  const platform = o.platform ?? 'twitch';
+  // in a virtual list (Kick) a row waiting for its verdict takes no space either: see PlatformDeco.virtual
+  const unseen = virtualList(platform) ? 'display:none' : 'visibility:hidden';
   return (
-    '[data-hush-list]>:not([data-hush-a]){visibility:hidden!important}' +
-    decorationCss(o.platform ?? 'twitch', o.theme, { decorate: o.decorate, mode: o.mode, peek: o.peek, solo: o.solo })
+    `[data-hush-list]>:not([data-hush-a]){${unseen}!important}` +
+    decorationCss(platform, o.theme, { decorate: o.decorate, mode: o.mode, peek: o.peek, solo: o.solo })
   );
 }
 

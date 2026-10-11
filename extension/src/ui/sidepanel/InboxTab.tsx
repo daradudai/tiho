@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import type { LogEntry } from '../../core/store';
-import { ago } from '../format';
+import { ago, scoreDetail } from '../format';
 import { Icon } from '../icons';
 import { Empty, Segmented, useTick } from '../kit/kit';
 import { NoChat } from './SidePanelApp';
@@ -73,10 +73,12 @@ export function InboxTab() {
 
 function QuestionItem({ q, done: isDone, onDone }: { q: LogEntry; done: boolean; onDone: () => void }) {
   const reveal = () => connection()?.send({ type: 'reveal', key: q.msg.key });
+  // why it counts as a question, in the log's words, with the raw score
+  const why = [q.verdict.reason, scoreDetail(q.verdict, live.value?.model.thresholds)].filter(Boolean);
   return (
     <article class="sp-q" data-done={isDone ? '' : undefined}>
       <Avatar name={q.msg.author} />
-      <button class="sp-q-body" onClick={reveal} title="Show in chat">
+      <button class="sp-q-body" onClick={reveal} title={['Show in chat', ...why].join('\n')}>
         <span class="sp-q-meta">
           <b>
             <bdi>{q.msg.author}</bdi>

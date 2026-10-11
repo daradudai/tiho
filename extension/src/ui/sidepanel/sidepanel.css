@@ -152,17 +152,18 @@ body {
   gap: 12px;
 }
 
-/* hero: what the chat list holds now */
+/* hero: what the chat list holds now (the button sits by the label, so the
+   number and its words keep the full width) */
 .sp-hero {
   display: grid;
   grid-template-columns: 1fr auto;
   grid-template-areas:
     "label peek"
-    "num   peek"
+    "num   num"
     "sub   sub";
   align-items: center;
   column-gap: 12px;
-  row-gap: 2px;
+  row-gap: 4px;
   padding: 16px 16px 15px 18px;
   border-radius: var(--r-xl);
   background:
@@ -195,6 +196,7 @@ body {
   font-size: 17px;
   font-weight: 640;
   letter-spacing: -0.015em;
+  white-space: nowrap;
   color: var(--text);
   -webkit-text-fill-color: var(--text);
 }

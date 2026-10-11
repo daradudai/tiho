@@ -1,5 +1,76 @@
 # Hush Lite in-browser inference — benchmark results
 
+## Current: shipped models on an idle GPU (2026-10-11)
+
+What the release bundles: **v2-6L** (`onnx/model_quantized.onnx`, 112.5 MB, int8 weight-only) for
+WebGPU and **v2-3L** (`onnx/model_uint8_3L.onnx`, 105.3 MB, dynamic int8) for WASM, plus
+`model_q4f16.onnx` (61.9 MB) for comparison. Same machine and method as below (Ryzen 9 3950X,
+RTX 3090, Playwright Chromium 156, 4 000 real chat lines, score cache off), but this time the GPU
+was **idle** (2–5 % load, 25 W, no training or llama-server running).
+
+msgs/s and p50/p95 latency per call in ms:
+
+| backend | model / file | threads | load | B=1 | B=8 | B=32 | B=64 |
+|---|---|---|---|---|---|---|---|
+| **webgpu** | **6L q8** (default) | – | 1.8 s | 112/s (8.6/10.1) | 856/s (9.3/11.0) | 1 731/s (19.0/**21.6**) | 2 932/s (20.7/31.1) |
+| webgpu | 6L q4f16 | – | 2.5 s | 101/s (9.2/11.7) | 785/s (10.1/11.9) | 1 636/s (20.2/22.6) | 2 545/s (23.8/35.8) |
+| wasm | 6L q8 | 4 | 2.3 s | 55/s (17.2/24.8) | 126/s (61/90) | 148/s (194/299) | 180/s (362/376) |
+| **wasm** | **3L uint8** (default) | **4** | 1.8 s | 357/s (2.5/4.7) | 472/s (16.2/24.6) | 492/s (57/92) | **577/s** (112/113) |
+| wasm | 3L uint8 | 1 | 1.8 s | 211/s (4.2/8.3) | 237/s (31/45) | 252/s (107/190) | 277/s (233/245) |
+| wasm | 3L uint8 | 8 | 1.5 s | 486/s (1.9/3.2) | 796/s (9.7/13.7) | 818/s (30/60) | 1 071/s (59/64) |
+
+Simulated chat stream with the production batching wait (12 ms): WebGPU 6L at 150 msg/s →
+**p50 23.5 ms / p95 27.5 ms**; WASM 3L ×4 threads at 60 msg/s → p50 15.0 ms / p95 18.5 ms.
+
+End to end like a content script (Port → background → offscreen → worker, default backend =
+WebGPU 6L, batches of 16): **p50 23.2 ms, p95 30.7 ms**, 0 errors; status carries the 6L
+thresholds (0.22, 0.53, 0.22, 0.44, 0.52, 0.26, 0.10).
+
+**Against the spec budgets:**
+- *p95 ≤ 25 ms for a batch of 32 on a mid GPU*: **21.6 ms** on an RTX 3090 (a high-end GPU;
+  not yet measured on a mid-range or integrated one).
+- *≥ 300 msg/s on WASM with 4 threads on a mid laptop CPU*: **577 msg/s** on a desktop Ryzen 9
+  3950X (single-thread 277 msg/s). A typical laptop CPU is roughly 2–3× slower per core, so this
+  should still land around the target, but it is not measured.
+
+Peak extra browser memory (private bytes): about +0.7 GB with WebGPU 6L q8 and +0.5–0.6 GB with
+WASM 3L uint8 at 1–4 threads.
+
+Raw JSON: `tests/bench/.data/results-1791716852437.json`.
+
+### Mac mini (Apple M4, 10 cores, 16 GB, macOS 26.3)
+
+Same build, bench and texts, run over SSH on the Mac's logged-in desktop (headed Playwright
+Chromium 156; WebGPU on Apple Metal 3 with shader-f16; cross-origin isolated):
+
+| backend | model / file | threads | load | B=1 | B=8 | B=32 | B=64 |
+|---|---|---|---|---|---|---|---|
+| webgpu | 6L q8 (default) | – | 0.7 s | 194/s (4.9/5.9) | 735/s (10.1/18.9) | 1 420/s (22.7/27.4) | 1 603/s (39.2/48.5) |
+| webgpu | 6L q4f16 | – | 0.9 s | 197/s (4.9/5.3) | 824/s (9.2/15.2) | 1 628/s (19.6/**23.4**) | 2 178/s (28.6/33.8) |
+| wasm | 6L q8 | 4 | 0.8 s | 161/s (4.7/12.6) | 386/s (20/29) | 435/s (64/102) | 510/s (126/130) |
+| **wasm** | **3L uint8** (default) | **4** | 0.5 s | 807/s (1.0/2.5) | 1 015/s (7.2/10.8) | 1 027/s (27/45) | **1 146/s** (57/58) |
+| wasm | 3L uint8 | 1 | 0.7 s | 354/s (2.3/5.8) | 322/s (23/35) | 312/s (88/147) | 353/s (181/188) |
+| wasm | 3L uint8 | 8 | 0.5 s | 633/s (1.5/2.6) | 826/s (9.4/14.2) | 873/s (32/51) | 1 032/s (63/64) |
+
+Stream at 150 msg/s: WebGPU 6L q8 p50 24.3 / p95 29.1 ms; 6L q4f16 p50 18.8 / p95 21.3 ms. End to
+end (Port → background → offscreen → worker, batches of 16): p50 37.8 ms, p95 49.9 ms, 0 errors.
+
+Notes:
+- On Apple Metal the **q4f16** file is faster than q8 (fp16 math pays off there; on the RTX 3090
+  q8 was slightly faster). With q8 the batch-of-32 p95 is 27.4 ms, just over the 25 ms budget;
+  q4f16 meets it at 23.4 ms. q4f16 trades some accuracy (it flipped 1.5 % of decisions for v2;
+  not yet measured for 6L), so this is a per-platform choice to make with the parity numbers.
+- The M4's CPU is very fast for the 3L model: 1 146 msg/s on 4 threads, 353 msg/s single-threaded.
+  4 threads beat 8 (4 performance cores + 6 efficiency cores), which matches the worker's default
+  of min(4, cores / 2).
+- Process memory is not sampled on macOS (the sampler is Windows-only).
+
+Raw: `tests/bench/.data/mac-m4-results-1791719354549.json`, `mac-m4-full.log`.
+
+---
+
+## History: v2 (22 layers) on a busy GPU (2026-10-10)
+
 Model **v2** (`ml/runs/v2/best`, mmBERT-small + 7-label head, max_len 64), exported with
 `ml/export/export_onnx.py` (fused graph: `com.microsoft` RotaryEmbedding + MultiHeadAttention,
 466 nodes instead of 1404). Measured 2026-10-10.

@@ -25,25 +25,25 @@ export interface FakeMsg {
 
 /** Hand-written, realistic chat (deterministic order for screenshots). */
 export const CHAT: FakeMsg[] = [
-  { author: 'nightowl_88', color: '#ff7f50', text: 'that clutch was actually insane', c: 'positive', r: 'positive · 91%' },
+  { author: 'nightowl_88', color: '#ff7f50', text: 'that clutch was actually insane', c: 'positive', r: 'positive · certain' },
   { author: 'Pixelmancer', color: '#1e90ff', text: 'KEKW', c: 'noise', r: 'wave ×37', w: 37 },
-  { author: 'free_skins_bot', color: '#9acd32', text: 'FREE SKINS at csgo-drop .win/xqc claim now', c: 'scam', r: 'scam · 98%' },
-  { author: 'mira_lux', color: '#da70d6', text: 'what settings are you using for the sensitivity?', c: 'question', r: 'question · 96%' },
-  { author: 'tilted_tom', color: '#ff4500', text: 'you are so trash uninstall', c: 'toxic', r: 'toxic · 94%' },
-  { author: 'tilted_tom', color: '#ff4500', text: 'literally the worst player i have ever seen', c: 'toxic', r: 'toxic · 89%' },
-  { author: 'quietfox', color: '#2e8b57', text: 'chat is so calm today, love it', c: 'positive', r: 'positive · 88%' },
-  { author: 'Sven_DE', color: '#b22222', text: 'warum spielt er nicht ranked heute?', c: 'question', r: 'question · 92%' },
-  { author: 'lowkey_lena', color: '#8a2be2', text: 'audio is a bit quiet compared to the game', c: 'negative', r: 'negative · 77%' },
-  { author: 'copypasta_king', color: '#daa520', text: 'POGGERS POGGERS POGGERS POGGERS POGGERS POGGERS', c: 'spam', r: 'spam · 97%' },
-  { author: 'ana_rs', color: '#00bfff', text: 'jajaja el último round fue increíble', c: 'positive', r: 'positive · 84%' },
+  { author: 'free_skins_bot', color: '#9acd32', text: 'FREE SKINS at csgo-drop .win/xqc claim now', c: 'scam', r: 'scam · certain' },
+  { author: 'mira_lux', color: '#da70d6', text: 'what settings are you using for the sensitivity?', c: 'question', r: 'question · certain' },
+  { author: 'tilted_tom', color: '#ff4500', text: 'you are so trash uninstall', c: 'toxic', r: 'toxic · certain' },
+  { author: 'tilted_tom', color: '#ff4500', text: 'literally the worst player i have ever seen', c: 'toxic', r: 'toxic · likely' },
+  { author: 'quietfox', color: '#2e8b57', text: 'chat is so calm today, love it', c: 'positive', r: 'positive · very likely' },
+  { author: 'Sven_DE', color: '#b22222', text: 'warum spielt er nicht ranked heute?', c: 'question', r: 'question · certain' },
+  { author: 'lowkey_lena', color: '#8a2be2', text: 'audio is a bit quiet compared to the game', c: 'negative', r: 'negative · likely' },
+  { author: 'copypasta_king', color: '#daa520', text: 'POGGERS POGGERS POGGERS POGGERS POGGERS POGGERS', c: 'spam', r: 'spam · certain' },
+  { author: 'ana_rs', color: '#00bfff', text: 'jajaja el último round fue increíble', c: 'positive', r: 'positive · very likely' },
   { author: 'mod_rex', color: '#00ad03', text: 'Reminder: be nice in chat, no spoilers please', c: 'clean', badges: ['mod'] },
-  { author: 'mod_rex', color: '#00ad03', text: 'NO SPOILERS NO SPOILERS NO SPOILERS', c: 'spam', a: 'show', r: 'spam · 81% · always shown', badges: ['mod'] },
-  { author: 'hypetrain', color: '#ff69b4', text: 'W', c: 'noise', r: 'noise · 97%' },
-  { author: 'devonk', color: '#5f9ea0', text: 'is the tournament on saturday or sunday?', c: 'question', r: 'question · 95%' },
-  { author: 'grr_gamer', color: '#cd5c5c', text: 'ok this patch honestly ruined the game', c: 'negative', r: 'negative · 81%' },
-  { author: 'lucky_luna', color: '#ffa07a', text: 'GG that was clean', c: 'positive', r: 'positive · 90%' },
-  { author: 'clip_chimp', color: '#e67e22', text: 'NO WAY he hit that from across the map, somebody clip it', c: 'positive', r: 'positive · 93%', w: 14 },
-  { author: 'bigbrain', color: '#1e90ff', text: 'does anyone know which map pool they use for the finals?', c: 'question', r: 'question · 91%' },
+  { author: 'mod_rex', color: '#00ad03', text: 'NO SPOILERS NO SPOILERS NO SPOILERS', c: 'spam', a: 'show', r: 'spam · very likely · always shown', badges: ['mod'] },
+  { author: 'hypetrain', color: '#ff69b4', text: 'W', c: 'noise', r: 'noise · certain' },
+  { author: 'devonk', color: '#5f9ea0', text: 'is the tournament on saturday or sunday?', c: 'question', r: 'question · certain' },
+  { author: 'grr_gamer', color: '#cd5c5c', text: 'ok this patch honestly ruined the game', c: 'negative', r: 'negative · very likely' },
+  { author: 'lucky_luna', color: '#ffa07a', text: 'GG that was clean', c: 'positive', r: 'positive · certain' },
+  { author: 'clip_chimp', color: '#e67e22', text: 'NO WAY he hit that from across the map, somebody clip it', c: 'positive', r: 'positive · certain', w: 14 },
+  { author: 'bigbrain', color: '#1e90ff', text: 'does anyone know which map pool they use for the finals?', c: 'question', r: 'question · very likely' },
 ];
 
 const AUTHORS = ['zoe_plays', 'kaito', 'marek_pl', 'Juli', 'bigbrain', 'ostrich', 'leo_br', 'nadia', 'yuki', 'rook'];
@@ -58,16 +58,16 @@ const QUESTIONS = [
   'wie heißt der song?',
 ];
 const FILTERED: [string, Category, string][] = [
-  ['you are so trash uninstall', 'toxic', 'toxic · 94%'],
-  ['FREE SKINS at csgo-drop .win claim now', 'scam', 'scam · 98%'],
-  ['follow4follow check my channel!!', 'scam', 'scam · 92%'],
-  ['POGGERS POGGERS POGGERS POGGERS POGGERS', 'spam', 'spam · 97%'],
-  ['ez clap noob team diff', 'toxic', 'toxic · 71%'],
-  ['💰 crypto signals in bio 💰', 'scam', 'scam · 96%'],
+  ['you are so trash uninstall', 'toxic', 'toxic · certain'],
+  ['FREE SKINS at csgo-drop .win claim now', 'scam', 'scam · certain'],
+  ['follow4follow check my channel!!', 'scam', 'scam · very likely'],
+  ['POGGERS POGGERS POGGERS POGGERS POGGERS', 'spam', 'spam · certain'],
+  ['ez clap noob team diff', 'toxic', 'toxic · likely'],
+  ['💰 crypto signals in bio 💰', 'scam', 'scam · certain'],
   ['aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'spam', 'char flood'],
-  ['ты просто ужасно играешь, удали игру', 'toxic', 'toxic · 88%'],
+  ['ты просто ужасно играешь, удали игру', 'toxic', 'toxic · very likely'],
   ['!drop', 'noise', '!command'],
-  ['L', 'noise', 'noise · 93%'],
+  ['L', 'noise', 'noise · certain'],
 ];
 
 function entry(key: string, author: string, text: string, category: Category, action: Action, reason: string, ageS: number): LogEntry {
@@ -132,7 +132,7 @@ export function makeStore(platform = 'twitch', theme: 'dark' | 'light' = 'dark',
       { id: 'w4', text: 'o7', count: 9, users: 9, startedAt: now - 120000, lastAt: now - 100000 },
     ];
     s.waves.value = waves;
-    s.questions.value = QUESTIONS.map((q, i) => entry(`q${i}`, AUTHORS[i % AUTHORS.length], q, 'question', 'highlight', `question · ${(96 - i).toFixed(0)}%`, 12 + i * 47));
+    s.questions.value = QUESTIONS.map((q, i) => entry(`q${i}`, AUTHORS[i % AUTHORS.length], q, 'question', 'highlight', `question · ${i % 3 === 2 ? 'very likely' : 'certain'}`, 12 + i * 47));
     s.filtered.value = Array.from({ length: 40 }, (_, i) => {
       const [t, c, r] = FILTERED[i % FILTERED.length];
       return entry(`f${i}`, AUTHORS[(i * 3) % AUTHORS.length] + (i > 9 ? i : ''), t, c, c === 'spam' ? 'collapse' : 'hide', r, 4 + i * 23);

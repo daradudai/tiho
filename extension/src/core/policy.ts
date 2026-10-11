@@ -4,7 +4,8 @@
 // positive > clean. A label is "on" when its score (nudged by rule signals)
 // reaches its threshold; thresholds come from the model config
 // (`hush.thresholds`) and are shifted by `strictness` in logit space for the
-// filtering labels (toxic, spam, scam, noise, negative).
+// filtering labels (toxic, spam, scam, noise, negative). Reasons say how sure
+// the model is in words, against the unshifted thresholds ("toxic · likely").
 //
 // Hush Engine (optional): its answers arrive after the local scores and are
 // attached to the same cached score vector (ScoreVector.engine). A custom
@@ -110,6 +111,8 @@ export interface PolicyFilter {
 export interface PolicyContext {
   actions: Record<Category, Action>;
   thresholds: Float32Array;
+  /** The model's own calibrated thresholds, before strictness: a reason's confidence word is measured against them. */
+  calibrated: Float32Array;
   collapseWaves: boolean;
   /** Enabled custom filters (empty when the engine is off). */
   filters: PolicyFilter[];
@@ -127,6 +130,7 @@ export function policyContext(
   return {
     actions: settings.actions,
     thresholds: effectiveThresholds(baseThresholds, settings.strictness),
+    calibrated: Float32Array.from(LABELS, (_, i) => baseThreshold(baseThresholds, i)),
     collapseWaves: settings.collapseWaves,
     filters: engine ? activeFilters(engine).map((f) => ({ key: filterKey(f), action: f.action, label: lowerFirst(filterLabel(f)) })) : [],
     refine: !!engine?.enabled && engine.refineUncertain,
@@ -179,14 +183,16 @@ function signalWords(category: Category, sig: number): string {
 }
 
 /**
- * Reason for a model call, as the hover chip and the log show it: "toxic · 94%"
- * (the raw probability, capped at 99%), or the rule signal that carried the
- * label over its threshold when the score alone did not ("scam · link").
+ * Reason for a model call, as the hover chip, the tags and the log show it:
+ * "toxic · likely" (how sure the model is, see confidence()), or the rule
+ * signal that carried the label over its threshold when the score alone did
+ * not ("scam · link").
  */
-function modelReason(c: Categorized, sig: number, thr: Float32Array): string {
+function modelReason(c: Categorized, sig: number, ctx: PolicyContext): string {
   if (c.category === 'clean') return '';
-  const why = c.score < thr[LABEL_INDEX[c.category]]! ? signalWords(c.category, sig) : '';
-  return `${c.category} · ${why || `${Math.min(99, Math.round(c.score * 100))}%`}`;
+  const i = LABEL_INDEX[c.category];
+  const why = c.score < ctx.thresholds[i]! ? signalWords(c.category, sig) : '';
+  return `${c.category} · ${why || confidence(c.score, ctx.calibrated[i]!)}`;
 }
 
 /** Sentence-case label as reason text: "Backseating" → "backseating"; names keep their case ("Elden Ring spoilers"). */
@@ -241,7 +247,7 @@ export function decide(
   } else if (scores) {
     const c = categorize(scores, rule.sig, ctx.thresholds);
     category = c.category;
-    reason = modelReason(c, rule.sig, ctx.thresholds);
+    reason = modelReason(c, rule.sig, ctx);
     src = source;
     action = ctx.actions[category];
   } else {
@@ -271,7 +277,7 @@ export function decide(
   }
 
   // Protected authors are never dimmed, folded or hidden; the reason says so
-  // (the hover chip and Solo's tag show it: "toxic · 94% · always shown").
+  // (the hover chip and Solo's tag show it: "toxic · certain · always shown").
   if (rule.protect && SEVERITY[action] >= SEVERITY.dim) {
     action = 'show';
     reason = reason ? `${reason} · ${ALWAYS_SHOWN}` : ALWAYS_SHOWN;
@@ -318,6 +324,27 @@ function firingFilter(probs: Record<string, number>, filters: PolicyFilter[]): P
 
 /** Logit distance from a threshold within which the local model counts as unsure (≈ 3× odds either way). */
 const UNSURE_LOGIT = 1.1;
+
+/** How sure the model is of a label, in words (see confidence()). */
+export type Confidence = 'maybe' | 'likely' | 'very likely' | 'certain';
+
+/** A raw score this high reads "certain" when it is also well over its threshold. */
+const CERTAIN_P = 0.9;
+
+/**
+ * A label's score in words, measured against the model's calibrated
+ * threshold for it rather than against 50%: thresholds differ per label
+ * (toxic 0.22, negative 0.10), so a toxic score of 25% is already over the
+ * line. Under the threshold it reads "maybe" (only Strict catches those),
+ * within about 3× odds over it (UNSURE_LOGIT) "likely", further "very likely",
+ * and "certain" when the score itself is near 1.
+ */
+export function confidence(p: number, t: number): Confidence {
+  const m = logit(clampP(p)) - logit(clampP(t));
+  if (m < 0) return 'maybe';
+  if (m < UNSURE_LOGIT) return 'likely';
+  return p >= CERTAIN_P ? 'certain' : 'very likely';
+}
 
 /**
  * True when the local model is unsure about a label whose action would change

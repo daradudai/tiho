@@ -99,11 +99,10 @@ describe('decorationCss', () => {
     expect(css).toContain('[data-hush-c="spam"][data-hush-wh]::before{content:"×" attr(data-hush-wh) "  " attr(data-hush-r) var(--hush-did,"")}');
     // normally not shown: the dashed edge
     expect(css).toMatch(/\[data-hush-c="spam"\]\[data-hush-a="hide"\],\[data-hush-c="spam"\]\[data-hush-a="collapse"\]:not\(\[data-hush-open\]\)\{\s*box-shadow:none!important;\s*background-image:linear-gradient/);
-    // Kick's virtual list remounts rows in a loop when most of them take no space: there the others keep their place, invisible
+    // Kick's virtual list too: its rows wait for a verdict taking no space, so hiding most of them is stable (see below)
     const kick = decorationCss('kick', 'dark', { solo: 'spam' });
-    expect(hiding(kick)).toEqual(['[data-hush-wm]:not([data-hush-open])']);
-    expect(kick).toContain('[data-hush-c]:not([data-hush-c="spam"]){visibility:hidden!important}');
-    expect(css).not.toContain('[data-hush-c]:not([data-hush-c="spam"]){visibility');
+    expect(hiding(kick)).toEqual(hiding(css));
+    expect(kick).not.toContain('[data-hush-c]:not([data-hush-c="spam"]){visibility');
     // clean rows have no reason: "other · shown"
     expect(decorationCss('kick', 'light', { solo: 'clean' })).toContain('[data-hush-c="clean"]:not([data-hush-r])::before{content:"other" var(--hush-did,"")}');
   });
@@ -165,6 +164,16 @@ describe('decorationCss', () => {
   it('themes colors for light and dark', () => {
     expect(decorationCss('twitch', 'dark')).toContain('--hush-c-toxic:#ff6470;--hush-e-toxic:#ff64709e');
     expect(decorationCss('twitch', 'light')).toContain('--hush-c-toxic:#d42f42;--hush-e-toxic:#d42f42b3');
+  });
+
+  it('on a virtual list (Kick) a row waiting for its verdict takes no space; elsewhere it keeps its place, invisible', () => {
+    // Kick measures a row as it mounts: one born at full height and hidden a frame later pulls more rows in, in a loop (Quiet)
+    const birth = (css: string) => css.match(/\[data-hush-list\]>:not\(\[data-hush-a\]\)\{([^}]*)\}/)?.[1];
+    for (const o of VARIANTS) {
+      expect(birth(buildCss({ platform: 'kick', theme: 'dark', decorate: true, ...o }))).toBe('display:none!important');
+      for (const p of ['twitch', 'youtube'] as const)
+        expect(birth(buildCss({ platform: p, theme: 'light', decorate: true, ...o }))).toBe('visibility:hidden!important');
+    }
   });
 
   it('is valid CSS for every platform, theme, mode and view (parses in the DOM)', () => {

@@ -1,6 +1,7 @@
 // Formatting + small reactive helpers shared by the bar and extension pages.
 
 import { signal, effect, type ReadonlySignal, type Signal } from '@preact/signals';
+import { LABELS, type Verdict } from '../core/types';
 
 /** 7 → "7", 1234 → "1.2k", 10500 → "11k", 2_400_000 → "2.4M" */
 export function compact(n: number): string {
@@ -46,18 +47,25 @@ export function clock(ts: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-/** Vibe in [-1,1] → words. */
-export function vibeWord(v: number): string {
-  if (v > 0.45) return 'Glowing';
-  if (v > 0.15) return 'Positive';
-  if (v > -0.15) return 'Neutral';
-  if (v > -0.45) return 'Grumpy';
-  return 'Heated';
-}
-
-/** The color a vibe's word takes: 'mid' exactly when vibeWord says Neutral. */
+/** The color a mood's word takes (vibe in [-1,1]: positive minus negative messages, per message). */
 export function vibeTone(v: number): 'pos' | 'mid' | 'neg' {
   return v > 0.15 ? 'pos' : v > -0.15 ? 'mid' : 'neg';
+}
+
+const MOOD_WORD = { pos: 'Positive', mid: 'Neutral', neg: 'Negative' } as const;
+
+/** Mood in a word, one per tone: the score itself goes in a tooltip at most. */
+export function vibeWord(v: number): string {
+  return MOOD_WORD[vibeTone(v)];
+}
+
+/** The model score behind a verdict, for an Advanced detail (a tooltip): "Model: toxic 25%, threshold 22%"; '' without one. */
+export function scoreDetail(v: Pick<Verdict, 'category' | 'scores'>, thresholds?: readonly number[]): string {
+  const i = (LABELS as readonly string[]).indexOf(v.category);
+  const p = i < 0 ? undefined : v.scores?.[i];
+  if (p === undefined) return '';
+  const t = thresholds?.[i];
+  return `Model: ${v.category} ${pct(p)}${t === undefined ? '' : `, threshold ${pct(t)}`}`;
 }
 
 export function strictWord(v: number): string {

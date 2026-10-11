@@ -83,6 +83,11 @@ chat('chat-twitch-dark-advanced-tooltip', 'platform=twitch&theme=dark&mode=advan
   await pg.locator('.hb-chip[data-c="spam"]').hover();
   await pg.waitForTimeout(450);
 });
+// The chips that do not fit at 340 px, behind "+N"
+chat('chat-twitch-dark-advanced-more', 'platform=twitch&theme=dark&mode=advanced', 340, 400, async (pg) => {
+  await pg.locator('.hb-more').hover();
+  await pg.waitForTimeout(450);
+});
 chat('chat-twitch-dark-advanced-off', 'platform=twitch&theme=dark&mode=advanced&off', 340, 300);
 chat('chat-twitch-dark-advanced-loading', 'platform=twitch&theme=dark&mode=advanced&model=downloading&empty', 340, 300);
 chat('chat-twitch-light-basic-pill', 'platform=twitch&theme=light&mode=basic', 340, 640, async (pg) => {
@@ -123,6 +128,8 @@ panel('sidepanel-live-solo-dark', 'theme=dark&mode=advanced&tab=live&solo=spam',
   await pg.waitForTimeout(150);
 });
 panel('sidepanel-live-peek-light', 'theme=light&mode=advanced&tab=live&peek');
+// The narrowest side panel (Chrome's minimum): the hero's words stay on one line
+shots.push({ name: 'sidepanel-live-narrow-dark', url: `${base}?view=sidepanel&theme=dark&mode=advanced&tab=live&w=320`, w: 320, h: 640 });
 panel('sidepanel-log-only-dark', 'theme=dark&mode=advanced&tab=log', async (pg) => {
   await pg.locator('.sp-filter[data-c="scam"]').click();
   await pg.waitForTimeout(150);
