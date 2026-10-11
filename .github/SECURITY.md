@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please report security problems privately through GitHub: **[Report a vulnerability](https://github.com/daradudai/hush/security/advisories/new)** (Security tab → Advisories). Do not open a public issue.
+Please report security problems privately through GitHub: **[Report a vulnerability](https://github.com/daradudai/tiho/security/advisories/new)** (Security tab → Advisories). Do not open a public issue.
 
 Include what you found, how to reproduce it, and what an attacker could do with it. We aim to reply within a week. Fixes for confirmed issues ship as soon as they are ready, and you are credited in the advisory unless you prefer not to be.
 

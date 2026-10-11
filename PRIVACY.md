@@ -63,4 +63,4 @@ The optional engine (`engine/`) runs on your machine:
 
 The model was trained on public live-chat messages collected without an account, together with permissively licensed public datasets. Some message texts (without author names) were labeled by AI annotators (Claude) and by a local model. Raw chat logs are kept privately by the maintainer, used only to build training data, and never published or shared; only the trained model weights are. Details: [docs/MODEL_CARD.md](docs/MODEL_CARD.md).
 
-Questions about any of this: write to [hello@tiho.chat](mailto:hello@tiho.chat) or [open an issue](https://github.com/daradudai/hush/issues).
+Questions about any of this: write to [hello@tiho.chat](mailto:hello@tiho.chat) or [open an issue](https://github.com/daradudai/tiho/issues).

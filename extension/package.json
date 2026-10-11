@@ -4,13 +4,13 @@
   "private": true,
   "version": "0.1.0",
   "license": "MIT",
-  "homepage": "https://github.com/daradudai/hush#readme",
+  "homepage": "https://github.com/daradudai/tiho#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/daradudai/hush.git",
+    "url": "git+https://github.com/daradudai/tiho.git",
     "directory": "extension"
   },
-  "bugs": "https://github.com/daradudai/hush/issues",
+  "bugs": "https://github.com/daradudai/tiho/issues",
   "engines": {
     "node": ">=22"
   },

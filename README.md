@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/daradudai/hush/actions/workflows/ci.yml"><img src="https://github.com/daradudai/hush/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/daradudai/tiho/actions/workflows/ci.yml"><img src="https://github.com/daradudai/tiho/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-6366f1" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/Chrome-MV3-4285f4?logo=googlechrome&logoColor=white" alt="Chrome MV3">
   <img src="https://img.shields.io/badge/model-on--device-22c55e" alt="On-device model">
@@ -105,7 +105,7 @@ Tiho needs **Chrome or Edge 124 or newer**, on desktop. It is built and tested o
 
 ### From a release
 
-1. Download the latest `tiho-*-chrome.zip` from [Releases](https://github.com/daradudai/hush/releases) and unzip it.
+1. Download the latest `tiho-*-chrome.zip` from [Releases](https://github.com/daradudai/tiho/releases) and unzip it.
 2. Open `chrome://extensions`, turn on **Developer mode** (top right), click **Load unpacked** and pick the unzipped folder (the one with `manifest.json`).
 3. A welcome tab opens. Pick how much Tiho should hide (Clean or Quiet), then open any live stream. Chats that were already open start filtering too, without a reload.
 
@@ -116,8 +116,8 @@ Release builds include the model, so nothing is downloaded and Tiho works offlin
 You need Node.js 22 and the model. **The model is not in git** (105 to 113 MB per file), so download a release zip as above and unzip it first: the build bundles whatever is in `extension/public/models/tiho-lite/`.
 
 ```sh
-git clone https://github.com/daradudai/hush.git
-cd hush/extension
+git clone https://github.com/daradudai/tiho.git
+cd tiho/extension
 npm ci
 cp -r path/to/unzipped-release/models public/   # PowerShell: Copy-Item -Recurse path\to\unzipped-release\models public\
 npm run build                                   # output: extension/.output/chrome-mv3

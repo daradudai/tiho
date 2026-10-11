@@ -4,8 +4,8 @@ Thanks for helping. Tiho is small and opinionated: it has to stay fast in 150 ms
 
 ## Ways to help
 
-- **Report a wrong verdict.** A message that was hidden but should not have been, or the other way round. These are the most useful reports we get. Use the [wrong verdict template](https://github.com/daradudai/hush/issues/new?template=wrong_verdict.yml). Leave out the author's name.
-- **Report a broken site.** YouTube, Twitch and Kick change their chat markup without warning. If Tiho stops tagging messages, open a [bug report](https://github.com/daradudai/hush/issues/new?template=bug_report.yml) with the page URL and, if you can, the chat's HTML (see [Platform adapters](#platform-adapters)).
+- **Report a wrong verdict.** A message that was hidden but should not have been, or the other way round. These are the most useful reports we get. Use the [wrong verdict template](https://github.com/daradudai/tiho/issues/new?template=wrong_verdict.yml). Leave out the author's name.
+- **Report a broken site.** YouTube, Twitch and Kick change their chat markup without warning. If Tiho stops tagging messages, open a [bug report](https://github.com/daradudai/tiho/issues/new?template=bug_report.yml) with the page URL and, if you can, the chat's HTML (see [Platform adapters](#platform-adapters)).
 - **Your language.** Hard cases in your language (slang, insults that look harmless, harmless swearing that looks like an insult) make the next model better. Put them in an issue with what each one should be.
 - **Code.** Look for issues labeled `good first issue`, or open an issue before a big change so we can agree on the approach.
 

@@ -198,7 +198,7 @@ A browser loads one model file plus the tokenizer: 126 MB on WebGPU, 119 MB on t
 
 ## Bias and fairness
 
-- Classifiers trained on toxicity data are known to over-flag dialects, reclaimed slurs and identity terms used neutrally or positively. We have not measured this for Tiho Lite. If it happens to you or your community, please [report it](https://github.com/daradudai/hush/issues/new/choose).
+- Classifiers trained on toxicity data are known to over-flag dialects, reclaimed slurs and identity terms used neutrally or positively. We have not measured this for Tiho Lite. If it happens to you or your community, please [report it](https://github.com/daradudai/tiho/issues/new/choose).
 - Public toxicity datasets lean toward English and Western online discourse.
 - Mitigations in the product: the broadcaster, moderators and VIPs are never filtered by default, every filtered message stays one click away with the reason shown, and "not spam" feedback creates an allow rule immediately.
 

@@ -32,7 +32,7 @@ any cloud, mobile apps.
 ## 1. Repository layout
 
 ```
-hush/
+tiho/
   extension/        WXT + TypeScript + Preact. Chrome MV3 (Firefox later).
     src/
       core/         platform-agnostic: types, normalize, rules, waves, policy,
