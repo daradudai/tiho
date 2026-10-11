@@ -1,6 +1,6 @@
 # Chrome Web Store: what to paste where
 
-Developer console: https://chrome.google.com/webstore/devconsole (account pesho.georgiev@gmail.com,
+Developer console: https://chrome.google.com/webstore/devconsole (the owner's Google account,
 publisher "Tiho"). Fields are in the order the dashboard shows them. Everything in a code block is
 meant to be copied as is.
 
@@ -77,9 +77,8 @@ A separate app for people with a strong graphics card. It runs a larger AI model
 Works in Chrome and Edge 124 or newer, on desktop. Questions and bug reports: hello@tiho.chat · https://tiho.chat
 ```
 
-Before you submit: if Tiho Engine has no public download yet (the repo is private), delete the
-"OPTIONAL: TIHO ENGINE" paragraph. The localhost justification below still holds, because the switch
-for it is in the extension.
+The "OPTIONAL: TIHO ENGINE" paragraph can stay: the repository (and the engine with it) is public at
+https://github.com/daradudai/tiho.
 
 | Field | Value |
 |---|---|

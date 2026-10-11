@@ -1,5 +1,7 @@
 ---
-license: mit
+license: other
+license_name: fsl-1.1-mit
+license_link: LICENSE
 base_model: jhu-clsp/mmBERT-small
 pipeline_tag: text-classification
 library_name: onnx
@@ -53,7 +55,7 @@ It is adaptive: one model folder holds two students distilled from the same teac
 | Output | 7 logits; apply a sigmoid per label. Labels are independent (multi-label). |
 | Thresholds | per label and per student: `config.json` → `tiho.thresholds` (v3-6L) and `tiho.variant_thresholds.uint8` (v3-3L) |
 | Runtime | ONNX Runtime Web (WebGPU or WASM) with the Transformers.js tokenizer |
-| License | MIT |
+| License | FSL-1.1-MIT (Functional Source License; each version becomes MIT two years after release). See `LICENSE`. |
 
 ## Intended use
 

@@ -3,7 +3,7 @@ name = "tiho-engine"
 version = "0.1.0"
 description = "Tiho Engine: local GPU server for custom natural-language chat filters (Clef-Flash via llama.cpp)"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "FSL-1.1-MIT" }
 requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.110",

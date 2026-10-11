@@ -95,6 +95,19 @@ Never commit raw captures: they contain real usernames.
 
 Please do not open public issues for security problems (for example in Tiho Engine's local server). See [SECURITY.md](.github/SECURITY.md).
 
-## License
+## License and contributor agreement
 
-By contributing you agree that your contributions are licensed under the [MIT License](LICENSE).
+Tiho is released under the [Functional Source License 1.1, MIT Future License](LICENSE) (FSL-1.1-MIT):
+anyone can use, change and share it for any purpose except offering a competing commercial product or
+service, and every version becomes plain MIT two years after it is released.
+
+By opening a pull request you agree to the following, for everything you contribute:
+
+1. You wrote it, or you have the right to contribute it.
+2. It is licensed to everyone under the project's license (FSL-1.1-MIT, so MIT after two years).
+3. You also give the maintainer (Petar Georgiev) a perpetual, worldwide, royalty-free, irrevocable
+   license to use, change, relicense and sublicense it, including under other terms. This lets the
+   project offer exceptions to the Competing Use rule. You keep the copyright to your work and can use
+   it however you like.
+
+If you can't agree to this, say so in the pull request before it is merged.
