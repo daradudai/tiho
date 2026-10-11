@@ -28,11 +28,14 @@
 // Show hidden (peek) and Solo are views of one tab: each is a variant of the
 // whole sheet (a later rule could not undo display:none!important), swapped
 // in one text change, with no write on any row. Show hidden brings hidden
-// and folded rows back in place, faded and tagged with why, and draws no
-// pills (so it has no child rule either). Solo hides every row of another
-// category and shows the chosen one's in full, each tagged with its reason
-// and what it normally gets ("spam · 97% · folded"). Wave members stay
-// folded in both.
+// and folded rows back in place, faded, with a dashed edge in their category
+// color, and draws no pills (so it has no child rule either). Solo hides
+// every row of another category and shows the chosen one's in full, each
+// with a solid edge (dashed: normally not shown). In both, a row's tag (its
+// reason and what it normally gets: "spam · 97% · folded") shows only while
+// the row is pointed at, as an out-of-flow chip like the reason chip: the
+// views never change a row's layout (same lines, same height). Wave members
+// stay folded in both.
 //
 // Everything visual is driven by --tiho-* custom properties declared with
 // zero specificity, so a theme can override them from anywhere, e.g.
@@ -89,9 +92,6 @@ const THEME_DECO: Record<Theme, Record<string, string>> = {
     'tip-shadow': '0 4px 14px -2px rgba(0,0,0,0.55)',
     'wave-bg': 'rgba(132,135,255,0.16)',
     'hl-mix': '15%',
-    // a view's tag: its category color, mixed toward this ink so that it stays legible on a faded row
-    'tag-ink': '#ffffff',
-    'tag-mix': '100%',
     dim: '0.38',
   },
   light: {
@@ -105,8 +105,6 @@ const THEME_DECO: Record<Theme, Record<string, string>> = {
     'tip-shadow': '0 4px 14px -2px rgba(16,16,40,0.3)',
     'wave-bg': 'rgba(79,82,224,0.1)',
     'hl-mix': '11%',
-    'tag-ink': '#000000',
-    'tag-mix': '76%',
     dim: '0.42',
   },
 };
@@ -135,6 +133,26 @@ const PLAIN_WORD: Partial<Record<Category, string>> = {
 
 /** What a row normally gets, by data-tiho-a, as Solo's tag says it. */
 const DID: Record<Action, string> = { show: 'shown', highlight: 'highlighted', dim: 'dimmed', collapse: 'folded', hide: 'hidden' };
+
+/**
+ * The box of a chip that shows on a pointed-at row (the reason chip, a view's
+ * tag): a small tooltip straddling the row's top edge, out of flow. See the
+ * reason chip's comment in decorationCss for where it sits and why.
+ */
+const CHIP = `
+  display:block;position:absolute;top:auto;right:44px;bottom:calc(100% - 8px);left:auto;z-index:5;float:none;order:0;
+  height:16px;max-width:calc(100% - 64px);margin:0;padding:0 7px 0 15px;border:0;border-radius:999px;box-sizing:border-box;overflow:hidden;
+  font-size:10px;font-weight:600;font-style:normal;line-height:16px;letter-spacing:.015em;text-overflow:ellipsis;white-space:nowrap;text-transform:none;
+  color:var(--tiho-tip-fg);
+  background:radial-gradient(circle at 8px 50%,var(--tiho-accent,var(--tiho-link)) 0 2.5px,transparent 3.1px),var(--tiho-tip-bg);
+  box-shadow:var(--tiho-tip-shadow),inset 0 0 0 1px var(--tiho-tip-line);
+  pointer-events:none;
+  animation:tiho-tip-in 120ms cubic-bezier(.2,.8,.2,1) 180ms both`;
+/** The same chip in a right-to-left chat: from the left, its dot on the right. */
+const CHIP_RTL = `
+  right:auto;left:44px;padding:0 15px 0 7px;direction:ltr;
+  background:radial-gradient(circle at calc(100% - 8px) 50%,var(--tiho-accent,var(--tiho-link)) 0 2.5px,transparent 3.1px),var(--tiho-tip-bg)`;
+const CHIP_IN = '@keyframes tiho-tip-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}';
 
 export interface DecorationOptions {
   /** settings.decorate: category edges, highlight glow, reveal marks and reason chips. Hide/dim/collapse/highlight always apply. */
@@ -188,7 +206,7 @@ export function decorationCss(platform: Platform | string, theme: Theme, opts: D
   const peek = !solo && !!opts.peek;
   /** The usual view: hidden rows gone, folded runs drawn as pills. */
   const plain = !solo && !peek;
-  /** Category edges and reason chips: Advanced only, and never in Solo (its tag says more). */
+  /** Category edges and reason chips: Advanced only, and never in Solo (its marker and tag say more). */
   const hints = decorate && !basic && !solo;
 
   const vars = [
@@ -223,7 +241,7 @@ export function decorationCss(platform: Platform | string, theme: Theme, opts: D
   // nothing could undo a display:none!important that is already there.
   const X = solo ? `[data-tiho-c="${solo}"]` : '';
   const gone = plain ? [HIDE, WM, `${COL}:not([data-tiho-run])`] : solo ? [WM, `[data-tiho-c]:not(${X})`] : [WM];
-  /** Rows that carry a view's tag (::before), and rows that get the dashed "normally not shown" edge. */
+  /** Rows that carry a view's tag (::after, on hover), and rows that get the dashed "normally not shown" edge. */
   const tagged = solo ? [X] : peek ? [HIDE, COL] : [];
   const marked = solo ? [X + HIDE, X + COL] : tagged;
   // Solo shows its category in full: nothing is dimmed
@@ -276,8 +294,7 @@ ${RUN}:focus-visible::before{${ring('left', '2px', FOCUS)}}
 ${RUN}:focus-visible::after{${ring('right', '2px', FOCUS)}}
 `;
 
-  if (!solo)
-    css += `
+  css += `
 /* Wave head: "×37" floated into the row's top-right corner, so the text wraps
    around it instead of under it (on flex rows: a trailing item, same place). */
 ${list(SHOWN.map((s) => `[data-tiho-wh]${s}`), '::before')}{
@@ -288,22 +305,28 @@ ${list(SHOWN.map((s) => `[data-tiho-wh]${s}`), '::before')}{
 `;
 
   if (tagged.length) {
+    const pointed = tagged.flatMap((s) => [`${s}:hover`, `${s}:focus-within`]);
     css += `
-/* A view's tag says why a row is there, in the wave badge's box and place,
-   colored like the row's category. Floated, never absolute, so it covers
-   nothing: the row's text wraps around it. */
-${list(tagged, '::before')}{
-  float:right;order:9;align-self:flex-start;flex:none;position:static;
-  display:block;height:18px;max-width:72%;margin:${p.wave};padding:0 7px;border-radius:999px;box-sizing:border-box;overflow:hidden;
-  font-size:11px;font-weight:600;font-style:normal;line-height:18px;letter-spacing:.01em;font-variant-numeric:tabular-nums;
-  white-space:pre;text-overflow:ellipsis;text-transform:none;
-  color:color-mix(in srgb,var(--tiho-accent,var(--tiho-pill-fg)) var(--tiho-tag-mix),var(--tiho-tag-ink));
-  background:color-mix(in srgb,var(--tiho-accent,var(--tiho-pill-fg)) 15%,transparent)}
-${list(marked)}{
+/* A view's marker: a thin edge in the row's category color, solid when the row
+   is normally shown (Solo), dashed when it is normally hidden or folded. It is
+   a box-shadow or background, so the row keeps the platform's layout exactly
+   (same line count, same height: Kick's virtual rows never change size). */
+${solo ? `${X}{box-shadow:inset var(--tiho-edge-w) 0 0 var(--tiho-accent,var(--tiho-pill-fg))!important}
+` : ''}${list(marked)}{
   ${DASHED}}
+/* Its tag ("spam · 97% · folded") shows only while the row is pointed at or
+   holds focus: the reason chip's box and place (above the row's top-right
+   edge, out of flow), so nothing reflows. */
+${list(tagged, '::after')}{display:none}
+${p.positioned ? '' : `${pointed.join(',')}{position:relative}`}
+${list(pointed, '::after')}{${CHIP}}
+${CHIP_IN}
+@media (prefers-reduced-motion:reduce){${list(pointed, '::after')}{animation:none}}
 ${solo ? soloTags(X, solo) : basic ? plainPeekTags(HIDE, COL) : peekTags(HIDE, COL)}`;
     // Show hidden: what it brings back stays in the background until pointed at.
-    if (peek) css += `${list(marked)}{opacity:.6!important}\n${list(marked, ':hover')}{opacity:1!important}\n`;
+    if (peek) css += `${list(marked)}{opacity:.6!important}
+${list(marked, ':hover')}{opacity:1!important}
+`;
   }
 
   css += `
@@ -326,10 +349,11 @@ ${RUN}${RTL}::after{
 ${RUN}:focus-visible${RTL}::before{${ring('right', '2px', FOCUS)}}
 ${RUN}:focus-visible${RTL}::after{${ring('left', '2px', FOCUS)}}
 `;
-  if (!solo) css += `${list(SHOWN.map((s) => `[data-tiho-wh]${s}${RTL}`), '::before')}{float:left;margin:${mirrored(p.wave)};direction:ltr}\n`;
+  css += `${list(SHOWN.map((s) => `[data-tiho-wh]${s}${RTL}`), '::before')}{float:left;margin:${mirrored(p.wave)};direction:ltr}\n`;
   if (tagged.length)
-    css += `${list(tagged, `${RTL}::before`)}{float:left;margin:${mirrored(p.wave)};direction:ltr}
-${list(marked, RTL)}{background-position:100% 0!important}
+    css += `${solo ? `${X}${RTL}{box-shadow:inset calc(-1 * var(--tiho-edge-w)) 0 0 var(--tiho-accent,var(--tiho-pill-fg))!important}
+` : ''}${list(marked, RTL)}{background-position:100% 0!important}
+${list(tagged.flatMap((s) => [`${s}:hover${RTL}`, `${s}:focus-within${RTL}`]), '::after')}{${CHIP_RTL}}
 `;
 
   if (decorate) {
@@ -361,16 +385,8 @@ ${list(edged, ':not([data-tiho-open])')}{box-shadow:inset var(--tiho-edge-w) 0 0
    over this message's text, and out of flow: neither this row nor any other moves. */
 ${p.positioned ? '' : `${tip.join(',')}{position:relative}`}
 ${list(tip, '::after')}{
-  content:attr(data-tiho-r);
-  position:absolute;top:auto;right:44px;bottom:calc(100% - 8px);left:auto;z-index:5;float:none;order:0;
-  display:block;height:16px;max-width:calc(100% - 64px);margin:0;padding:0 7px 0 15px;border:0;border-radius:999px;box-sizing:border-box;overflow:hidden;
-  font-size:10px;font-weight:600;font-style:normal;line-height:16px;letter-spacing:.015em;text-overflow:ellipsis;white-space:nowrap;text-transform:none;
-  color:var(--tiho-tip-fg);
-  background:radial-gradient(circle at 8px 50%,var(--tiho-accent,var(--tiho-link)) 0 2.5px,transparent 3.1px),var(--tiho-tip-bg);
-  box-shadow:var(--tiho-tip-shadow),inset 0 0 0 1px var(--tiho-tip-line);
-  pointer-events:none;
-  animation:tiho-tip-in 120ms cubic-bezier(.2,.8,.2,1) 180ms both}
-@keyframes tiho-tip-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+  content:attr(data-tiho-r);${CHIP}}
+${CHIP_IN}
 @media (prefers-reduced-motion:reduce){${list(tip, '::after')}{animation:none}}
 `;
     css += `
@@ -383,9 +399,7 @@ ${list(tip, '::after')}{
 [data-tiho-open]${RTL}{box-shadow:none!important;background-position:100% 0!important}
 `;
     if (hints)
-      css += `${list(tip.map((s) => s + RTL), '::after')}{
-  right:auto;left:44px;padding:0 15px 0 7px;direction:ltr;
-  background:radial-gradient(circle at calc(100% - 8px) 50%,var(--tiho-accent,var(--tiho-link)) 0 2.5px,transparent 3.1px),var(--tiho-tip-bg)}
+      css += `${list(tip.map((s) => s + RTL), '::after')}{${CHIP_RTL}}
 `;
   }
   return css;
@@ -393,9 +407,9 @@ ${list(tip, '::after')}{
 
 /** Basic's Show hidden tags, in plain words: "Hidden · insult". */
 function plainPeekTags(hide: string, col: string): string {
-  let css = `${hide}::before,${col}::before{content:"Hidden"}\n`;
+  let css = `${hide}::after,${col}::after{content:"Hidden"}\n`;
   for (const [c, word] of Object.entries(PLAIN_WORD))
-    css += `[data-tiho-c="${c}"]${hide}::before,[data-tiho-c="${c}"]${col}::before{content:"Hidden · ${word}"}\n`;
+    css += `[data-tiho-c="${c}"]${hide}::after,[data-tiho-c="${c}"]${col}::after{content:"Hidden · ${word}"}\n`;
   return css;
 }
 
@@ -407,16 +421,16 @@ function peekTags(hide: string, col: string): string {
     [col, 'folded'],
   ])
     css +=
-      `${sel}::before{content:"${did} · " attr(data-tiho-r)}\n` +
-      `${sel}:not([data-tiho-r])::before{content:"${did} · " attr(data-tiho-c)}\n` +
-      `[data-tiho-c="clean"]${sel}:not([data-tiho-r])::before{content:"${did} · other"}\n`;
+      `${sel}::after{content:"${did} · " attr(data-tiho-r)}\n` +
+      `${sel}:not([data-tiho-r])::after{content:"${did} · " attr(data-tiho-c)}\n` +
+      `[data-tiho-c="clean"]${sel}:not([data-tiho-r])::after{content:"${did} · other"}\n`;
   return css;
 }
 
 /**
  * Solo's tags: the reason (the category when there is none), then what the
  * row normally gets ("spam · 97% · folded"), or "opened"; a protected
- * author's reason already ends in "always shown". A wave head leads with its ×N.
+ * author's reason already ends in "always shown".
  */
 function soloTags(x: string, solo: Category): string {
   const word = solo === 'clean' ? 'other' : solo;
@@ -425,10 +439,8 @@ function soloTags(x: string, solo: Category): string {
   for (const [a, w] of Object.entries(DID)) css += `${x}[data-tiho-a="${a}"]{--tiho-did:" · ${w}"}\n`;
   return `${css}${x}[data-tiho-open]{--tiho-did:" · opened"}
 ${x}[data-tiho-r$="${ALWAYS_SHOWN}"]{--tiho-did:""}
-${x}::before{content:attr(data-tiho-r) ${did}}
-${x}:not([data-tiho-r])::before{content:"${word}" ${did}}
-${x}[data-tiho-wh]::before{content:"×" attr(data-tiho-wh) "  " attr(data-tiho-r) ${did}}
-${x}[data-tiho-wh]:not([data-tiho-r])::before{content:"×" attr(data-tiho-wh) "  ${word}" ${did}}
+${x}::after{content:attr(data-tiho-r) ${did}}
+${x}:not([data-tiho-r])::after{content:"${word}" ${did}}
 `;
 }
 

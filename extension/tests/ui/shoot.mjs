@@ -100,6 +100,24 @@ chat('chat-twitch-dark-advanced-revealed', 'platform=twitch&theme=dark&mode=adva
   await pg.locator('.bd-row[data-tiho-open]').last().hover();
   await pg.waitForTimeout(500);
 });
+// Solo and Show hidden mark rows with an edge only; the tag shows on hover, out of flow
+for (const [p, w] of [['twitch', 340], ['kick', 340]])
+  for (const [view, sel] of [['solo=spam', '.bd-row[data-tiho-c="spam"]'], ['peek', '.bd-row[data-tiho-a="hide"]']])
+    chat(`chat-${p}-dark-advanced-${view.split('=')[0]}-hover`, `platform=${p}&theme=dark&mode=advanced&${view}`, w, 640, async (pg) => {
+      await pg.locator(sel).nth(2).hover();
+      await pg.waitForTimeout(500);
+    });
+// The bar alone at a narrow, the default and a wide chat column: one 36 px row, nothing clipped
+for (const theme of ['dark', 'light'])
+  for (const w of [300, 340, 500])
+    for (const [name, qs] of [
+      ['basic', 'mode=basic'],
+      ['basic-peek', 'mode=basic&peek'],
+      ['advanced', 'mode=advanced'],
+      ['advanced-peek', 'mode=advanced&peek'],
+      ['advanced-solo', 'mode=advanced&solo=question'],
+    ])
+      chat(`bar-twitch-${theme}-${w}-${name}`, `platform=twitch&theme=${theme}&${qs}&w=${w}`, w, 90);
 chat('chat-twitch-dark-advanced-wide', 'platform=twitch&theme=dark&mode=advanced&w=560', 560, 480);
 chat('chat-youtube-light-basic-wide', 'platform=youtube&theme=light&mode=basic&w=560', 560, 480);
 chat('chat-kick-dark-advanced-raw', 'platform=kick&theme=dark&mode=advanced&preset=raw', 340, 640);

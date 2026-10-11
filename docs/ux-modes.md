@@ -39,7 +39,7 @@ These settle the points where the proposals disagreed.
 | Advanced preset names | Raw · **Clean** · **Quiet** · Questions (ids stay `raw`, `chill`, `focus`, `questions`) | Same words everywhere. Only labels change, so no storage migration. |
 | Peek | **Show hidden** in both modes, per tab | Answers a first-timer's "what did it take?" without categories. |
 | Solo | Advanced only. Every other category is **hidden** (not dimmed or folded). | Most literal reading of "only that one". It is the cleanest precision check at 50 msg/s and the cheapest to build (one stylesheet). |
-| Solo row readout | A visible tag on every soloed row: `spam · certain · folded` | Merges the always-visible reason (first-timer) with the normal action (native). |
+| Solo row readout | A thin edge in the category color on every soloed row (solid: normally shown, dashed: normally hidden or folded); the tag `spam · certain · folded` shows on hover, out of flow | Keeps the reason and the normal action one hover away without changing the message's layout: an inline tag made short messages wrap onto extra lines (owner feedback, Edge on Twitch). |
 | Chip click | Solo. Changing an action moves to right-click / long-press and the panel's `▾` | The owner's "easy click". Also ends accidental hides from blind click-to-cycle. |
 | Counts | One definition, **in chat now**, on chips, panel rows, the Solo pill, the popup and the side panel | Never mix windows on one surface (streamer-pro's `Sp 13` vs `6 in chat` problem). |
 | Basic row decorations | No category edges and no hover reason chips. The question glow, pills, `×N` and the dashed "opened" edge stay. | Most of the clutter in `live-twitch-chat.png`. |
@@ -211,12 +211,12 @@ Show hidden and Solo are **variants of the stylesheet `buildCss` produces**. The
 - `[data-tiho-a="hide"]` and folded rows are **not** `display:none`. They render in place:
   - at `opacity:.6`, and `1` on `:hover`;
   - with the dashed "opened" edge;
-  - with a **tag** (see below).
+  - with a **tag** on hover (see below).
 - The whole pill block (`RUN` rules, `RUN>*`) is not emitted. Pill rows render as plain rows.
 - Wave members stay folded into their head (`[data-tiho-wm]:not([data-tiho-open])` stays `display:none`).
 - `pending` rows, the `data-tiho-list` birth rule, dim and highlight are unchanged.
 
-**Tag** (`::before`, `float:right`; `float:left` on `:dir(rtl)`): it uses the wave badge's box (18 px pill, 11 px, `tabular-nums`) and is coloured with the row's `--tiho-accent`. It never uses absolute positioning, so it cannot cover other rows.
+**Marker and tag.** The views never change a row's layout: a message renders with the same lines and height as without Tiho (Kick's virtual rows never change size). The always-visible marker is the dashed edge, in the row's category color (`--tiho-accent`). The **tag** is `::after`, `display:none` until the row is pointed at (`:hover` or `:focus-within`); then it is the reason chip's box (a 16 px dark chip with a category-colored dot, `position:absolute`, straddling the row's top edge 44 px from the right; from the left on `:dir(rtl)`). The hovered row gets `position:relative` (no offsets) to anchor it, except on Kick, whose rows are positioned already. (Until v0.1 the tag was a float in the row, which made short messages wrap.)
 
 | Mode | Row | Tag text |
 |---|---|---|
@@ -253,18 +253,18 @@ Show hidden and Solo are **variants of the stylesheet `buildCss` produces**. The
   - held rows stay invisible under the list rule.
 - **Rows of X show in full whatever their action.** They have no pill, `opacity:1` even when dimmed, and keep the highlight glow.
   - X rows whose action is `hide` or `collapse` get the dashed "opened" edge, which here means "normally not shown".
-- Wave members stay folded (as in 5.3). A wave head of X shows its `×N` inside the tag.
-- No category edges and no hover chips: the tag replaces them.
+- Wave members stay folded (as in 5.3). A wave head of X keeps its usual `×N` badge.
+- Every other X row gets a solid 2 px edge in X's color, so each row is marked without any text on it.
+- No quiet category edges and no reason chips: the marker and tag replace them.
 
-**Tag** on every X row, always visible, in the same box as the peek tag:
+**Tag** on every X row, shown on hover or focus only, in the same out-of-flow box as the peek tag (5.3):
 
 - Text: `attr(data-tiho-r)` + ` · ` + the normal action word: `shown`, `highlighted`, `dimmed`, `folded` or `hidden`, from `data-tiho-a`.
 - Opened rows (`[data-tiho-open]`) end in `opened` instead.
 - A reason that ends in `always shown` (`[data-tiho-r$="always shown"]`) gets no action word.
 - No reason (clean rows): the category word stands in for it (`other · shown`).
-- On a wave head of X: `×` + `attr(data-tiho-wh)` + `  ` + the text above.
-- Examples: `spam · certain · folded`, `toxic · likely · hidden`, `blocked: giveaway · hidden`, `filter: backseating · hidden`, `repeat ×4 · folded`, `spam · very likely · always shown`, `×37  noise · certain · shown`.
-- On Kick (absolute rows): verify the float does not make rows overlap. If it does, put the tag `position:absolute` inside the row there; Kick rows are positioned already (`PLATFORM_DECO.kick.positioned`).
+- Examples: `spam · certain · folded`, `toxic · likely · hidden`, `blocked: giveaway · hidden`, `filter: backseating · hidden`, `repeat ×4 · folded`, `spam · very likely · always shown`.
+- On Kick (absolute rows) the tag anchors to the row as it is (`PLATFORM_DECO.kick.positioned`); no row ever changes height.
   - Verified live: no overlap. But Kick's list is virtualized, and when most mounted rows take no space it mounts and unmounts rows about 1,000 times a second, and the soloed rows flicker. So on Kick (`PLATFORM_DECO.kick.virtual`) the other categories are `visibility:hidden` and keep their place instead of `display:none`.
 
 **What Solo does and does not change:**
@@ -310,9 +310,9 @@ The `.hb` root gets `data-mode="basic|advanced"`, `data-peek` and `data-solo`. I
    - Each radio's tooltip is its description (6.6).
    - A click calls `actions.setLevel(...)`.
 3. **Show hidden** (`aria-pressed`).
-   - Off: eye icon + `Show hidden`. On: eye-off icon + `Hide again`.
+   - Off: eye icon + `Show hidden`. On: eye-off icon + `Hide again`. The tooltip always says the same as the label (it follows the button live, also when Esc toggles it under the pointer).
    - A click calls `actions.setPeek(!peek)`.
-   - When the container is narrower than 300 px, it shows the icon only; the aria-label stays.
+   - The words get shorter with the column (container queries; the aria-label stays the full label): `Show hidden` / `Hide again` from 420 px; `Hidden` / `Hide` below (Twitch's 340 px default); the icon alone below 290 px. The level control narrows to 150 px below 420 px and 144 px below 290 px. The row stays one 36 px line at every width.
    - While the level is `off`, the button is replaced by muted, non-interactive text: `Tiho is off`, or `Off on Twitch` when only the site is off.
 
 ### 6.2 Basic sheet (the expanded panel)
@@ -335,9 +335,9 @@ It never shows a number.
 1. **Mark.** Opens the panel; tooltip `Tiho` / `Open live view`. The ring follows the same model-progress rule as Basic. The `% hushed` ring and the `CalmText` are removed.
 2. **Preset.**
    - Below 520 px it is a pill with a menu; at 520 px and wider, a segmented control (as today).
-   - Labels: `Raw`, `Clean`, `Quiet`, `Q&A`, or `Custom`.
+   - Labels: `Raw`, `Clean`, `Quiet`, `Questions` (`Q&A` below 380 px), or `Custom`.
    - **During Solo, the Solo pill takes this place** (6.4).
-3. **Chips**: one per `CHIP_CATEGORIES` entry, with `compact(inChat.byCat[c])`, as many as fit. The soloed chip comes first, then the categories Tiho changes (hide, fold, dim, highlight), then the ones it shows as they are, those with messages in chat now first. The rest wrap out of sight, and a `+N` button (tooltip: their names) opens the panel, which lists all of them. The Solo pill, eye, model dot and chevron never give way to chips (at 340 px: three chips and `+4`).
+3. **Chips**: one per `CHIP_CATEGORIES` entry, with `compact(inChat.byCat[c])`, as many as fit. The soloed chip comes first, then the categories Tiho changes (hide, fold, dim, highlight), then the ones it shows as they are, those with messages in chat now first. The rest wrap out of sight, and a `+N` button (tooltip: their names) opens the panel, which lists all of them. The Solo pill, eye, model dot and chevron never give way to chips (at 340 px: three chips and `+4`; below 380 px chips are a little tighter). During Solo the soloed chip leaves the row (the pill says the same) and is not counted in `+N`.
    - **Click:** `setSolo(c)` when `c` is not soloed, `setSolo(null)` when it is. `aria-pressed` while soloed. During Solo the other chips get `data-faded` and stay clickable (to switch).
    - **Right-click / long-press:** chip menu (6.4).
    - Tooltip title `${SHORT[c]} · ${verb}` (e.g. `Spam · folded`); sub `8 in chat now · Click: show only these · Right-click: change`. When soloed, the sub is `Showing only these · Click: show everything`.
@@ -353,7 +353,7 @@ When Tiho is off, the row is: mark, `Tiho is off`, a `Turn on` button (was `Tiho
 
 **Solo pill**: an accent-filled button that replaces the preset pill or segmented control.
 
-- Content: category icon + `Only Spam · 8` + `×`. When `byCat[X]` is 0: `Only Scam · none yet`.
+- Content: category icon + `Only Spam · 8` + `×`. When `byCat[X]` is 0: `Only Scam · none yet`. Below 420 px `Only` is dropped: `Spam · 8 ×`.
 - A click calls `setSolo(null)`.
 - aria-label `Showing only spam, 8 in chat now. Show all messages.`
 - Tooltip `Showing only spam` / `8 in chat now · Esc or × shows everything`.
@@ -903,7 +903,7 @@ Each item is a statement a test or a manual check can confirm. "Live" means the 
 - [ ] **B2** The Basic bar's and sheet's text content contains no digit and no `%` while chat flows at 50 msg/s. The Basic bar's Preact tree does not re-render on store `inChat`, `rate` or `vibe` updates (render counter in the test).
 - [ ] **B3** The Basic radio follows `basicLevel`. With preset custom, no radio is `aria-checked`, and the sheet shows the custom-setup note.
 - [ ] **B4** When Tiho is off, the Basic row shows `Tiho is off` instead of Show hidden.
-- [ ] **B5** Show hidden toggles `aria-pressed` and its label (`Show hidden` / `Hide again`), and calls `setPeek`. Under a 300 px container it shows the icon only, with the aria-label kept.
+- [ ] **B5** Show hidden toggles `aria-pressed` and its label (`Show hidden` / `Hide again`), and calls `setPeek`. Its tooltip never disagrees with the label. Below 420 px it says `Hidden` / `Hide`; under a 290 px container it shows the icon only, with the aria-label kept.
 - [ ] **B6** The sheet's `Advanced mode` switch calls `setMode('advanced')`. The Advanced footer's `Basic mode` calls `setMode('basic')`.
 - [ ] **B7** In Advanced, a chip click calls `setSolo(cat)` and never `setAction`. A second click on the soloed chip calls `setSolo(null)`. A right-click opens the menu, whose first item is `Show only <Cat>`.
 - [ ] **B8** During Solo, the preset pill is replaced by `Only Spam · 8 ×`, with 8 = `inChat.byCat.spam`. With 0 it reads `Only Spam · none yet`. Clicking it calls `setSolo(null)`.
@@ -928,9 +928,9 @@ Each item is a statement a test or a manual check can confirm. "Live" means the 
 ### End to end (live, Twitch in Edge)
 
 - [ ] **E1** A new profile installs, opens a Twitch channel and sees the Basic bar with Clean selected. Spam folds into pills and toxic messages disappear. There are no numbers in Tiho's UI.
-- [ ] **E2** Show hidden brings back the hidden and folded messages faded, with `Hidden · spam` style tags. Hide again restores the view, and new messages follow the current view in both states.
+- [ ] **E2** Show hidden brings back the hidden and folded messages faded, with a dashed edge in the category color and a `Hidden · spam` style tag on hover. Hide again restores the view, and new messages follow the current view in both states.
 - [ ] **E3** Advanced → set all categories to Hide → the panel head reads about `150 hidden` (Twitch's list) within 1 s. Setting Noise to Show drops it within 1 s.
-- [ ] **E4** Advanced → click the Spam chip → only spam rows remain, each with a visible tag. The pill count equals the number of visible spam rows. Dragging strictness in the side panel moves rows in and out live. Esc restores everything.
+- [ ] **E4** Advanced → click the Spam chip → only spam rows remain, each marked with an edge in the category color and tagged on hover (no extra lines in any message). The pill count equals the number of visible spam rows. Dragging strictness in the side panel moves rows in and out live. Esc restores everything.
 - [ ] **E5** Switching Basic ↔ Advanced never changes which messages are hidden (compare the `data-tiho-a` values before and after).
 
 ## 10. Out of scope / later

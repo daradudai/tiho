@@ -33,7 +33,10 @@ const VARIANTS: DecorationOptions[] = [
 
 /** The selectors of the rules that set display:none. */
 const hiding = (css: string) =>
-  [...css.matchAll(/([^{}]+)\{[^{}]*display:none[^{}]*\}/g)].flatMap((m) => m[1]!.replace(/\/\*[\s\S]*?\*\//g, '').split(',')).map((s) => s.trim());
+  [...css.matchAll(/([^{}]+)\{[^{}]*display:none[^{}]*\}/g)]
+    .flatMap((m) => m[1]!.replace(/\/\*[\s\S]*?\*\//g, '').split(','))
+    .map((s) => s.trim())
+    .filter((s) => !s.endsWith('::after')); // a view's tag, until its row is pointed at
 
 describe('decorationCss', () => {
   it('uses only plain attribute selectors on the row (no scoping, combinators or counters), in every mode and view', () => {
@@ -50,8 +53,8 @@ describe('decorationCss', () => {
           // the one exception: the pill row's own content, hidden so that the row can stay visible and take focus (the views draw no pills)
           expect(sels.filter((s) => s.includes('>'))).toEqual(o.peek || o.solo ? [] : [`${run}>*`]);
           for (const s of sels.filter((s) => !s.includes('>'))) {
-            // one compound selector: attributes (Solo also matches the end of a reason), :not(attribute), :hover, :focus-visible, :dir(rtl), ::before / ::after
-            expect(s, s).toMatch(/^(\[data-tiho-[a-z]+(\$?="[a-z ]+")?\]|:not\(\[data-tiho-[a-z]+(="[a-z]+")?\]\)|:hover|:focus-visible|:dir\(rtl\)|::before|::after)+$/);
+            // one compound selector: attributes (Solo also matches the end of a reason), :not(attribute), :hover, :focus-visible, :focus-within, :dir(rtl), ::before / ::after
+            expect(s, s).toMatch(/^(\[data-tiho-[a-z]+(\$?="[a-z ]+")?\]|:not\(\[data-tiho-[a-z]+(="[a-z]+")?\]\)|:hover|:focus-visible|:focus-within|:dir\(rtl\)|::before|::after)+$/);
           }
         }
   });
@@ -71,16 +74,20 @@ describe('decorationCss', () => {
     expect(css).not.toContain('data-tiho-run'); // no pills: a pill row reads as a plain row
     expect(css).toContain('[data-tiho-a="hide"],[data-tiho-a="collapse"]:not([data-tiho-open]){opacity:.6!important}');
     expect(css).toContain('[data-tiho-a="hide"]:hover,[data-tiho-a="collapse"]:not([data-tiho-open]):hover{opacity:1!important}');
-    expect(css).toContain('[data-tiho-a="hide"]::before{content:"hidden · " attr(data-tiho-r)}');
-    expect(css).toContain('[data-tiho-a="collapse"]:not([data-tiho-open]):not([data-tiho-r])::before{content:"folded · " attr(data-tiho-c)}');
-    expect(css).toContain('[data-tiho-c="clean"][data-tiho-a="hide"]:not([data-tiho-r])::before{content:"hidden · other"}');
-    // the tag floats (never absolute: it covers nothing), mirrored for RTL chats
-    expect(css).toMatch(/\[data-tiho-a="hide"\]::before,\[data-tiho-a="collapse"\]:not\(\[data-tiho-open\]\)::before\{\s*float:right;order:9;align-self:flex-start;flex:none;position:static;/);
-    expect(css).toContain('[data-tiho-a="hide"]:dir(rtl)::before,[data-tiho-a="collapse"]:not([data-tiho-open]):dir(rtl)::before{float:left;');
+    expect(css).toContain('[data-tiho-a="hide"]::after{content:"hidden · " attr(data-tiho-r)}');
+    expect(css).toContain('[data-tiho-a="collapse"]:not([data-tiho-open]):not([data-tiho-r])::after{content:"folded · " attr(data-tiho-c)}');
+    expect(css).toContain('[data-tiho-c="clean"][data-tiho-a="hide"]:not([data-tiho-r])::after{content:"hidden · other"}');
+    // the tag never reflows the row: no float, only an out-of-flow chip while the row is pointed at (mirrored for RTL chats)
+    expect(css).not.toMatch(/data-tiho-a="hide"\][^{]*\{[^}]*float:right/);
+    expect(css).toContain('[data-tiho-a="hide"]::after,[data-tiho-a="collapse"]:not([data-tiho-open])::after{display:none}');
+    expect(css).toMatch(/\[data-tiho-a="hide"\]:hover::after,\[data-tiho-a="hide"\]:focus-within::after,[^{]*\{\s*display:block;position:absolute;top:auto;right:44px;bottom:calc\(100% - 8px\)/);
+    expect(css).toContain('[data-tiho-a="hide"]:hover,[data-tiho-a="hide"]:focus-within,');
+    expect(css).toMatch(/\[data-tiho-a="hide"\]:hover:dir\(rtl\)::after,[^{]*\{\s*right:auto;left:44px;/);
+    expect(decorationCss('kick', 'dark', { peek: true })).not.toContain('position:relative'); // Kick's rows are positioned already
     // Basic says it in plain words
     const basic = decorationCss('twitch', 'dark', { peek: true, mode: 'basic' });
-    expect(basic).toContain('[data-tiho-a="hide"]::before,[data-tiho-a="collapse"]:not([data-tiho-open])::before{content:"Hidden"}');
-    expect(basic).toContain('[data-tiho-c="toxic"][data-tiho-a="hide"]::before,[data-tiho-c="toxic"][data-tiho-a="collapse"]:not([data-tiho-open])::before{content:"Hidden · insult"}');
+    expect(basic).toContain('[data-tiho-a="hide"]::after,[data-tiho-a="collapse"]:not([data-tiho-open])::after{content:"Hidden"}');
+    expect(basic).toContain('[data-tiho-c="toxic"][data-tiho-a="hide"]::after,[data-tiho-c="toxic"][data-tiho-a="collapse"]:not([data-tiho-open])::after{content:"Hidden · insult"}');
     expect(basic).toContain('{content:"Hidden · one-word reply"}');
     expect(basic).not.toContain('attr(data-tiho-r)');
   });
@@ -95,8 +102,10 @@ describe('decorationCss', () => {
     expect(css).toContain('[data-tiho-c="spam"][data-tiho-a="collapse"]{--tiho-did:" · folded"}');
     expect(css).toContain('[data-tiho-c="spam"][data-tiho-open]{--tiho-did:" · opened"}');
     expect(css).toContain('[data-tiho-c="spam"][data-tiho-r$="always shown"]{--tiho-did:""}');
-    expect(css).toContain('[data-tiho-c="spam"]::before{content:attr(data-tiho-r) var(--tiho-did,"")}');
-    expect(css).toContain('[data-tiho-c="spam"][data-tiho-wh]::before{content:"×" attr(data-tiho-wh) "  " attr(data-tiho-r) var(--tiho-did,"")}');
+    expect(css).toContain('[data-tiho-c="spam"]::after{content:attr(data-tiho-r) var(--tiho-did,"")}');
+    // the marker: a solid edge in the category color (no text on the row); the wave head keeps its ×N badge
+    expect(css).toContain('[data-tiho-c="spam"]{box-shadow:inset var(--tiho-edge-w) 0 0 var(--tiho-accent,var(--tiho-pill-fg))!important}');
+    expect(css).toContain('content:"×" attr(data-tiho-wh)');
     // normally not shown: the dashed edge
     expect(css).toMatch(/\[data-tiho-c="spam"\]\[data-tiho-a="hide"\],\[data-tiho-c="spam"\]\[data-tiho-a="collapse"\]:not\(\[data-tiho-open\]\)\{\s*box-shadow:none!important;\s*background-image:linear-gradient/);
     // Kick's virtual list too: its rows wait for a verdict taking no space, so hiding most of them is stable (see below)
@@ -104,7 +113,7 @@ describe('decorationCss', () => {
     expect(hiding(kick)).toEqual(hiding(css));
     expect(kick).not.toContain('[data-tiho-c]:not([data-tiho-c="spam"]){visibility');
     // clean rows have no reason: "other · shown"
-    expect(decorationCss('kick', 'light', { solo: 'clean' })).toContain('[data-tiho-c="clean"]:not([data-tiho-r])::before{content:"other" var(--tiho-did,"")}');
+    expect(decorationCss('kick', 'light', { solo: 'clean' })).toContain('[data-tiho-c="clean"]:not([data-tiho-r])::after{content:"other" var(--tiho-did,"")}');
   });
 
   it('lets the pill row take keyboard focus: visible itself, its content hidden, a ring on the pill', () => {
@@ -156,7 +165,7 @@ describe('decorationCss', () => {
 
   it('puts the reason chip above the row, out of flow, and never repositions absolute (Kick) rows', () => {
     const tw = decorationCss('twitch', 'dark');
-    expect(tw).toMatch(/content:attr\(data-tiho-r\);\s*position:absolute;top:auto;right:44px;bottom:calc\(100% - 8px\)/);
+    expect(tw).toMatch(/content:attr\(data-tiho-r\);\s*display:block;position:absolute;top:auto;right:44px;bottom:calc\(100% - 8px\)/);
     expect(tw).toContain('[data-tiho-r][data-tiho-open]:hover{position:relative}'); // the hovered row anchors it
     expect(decorationCss('kick', 'dark')).not.toContain('position:relative');
   });

@@ -14,7 +14,7 @@
 // Reads only the frame-throttled View, never the raw store.
 
 import { computed, useComputed, type ReadonlySignal } from '@preact/signals';
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { BarActions } from '../../core/bar-actions';
 import { advancedExtras, basicLevel, type BasicLevel, type PresetId, type Settings } from '../../core/settings';
 import type { Action, Category, ModelStatus, Platform } from '../../core/types';
@@ -59,7 +59,7 @@ const MENU_ACTIONS: Action[] = ['show', 'highlight', 'dim', 'collapse', 'hide'];
  * filled in while the tip shows, so numbers stay live without rewriting
  * attributes while chat flows.
  */
-type Tip = { title: string; sub?: string; n?: Category; x: number; y: number };
+type Tip = { el: HTMLElement; title: string; sub?: string; n?: Category; x: number; y: number };
 /** An open menu; `from` is the chip or button that opened it (focus returns there). */
 type Menu = ({ kind: 'chip'; cat: Category } | { kind: 'preset' }) & { x: number; y: number; from: HTMLElement };
 
@@ -138,7 +138,7 @@ export function Bar({ v, actions, markRef }: BarProps) {
   // on keyboard focus.
   const showTip = (t: HTMLElement) => {
     const p = place(t);
-    setTip({ title: t.dataset.tip!, sub: t.dataset.tipSub, n: t.dataset.tipN as Category | undefined, x: p.x, y: p.y });
+    setTip({ el: t, title: t.dataset.tip!, sub: t.dataset.tipSub, n: t.dataset.tipN as Category | undefined, x: p.x, y: p.y });
     tipWarm.current = performance.now();
   };
   const hideTip = () => {
@@ -146,6 +146,16 @@ export function Bar({ v, actions, markRef }: BarProps) {
     if (tip) tipWarm.current = performance.now();
     setTip(null);
   };
+  // A tip says what its element says now: a toggle (Show hidden / Hide again)
+  // or a chip changes its words under the pointer, and a button that leaves
+  // the bar (Show hidden in Solo) takes its tip along. Compares strings only.
+  useLayoutEffect(() => {
+    if (!tip) return;
+    const d = tip.el.dataset;
+    if (!tip.el.isConnected || d.tip == null) setTip(null);
+    else if (d.tip !== tip.title || d.tipSub !== tip.sub || d.tipN !== tip.n) setTip({ ...tip, title: d.tip, sub: d.tipSub, n: d.tipN as Category | undefined });
+  });
+
   const onOver = (e: PointerEvent) => {
     const t = (e.target as Element).closest?.('[data-tip]') as HTMLElement | null;
     if (!t || menu || open) return;
@@ -413,7 +423,12 @@ function MarkButton({
 
 /* ── Show hidden ──────────────────────────────────────────────────── */
 
-/** Show hidden (this tab only): Basic says it in words (the eye alone in a narrow column), Advanced shows the eye. */
+/**
+ * Show hidden (this tab only). Basic says it in words, as many as fit: "Show
+ * hidden" in a wide column, "Hidden" in Twitch's default one, the eye alone
+ * in a narrow one (container queries in bar.css); Advanced shows the eye.
+ * The tooltip says the same as the label, whichever way it is toggled.
+ */
 function PeekButton({ peek, words, onToggle }: { peek: boolean; words?: boolean; onToggle: () => void }) {
   const label = peek ? 'Hide again' : 'Show hidden';
   return (
@@ -426,7 +441,12 @@ function PeekButton({ peek, words, onToggle }: { peek: boolean; words?: boolean;
       onClick={onToggle}
     >
       <Icon name={peek ? 'eyeOff' : 'show'} size={14} strokeWidth={1.7} />
-      {words && <span class="hb-peek-t">{label}</span>}
+      {words && (
+        <span class="hb-peek-t" aria-hidden="true">
+          <span class="hb-peek-full">{label}</span>
+          <span class="hb-peek-short">{peek ? 'Hide' : 'Hidden'}</span>
+        </span>
+      )}
     </button>
   );
 }
@@ -552,6 +572,7 @@ function SheetStatus({ v, settings, site }: { v: View; settings: Settings; site?
 function PresetSwitch({ preset, menuOpen, onPick, onOpenMenu }: { preset: PresetId; menuOpen: boolean; onPick: (p: PresetId) => void; onOpenMenu: (el: Element) => void }) {
   const idx = PRESET_ORDER.indexOf(preset as (typeof PRESET_ORDER)[number]);
   const label = preset === 'custom' ? 'Custom' : PRESET_META[preset].label;
+  const short = preset === 'custom' ? 'Custom' : PRESET_META[preset].short;
   return (
     <>
       <button
@@ -562,7 +583,8 @@ function PresetSwitch({ preset, menuOpen, onPick, onOpenMenu }: { preset: Preset
         data-tip-sub={preset === 'custom' ? 'You changed individual categories.' : PRESET_META[preset].desc}
         onClick={(e) => onOpenMenu(e.currentTarget)}
       >
-        <span>{label}</span>
+        <span class="hb-preset-full">{label}</span>
+        {short !== label && <span class="hb-preset-short">{short}</span>}
         <Icon name="chevronDown" size={11} strokeWidth={2} />
       </button>
       <div
@@ -639,11 +661,11 @@ function PresetMenu({ current, x, y, onPick, onClose }: { current: PresetId; x: 
 
 /* ── Advanced: Solo pill ──────────────────────────────────────────── */
 
-/** Takes the preset's place while one category shows alone: "Only Spam · 8 ×"; a click shows everything. */
+/** Takes the preset's place while one category shows alone: "Only Spam · 8 ×" ("Spam · 8 ×" in a narrow column); a click shows everything. */
 function SoloPill({ v, cat, onEnd }: { v: View; cat: Category; onEnd: () => void }) {
   const name = SHORT[cat];
   const n = useComputed(() => v.inChat.value.byCat[cat]);
-  const text = useComputed(() => `Only ${name} · ${n.value ? compact(n.value) : 'none yet'}`);
+  const text = useComputed(() => `${name} · ${n.value ? compact(n.value) : 'none yet'}`);
   const label = useComputed(() => `Showing only ${name.toLowerCase()}, ${n.value} in chat now. Show all messages.`);
   return (
     <button
@@ -656,7 +678,10 @@ function SoloPill({ v, cat, onEnd }: { v: View; cat: Category; onEnd: () => void
       onClick={onEnd}
     >
       <span class="hb-chip-ico" style={{ backgroundImage: iconImage({ name: cat, fill: true, strokeWidth: 1.7 }, '#ffffff') }} />
-      <span class="hb-solo-t">{text}</span>
+      <span class="hb-solo-t">
+        <span class="hb-solo-only">Only </span>
+        {text}
+      </span>
       <span class="hb-solo-x" aria-hidden="true">
         <Icon name="x" size={10} strokeWidth={2.2} />
       </span>
@@ -702,7 +727,9 @@ function Chips({
   onMore: () => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
-  const [over, setOver] = useState<Category[]>([]);
+  const [wrapped, setOver] = useState<Category[]>([]);
+  // in Solo the pill stands for the chosen category: its chip leaves the row (bar.css), and is no "+N" either
+  const over = wrapped.filter((c) => c !== solo);
   const actions = v.settings.value.actions;
   const ranks = useLive(() => CHIP_CATEGORIES.map((c) => chipRank(c, actions, solo, v.inChat.value.byCat)).join(), [actions, solo]).value.split(',');
 

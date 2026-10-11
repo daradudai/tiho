@@ -123,7 +123,8 @@ describe('Basic bar', () => {
     const group = $('.hb-row [role="radiogroup"]');
     expect(group.getAttribute('aria-label')).toBe('How much should Tiho hide?');
     expect($$('.hb-row [role="radio"]').map((r) => r.textContent)).toEqual(['Off', 'Clean', 'Quiet']);
-    expect($('.hb-peek').textContent).toBe('Show hidden');
+    expect($('.hb-peek .hb-peek-full').textContent).toBe('Show hidden');
+    expect($('.hb-peek .hb-peek-short').textContent).toBe('Hidden'); // Twitch's default column (bar.css)
     expect($$('.hb-expand, .hb-chip, .hb-status, .hb-preset-pill').length).toBe(0);
     dispose();
   });
@@ -224,10 +225,26 @@ describe('Basic bar', () => {
     store.peek.value = true;
     await flush();
     expect(btn.getAttribute('aria-pressed')).toBe('true');
-    expect(btn.textContent).toBe('Hide again');
+    expect(btn.querySelector('.hb-peek-full')!.textContent).toBe('Hide again');
     expect(btn.getAttribute('aria-label')).toBe('Hide again');
     btn.click();
     expect(actions.setPeek).toHaveBeenLastCalledWith(false);
+    dispose();
+  });
+
+  it('a tooltip follows its button: no stale "Hide again" once Show hidden is off again', async () => {
+    const { store, $, dispose } = setup();
+    store.peek.value = true;
+    await flush();
+    const btn = $('.hb-peek');
+    btn.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 320));
+    await flush();
+    expect($('.hb-tip b').textContent).toBe('Hide again');
+    store.peek.value = false; // Esc, or a click while the pointer stays on it
+    await flush();
+    expect($('.hb-tip b').textContent).toBe('Show hidden');
+    expect($('.hb-tip span').textContent).toBe('Brings back what Tiho hid in this tab, faded.');
     dispose();
   });
 
