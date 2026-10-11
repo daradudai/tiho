@@ -3,6 +3,12 @@ import type { Action, Category, Platform } from './types';
 
 export type PresetId = 'raw' | 'chill' | 'focus' | 'questions' | 'custom';
 
+/** Which UI the bar, popup and side panel show. UI only: filtering is the same in both. */
+export type UiMode = 'basic' | 'advanced';
+
+/** What Basic offers: Off, Clean (preset 'chill') or Quiet (preset 'focus'). */
+export type BasicLevel = 'off' | 'chill' | 'focus';
+
 export interface UserRule {
   id: string;
   kind: 'word' | 'regex' | 'user';
@@ -60,6 +66,8 @@ export interface Settings {
   engine: EngineSettings;
   /** Prefer WebGPU when available. */
   preferGpu: boolean;
+  /** Which UI the bar, popup and side panel show. UI only: filtering is the same in both modes. */
+  uiMode: UiMode;
 }
 
 export const PRESETS: Record<Exclude<PresetId, 'custom'>, Record<Category, Action>> = {
@@ -83,6 +91,7 @@ export const DEFAULT_SETTINGS: Settings = {
   rules: [],
   engine: { enabled: false, url: 'http://127.0.0.1:7377', filters: [], refineUncertain: true, contexts: {} },
   preferGpu: true,
+  uiMode: 'basic',
 };
 
 export const SETTINGS_KEY = 'hush.settings.v1';
@@ -94,7 +103,49 @@ export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
   s.engine = { ...DEFAULT_SETTINGS.engine, ...(stored?.engine ?? {}) };
   if (!Array.isArray(s.engine.filters)) s.engine.filters = [];
   if (!s.engine.contexts || typeof s.engine.contexts !== 'object') s.engine.contexts = {};
+  // Installs from before the modes (no uiMode) and unknown values land in Basic.
+  s.uiMode = stored?.uiMode === 'advanced' ? 'advanced' : 'basic';
   return s;
+}
+
+// ── Basic mode ──
+//
+// Basic offers one choice, a level; Advanced has the presets, actions and
+// everything else. Both edit the same settings, so a level is read back from
+// them, and what Advanced set up that Basic cannot show is named in plain words.
+
+/**
+ * The Basic level these settings amount to: 'off' when Hush is off (or off on
+ * `platform`), the preset when it is Clean or Quiet, null for any other setup
+ * (Raw, Questions or custom: "a custom setup from Advanced mode").
+ */
+export function basicLevel(s: Settings, platform?: Platform): BasicLevel | null {
+  if (!s.enabled || (platform && s.sites[platform] === false)) return 'off';
+  return s.preset === 'chill' || s.preset === 'focus' ? s.preset : null;
+}
+
+/**
+ * The settings patch that picks a level, saved in one go: 'off' turns Hush
+ * off; Clean and Quiet turn it on, and on `platform` too when given (the site
+ * of the chat the viewer is looking at), with the preset and its actions.
+ */
+export function levelPatch(s: Settings, level: BasicLevel, platform?: Platform): Partial<Settings> {
+  if (level === 'off') return { enabled: false };
+  const patch: Partial<Settings> = { enabled: true, preset: level, actions: { ...PRESETS[level] } };
+  if (platform) patch.sites = { ...s.sites, [platform]: true };
+  return patch;
+}
+
+/**
+ * Advanced settings that still apply in Basic, in plain words ("your rules",
+ * "custom AI filters", "strictness"); empty for a fresh install.
+ */
+export function advancedExtras(s: Settings): string[] {
+  const out: string[] = [];
+  if (s.rules.some((r) => r.enabled)) out.push('your rules');
+  if (activeFilters(s.engine).length) out.push('custom AI filters');
+  if (s.strictness !== DEFAULT_SETTINGS.strictness) out.push('strictness');
+  return out;
 }
 
 // ── Hush Engine custom filters ──

@@ -1,9 +1,12 @@
-// Side panel dashboard: Live · Inbox · Log · Rules · Settings.
+// Side panel. Basic: one page (how much Hush hides, the Advanced mode
+// switch). Advanced: the dashboard, Live · Inbox · Log · Rules · Settings.
 
 import { useEffect, useState } from 'preact/hooks';
 import { Mark } from '../brand';
 import { Icon, PlatformGlyph, type IconName } from '../icons';
-import { Toggle, initModelStatus, initSettings, initTheme, settings, updateSettings } from '../kit/kit';
+import { Toggle, initModelStatus, initSettings, initTheme, settings, settingsReady, updateSettings } from '../kit/kit';
+import { SITE_NAME } from '../tokens';
+import { BasicPage } from './BasicPage';
 import { LiveTab } from './LiveTab';
 import { InboxTab } from './InboxTab';
 import { LogTab } from './LogTab';
@@ -21,8 +24,6 @@ const TABS: { id: TabId; label: string; icon: IconName }[] = [
   { id: 'rules', label: 'Rules', icon: 'sliders' },
   { id: 'settings', label: 'Settings', icon: 'gear' },
 ];
-
-const SITE: Record<string, string> = { youtube: 'YouTube', twitch: 'Twitch', kick: 'Kick' };
 
 export function SidePanelApp({ initialTab = 'live' }: { initialTab?: TabId }) {
   const [tab, setTab] = useState<TabId>(() => {
@@ -47,35 +48,18 @@ export function SidePanelApp({ initialTab = 'live' }: { initialTab?: TabId }) {
   }, [tab]);
 
   const s = settings.value;
-  const snap = live.value;
-  const t = activeTab.value;
+  // Nothing until the settings are read: an Advanced panel must not flash as Basic.
+  if (!settingsReady.value) return <div class="sp" />;
+  if (s.uiMode !== 'advanced') return <BasicPage />;
+
   const unanswered = questions.value.filter((q) => !done.value.has(q.msg.key)).length;
   const idx = TABS.findIndex((x) => x.id === tab);
-
   return (
     <div class="sp" data-off={s.enabled ? undefined : ''}>
       <header class="sp-head">
         <div class="sp-top">
-          <div class="sp-brand">
-            <Mark size={22} />
-            <span class="sp-name">Hush</span>
-          </div>
-          <div class="sp-where">
-            {snap ? (
-              <>
-                <PlatformGlyph platform={snap.platform} size={14} />
-                <span class="sp-chan">{snap.channel || SITE[snap.platform]}</span>
-                <span class="sp-live">Live</span>
-              </>
-            ) : t?.platform ? (
-              <>
-                <PlatformGlyph platform={t.platform} size={14} />
-                <span class="sp-chan sp-chan-dim">Waiting for chat…</span>
-              </>
-            ) : (
-              <span class="sp-chan sp-chan-dim">No stream open</span>
-            )}
-          </div>
+          <Brand />
+          <Where live />
           <Toggle size="sm" checked={s.enabled} label="Hush on/off" onChange={(v) => updateSettings({ enabled: v })} />
         </div>
         <nav class="sp-tabs" role="tablist" style={{ '--i': idx, '--n': TABS.length } as any}>
@@ -100,6 +84,39 @@ export function SidePanelApp({ initialTab = 'live' }: { initialTab?: TabId }) {
   );
 }
 
+export function Brand() {
+  return (
+    <div class="sp-brand">
+      <Mark size={22} />
+      <span class="sp-name">Hush</span>
+    </div>
+  );
+}
+
+/** The chat this panel follows: its site and channel (`live`: a Live badge while it answers). */
+export function Where({ live: badge }: { live?: boolean }) {
+  const snap = live.value;
+  const t = activeTab.value;
+  return (
+    <div class="sp-where">
+      {snap ? (
+        <>
+          <PlatformGlyph platform={snap.platform} size={14} />
+          <span class="sp-chan">{snap.channel || SITE_NAME[snap.platform]}</span>
+          {badge && <span class="sp-live">Live</span>}
+        </>
+      ) : t?.platform ? (
+        <>
+          <PlatformGlyph platform={t.platform} size={14} />
+          <span class="sp-chan sp-chan-dim">Waiting for chat…</span>
+        </>
+      ) : (
+        <span class="sp-chan sp-chan-dim">No stream open</span>
+      )}
+    </div>
+  );
+}
+
 /** Shown in live tabs when no chat is connected. */
 export function NoChat() {
   const t = activeTab.value;
@@ -111,15 +128,15 @@ export function NoChat() {
       <h2>{t?.platform ? 'Waiting for chat' : 'Open a live stream'}</h2>
       <p>
         {t?.platform
-          ? `Hush connects as soon as ${SITE[t.platform]} chat appears on this page.`
-          : 'Live stats, questions and the filtered log show up here while you watch a stream.'}
+          ? `Hush connects as soon as ${SITE_NAME[t.platform]} chat appears on this page.`
+          : 'Live stats, questions and hidden messages show up here while you watch a stream.'}
       </p>
       {!t?.platform && (
         <div class="sp-nochat-sites">
           {(['youtube', 'twitch', 'kick'] as const).map((p) => (
             <span class="sp-site-pill">
               <PlatformGlyph platform={p} size={13} />
-              {SITE[p]}
+              {SITE_NAME[p]}
             </span>
           ))}
         </div>

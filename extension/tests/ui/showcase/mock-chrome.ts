@@ -2,7 +2,8 @@
 // components run unmodified in the showcase.
 
 import type { Store } from '../../../src/core/store';
-import { snapshotFromStore } from '../../../src/ui/bridge';
+import { SETTINGS_KEY, mergeSettings, type Settings } from '../../../src/core/settings';
+import { snapshotFromStore, type LiveCommand } from '../../../src/ui/bridge';
 import type { ModelStatus } from '../../../src/core/types';
 
 type Listener = (...args: any[]) => any;
@@ -24,6 +25,8 @@ export interface MockOptions {
   engine?: boolean;
   /** Animate model download progress (onboarding). */
   downloading?: boolean;
+  /** Stored settings the pages start from (e.g. { uiMode: 'advanced' }). */
+  settings?: Partial<Settings>;
 }
 
 export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): void } {
@@ -31,6 +34,23 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
   const onChanged = evt();
   const onMessage = evt();
   let model: ModelStatus = opts.model ?? { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2-6L' };
+  // The pages and the fake tab share one copy of the settings, as the extension's storage would.
+  const keep = (v: unknown) => opts.store && (opts.store.settings.value = mergeSettings(v as Partial<Settings>));
+  if (opts.store || opts.settings) {
+    data.set(SETTINGS_KEY, mergeSettings({ ...opts.store?.settings.peek(), ...opts.settings }));
+    keep(data.get(SETTINGS_KEY));
+  }
+
+  // The tab's side of Show hidden and Solo (runtime.setPeek / setSolo).
+  const command = (cmd: LiveCommand) => {
+    const s = opts.store;
+    if (!s) return;
+    if (cmd.type === 'peek' && !s.solo.peek()) s.peek.value = cmd.on;
+    if (cmd.type === 'solo') {
+      s.solo.value = cmd.cat;
+      if (cmd.cat) s.peek.value = false;
+    }
+  };
 
   const storageLocal = {
     async get(keys?: string | string[] | null) {
@@ -44,6 +64,7 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
       for (const [k, v] of Object.entries(items)) {
         changes[k] = { oldValue: data.get(k), newValue: structuredClone(v) };
         data.set(k, structuredClone(v));
+        if (k === SETTINGS_KEY) keep(v);
       }
       setTimeout(() => onChanged.emit(changes, 'local'), 0);
     },
@@ -62,6 +83,7 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
       onDisconnect: onDisc,
       postMessage(m: any) {
         console.log('[mock port] ←', m);
+        command(m);
       },
       disconnect() {
         if (timer) clearInterval(timer);
@@ -90,7 +112,7 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
         if (msg?.type === 'hush:getStatus') return { type: 'hush:status', status: model };
         if (msg?.type === 'hush:getPerf' && opts.store) {
           const s = opts.store;
-          return { type: 'hush:perf', stats: { ...s.perf.peek(), platform: s.platform.peek(), channel: s.channel.peek(), counts: s.counts.peek() } };
+          return { type: 'hush:perf', stats: { ...s.perf.peek(), platform: s.platform.peek(), channel: s.channel.peek() } };
         }
         return undefined;
       },
@@ -102,7 +124,10 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
       },
       async sendMessage(_id: number, msg: any) {
         if (msg?.type === 'hush:getSnapshot') return opts.store ? snapshotFromStore(opts.store) : undefined;
-        if (msg?.type === 'hush:command') console.log('[mock] command', msg.cmd);
+        if (msg?.type === 'hush:command') {
+          console.log('[mock] command', msg.cmd);
+          command(msg.cmd);
+        }
         return { ok: true };
       },
       connect: (_id: number, info: { name: string }) => port(info.name),

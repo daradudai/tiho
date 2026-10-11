@@ -70,7 +70,7 @@ For each queued row:
    - protect: broadcaster, moderators and VIPs (setting), paid messages (bits, Super Chats, Kicks, sub messages), the viewer's own messages (never a repeat either) and mentions of the viewer by login or display name. The viewer is known on YouTube and Twitch when signed in, not on Kick.
 4. **Waves** (`core/waves.ts`). A wave is at least 4 different users posting near-identical text within 10 s. Short messages match on the set of their normalized tokens ("KEKW", "KEKW KEKW" and "kekw" are one wave); longer ones (24+ characters) on a 64-bit SimHash of character 3-grams, indexed by 8 bands of 8 bits, verified by Hamming distance ≤ 9, so copypasta with small edits joins its wave. The first message becomes the head with a live `×N` counter; later ones are members and fold into it. Memory is bounded (clusters expire after 10 s of silence, at most 4,096).
 5. **Cache.** A 5,000-entry LRU of normalized text → scores in the content script answers repeats instantly.
-6. Anything still undecided is queued for the classifier, and the row is held if the current settings could hide it (`modelCanHide`): at most `holdMs` (default 250 ms).
+6. Anything still undecided is queued for the classifier, and the row is held if the current settings could hide it (`modelCanHide`), or while Solo is on (see [UI surfaces](#ui-surfaces)): at most `holdMs` (default 250 ms).
 
 ### 3. Resolve
 
@@ -80,9 +80,9 @@ Scores that arrived since the last frame are matched to their rows. Late model v
 
 1. **Thresholds.** Per-label thresholds come with the model file in use, calibrated on the gold set for that student (`config.json` → `hush.variant_thresholds[variant]`, else `hush.thresholds`), and reach the content script in the model status. The strictness slider shifts the thresholds of the filtering labels (toxic, spam, scam, noise, negative) in logit space by up to ±1.5.
 2. **Category.** Rule signals nudge the scores, then the first label at or above its threshold in priority order wins: toxic > scam > spam > noise > question > negative > positive. None → clean.
-3. **Action.** The category maps to the action in the current settings (`show`, `highlight`, `dim`, `collapse`, `hide`). A Hush Engine custom filter that fired raises the action when its own is stronger. User rules override both: block → hide, allow → show. Wave members fold into their head unless an allow rule says otherwise. Protected messages are capped at show / highlight.
+3. **Action.** The category maps to the action in the current settings (`show`, `highlight`, `dim`, `collapse`, `hide`). A Hush Engine custom filter that fired raises the action when its own is stronger. User rules override both: block → hide, allow → show. Wave members fold into their head unless an allow rule says otherwise. Protected messages are capped at show / highlight, and when that changed the action their reason ends in `· always shown`.
 
-The `Verdict` carries category, action, a short reason and its source (`rule`, `cache`, `model`, `user`, `engine`). The reason is written for people, because the hover chip and the side panel log show it as is: `toxic · 94%` (the winning label's probability), `scam · link` (a rule signal carried the label over its threshold), `wave ×37`, `filter: backseating`, `repeat ×8`, `link · first message`.
+The `Verdict` carries category, action, a short reason and its source (`rule`, `cache`, `model`, `user`, `engine`). The reason is written for people, because the hover chip and the side panel log show it as is: `toxic · 94%` (the winning label's probability), `scam · link` (a rule signal carried the label over its threshold), `wave ×37`, `filter: backseating`, `repeat ×8`, `link · first message`, `toxic · 94% · always shown` (a protected author).
 
 ### 5. Write phase
 
@@ -92,16 +92,18 @@ Only attribute diffs, in one pass, on the row element:
 |---|---|
 | `data-hush-a` | action: `show`, `highlight`, `dim`, `collapse`, `hide` |
 | `data-hush-c` | category |
-| `data-hush-r` | reason, shown on hover |
+| `data-hush-r` | reason, shown on hover (Advanced) and in the tags of Show hidden and Solo |
 | `data-hush-wh` / `data-hush-wm` | wave head (with count) / wave member |
 | `data-hush-run` | on the last folded row of a run: the run's length. That row draws the "3 hidden · show" pill and is a button for the keyboard and screen readers (`tabindex`, `role`, `aria-label`; Enter or Space opens it). The run's other folded rows take no space. |
 | `data-hush-open` | the viewer expanded a folded row |
 
-All visuals come from one injected stylesheet (`runtime/styles.ts`, with the message decorations from `ui/decorations.ts`) made of plain attribute selectors and `--hush-*` custom properties. No inline styles, no layout reads, no `:is()` row scoping or sibling combinators: in the stress harness each of those multiplied style-recalculation cost (see [stress results](../extension/tests/stress/RESULTS.md#findings)).
+All visuals come from one injected stylesheet (`runtime/styles.ts`, with the message decorations from `ui/decorations.ts`) made of plain attribute selectors and `--hush-*` custom properties. No inline styles, no layout reads, no `:is()` row scoping or sibling combinators: in the stress harness each of those multiplied style-recalculation cost (see [stress results](../extension/tests/stress/RESULTS.md#findings)). The UI mode and the views of a tab (Show hidden, Solo) are variants of this one stylesheet, not attributes: see [UI surfaces](#ui-surfaces).
 
 ### 6. Flush
 
-The classifier batch goes over the Port, and the reactive store (`core/store.ts`, Preact signals) that the in-chat bar reads is updated at most 4 times per second in one `batch()`. Rows are tracked in a `WeakMap`; a row whose content changes (a recycled node) is evaluated again. What was decided about the last 1,024 messages is also kept by message key, across Hush being turned off and on: a message that comes back in a new node (Kick re-mounts rows scrolled back into view, YouTube re-renders the list on a chat-mode switch) keeps its verdict, wave role and "show" click, and is not counted, logged or fed to the duplicate rule and waves again.
+The classifier batch goes over the Port, and the reactive store (`core/store.ts`, Preact signals) that the in-chat bar reads is updated at most 4 times per second in one `batch()`. Rows are tracked in a `WeakMap`; a row whose content changes (a recycled node) is evaluated again. What was decided about the last 1,024 messages is also kept by message key, across Hush being turned off and on: a message that comes back in a new node (Kick re-mounts rows scrolled back into view, YouTube re-renders the list on a chat-mode switch) keeps its verdict, wave role and "show" click, and is not counted twice, logged or fed to the duplicate rule and waves again.
+
+**In chat now.** The counts the UI shows about the chat (`Store.inChat`) describe the rows the chat list holds right now: on Twitch the ~150 messages it keeps, on Kick the ~30 mounted rows (rows in the list, not in the viewport). Each row with a verdict counts once, under its category, as what the runtime wrote on it: shown (rows the viewer opened included), hidden, folded into a pill, or folded into a wave head's `×N`. Rows waiting for the model count as nothing. Each row remembers what it adds, and every attribute write and every removal moves the counters by the difference, in O(1), so they always equal a recount of the list. A settings change re-decides the rows on screen and shows in the next store flush (the bar follows within about 750 ms). When Hush or the site is turned off, or on another page, the list is let go and the counts read 0. Nothing is counted since page load; every other number states its window (messages per second over the last 60 s, mood over the last 5 minutes).
 
 ## Inference
 
@@ -140,9 +142,11 @@ Content-script injection targets are in `platforms/matches.ts`. Twitch and Kick 
 
 ## UI surfaces
 
+- **Modes.** `settings.uiMode` picks the UI. **Basic** (the default, for someone who sees chat for the first time) offers one choice, a level: Off, Clean (preset `chill`) or Quiet (preset `focus`), and Show hidden; it shows no counts, categories or percentages. **Advanced** (for streamers and mods) has the presets, per-category actions, live counts, rules, custom AI filters and Solo. Both edit the same settings, so the mode changes only the UI, never what is filtered (`core/settings.ts`: `basicLevel`, `levelPatch`, `advancedExtras`). In chat, Basic draws no category edges and no reason chips.
+- **Views of a tab.** **Show hidden** (both modes) brings back what Hush hid or folded, in place, faded and tagged with why (`Hidden · spam` in Basic, `folded · spam · 97%` in Advanced). **Solo** (Advanced) shows one category alone, every row of it in full and tagged with its reason and what it normally gets (`spam · 97% · folded`), to check what the model put there. On Kick the rows of the other categories keep their place, invisible: Kick's virtualized list places rows by their measured height, and when most mounted rows take no space it mounts and unmounts rows in a loop (about 1,000 a second, measured live). Neither is saved. Each is a variant of the one row stylesheet, swapped in one text change: nothing is written on rows and nothing is decided again, so a toggle costs one style recalculation, like a theme change, and new rows follow on their own. While Solo is on, new rows are hidden at birth and held for the model (any of them may belong to another category). Turning one view on ends the other; both end when Hush or the site is turned off, on another channel or page, and Solo also in Basic mode. Clicks on rows are left to the page while a view is on.
 - **In-chat bar** (`ui/bar/`): mounted in a shadow root above the chat, so page CSS and Hush CSS never meet. It reads a frame-aligned, rate-limited mirror of the store (`view.ts`: counters at 2 fps, charts and stats at most 1 fps, nothing while the tab is hidden) and animates only opacity and transform.
-- **Popup** and **side panel** (`ui/popup/`, `ui/sidepanel/`) are extension pages. They read settings from `chrome.storage.local`, model status and perf from the background, and live data from the active chat tab over a `hush:live` Port (one snapshot about every second while open).
-- **Onboarding** (`ui/onboarding/`) opens on install, shows model download progress and lets the viewer pick a preset.
+- **Popup** and **side panel** (`ui/popup/`, `ui/sidepanel/`) are extension pages. They read settings from `chrome.storage.local`, model status and perf from the background, and live data from the active chat tab over a `hush:live` Port (`ui/bridge.ts`: one `LiveSnapshot` about every second while open, with the in-chat-now counts and the tab's views; commands back for Show in chat, "Not spam", Show hidden and Solo).
+- **Onboarding** (`ui/onboarding/`) opens on install, shows model download progress and lets the viewer pick a level (or Advanced mode).
 
 ## Hush Engine
 

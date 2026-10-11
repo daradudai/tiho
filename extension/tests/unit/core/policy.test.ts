@@ -91,6 +91,16 @@ describe('policy', () => {
     expect(decide(null, R({ protect: true, cat: 'spam' }), null, ctxOf({ actions: PRESETS.focus })).action).toBe('show');
   });
 
+  it('says so in the reason when protection keeps a message shown', () => {
+    const p = R({ protect: true });
+    expect(decide(S({ toxic: 0.94 }), p, null, ctxOf())).toMatchObject({ action: 'show', reason: 'toxic · 94% · always shown' });
+    expect(decide(null, R({ protect: true, cat: 'spam', reason: 'repeat' }), null, ctxOf()).reason).toBe('repeat · always shown');
+    expect(decide(S({}), p, null, ctxOf({ actions: PRESETS.questions })).reason).toBe('always shown'); // clean has no reason of its own
+    // nothing was capped: the reason stays as it is
+    expect(decide(S({ question: 0.9 }), p, null, ctxOf()).reason).toBe('question · 90%');
+    expect(decide(S({ toxic: 0.94 }), p, null, ctxOf({ actions: PRESETS.raw })).reason).toBe('toxic · 94%');
+  });
+
   it('user rules override presets', () => {
     expect(decide(null, R({ user: 'block', reason: 'blocked: x' }), null, ctxOf({ actions: PRESETS.raw }))).toMatchObject({
       action: 'hide',

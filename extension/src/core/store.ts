@@ -22,17 +22,41 @@ export interface WaveInfo {
   lastAt: number;
 }
 
+/**
+ * The message rows the chat list holds right now: on Twitch the ~150 messages
+ * it keeps, on Kick the ~30 mounted rows (rows in the list, not in the
+ * viewport). Rows waiting for a verdict count as nothing, rows the viewer
+ * opened as shown. Recounted as verdicts change, so a settings change shows up
+ * in the next store flush.
+ */
+export interface InChat {
+  /** Message rows the chat list holds now that have a verdict. */
+  rows: number;
+  /** ...whose action is hide (and the viewer has not opened them). */
+  hidden: number;
+  /** ...folded into "N hidden · show" pills (wave members not included). */
+  folded: number;
+  /** ...folded into a wave head's ×N. */
+  inWaves: number;
+  /** Per verdict category, wave members not included. Σ byCat + inWaves === rows. */
+  byCat: Record<Category, number>;
+}
+
 export interface Store {
   settings: Signal<Settings>;
   model: Signal<ModelStatus>;
   perf: Signal<PerfStats>;
-  /** Messages seen per category since page load. */
-  counts: Signal<Record<Category, number>>;
-  /** Total messages seen and filtered (hidden/collapsed) since load. */
-  totals: Signal<{ seen: number; filtered: number }>;
+  /** What the chat list holds right now (see InChat). Flushed with the ≤ 4×/s store batch. */
+  inChat: Signal<InChat>;
+  /** New messages seen so far (a message re-mounted in a new node is not new). Drives the mark's activity pulse only; never shown. */
+  seen: Signal<number>;
+  /** Show hidden is on in this tab (a view: never saved). */
+  peek: Signal<boolean>;
+  /** Category shown alone in this tab (Advanced only, never saved), or null. */
+  solo: Signal<Category | null>;
   /** Messages per second, last 60 s (one bucket per second, oldest first). */
   rate: Signal<number[]>;
-  /** Vibe = positive − negative share, last 60 buckets of 5 s, in [-1, 1]. */
+  /** Mood = positive − negative share, last 60 buckets of 5 s (5 min), in [-1, 1]. */
   vibe: Signal<number[]>;
   /** Active and recent waves (most recent first, ≤ 10). */
   waves: Signal<WaveInfo[]>;
@@ -45,8 +69,12 @@ export interface Store {
   theme: Signal<'dark' | 'light'>;
 }
 
-const zeroCounts = (): Record<Category, number> => ({
-  toxic: 0, scam: 0, spam: 0, noise: 0, negative: 0, question: 0, positive: 0, clean: 0,
+export const zeroInChat = (): InChat => ({
+  rows: 0,
+  hidden: 0,
+  folded: 0,
+  inWaves: 0,
+  byCat: { toxic: 0, scam: 0, spam: 0, noise: 0, negative: 0, question: 0, positive: 0, clean: 0 },
 });
 
 export function createStore(settings: Settings): Store {
@@ -54,8 +82,10 @@ export function createStore(settings: Settings): Store {
     settings: signal(settings),
     model: signal<ModelStatus>({ state: 'idle', backend: 'none' }),
     perf: signal<PerfStats>({ msgsPerSec: 0, inferPerSec: 0, cacheHitRate: 0, p50ms: 0, p95ms: 0, queue: 0 }),
-    counts: signal(zeroCounts()),
-    totals: signal({ seen: 0, filtered: 0 }),
+    inChat: signal(zeroInChat()),
+    seen: signal(0),
+    peek: signal(false),
+    solo: signal<Category | null>(null),
     rate: signal(new Array(60).fill(0)),
     vibe: signal(new Array(60).fill(0)),
     waves: signal<WaveInfo[]>([]),

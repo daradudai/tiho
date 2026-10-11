@@ -24,11 +24,22 @@
 // child (>) rule hides the pill row's own content, so that the row can stay
 // visible and take keyboard focus.
 //
+// Modes and views. Basic mode draws no category edges and no reason chips.
+// Show hidden (peek) and Solo are views of one tab: each is a variant of the
+// whole sheet (a later rule could not undo display:none!important), swapped
+// in one text change, with no write on any row. Show hidden brings hidden
+// and folded rows back in place, faded and tagged with why, and draws no
+// pills (so it has no child rule either). Solo hides every row of another
+// category (on Kick's virtual list they keep their place, invisible) and
+// shows the chosen one's in full, each tagged with its reason and what it
+// normally gets ("spam · 97% · folded"). Wave members stay folded in both.
+//
 // Everything visual is driven by --hush-* custom properties declared with
 // zero specificity, so a theme can override them from anywhere, e.g.
 //   document.documentElement.style.setProperty('--hush-c-toxic', '#f00')
 
-import type { Platform } from '../core/types';
+import type { UiMode } from '../core/settings';
+import { ALWAYS_SHOWN, type Action, type Category, type Platform } from '../core/types';
 import { BRAND, CATEGORY_META, type Theme } from './tokens';
 
 interface PlatformDeco {
@@ -42,15 +53,22 @@ interface PlatformDeco {
    * position:relative (no offsets: nothing moves) to anchor the chip.
    */
   positioned: boolean;
+  /**
+   * The list mounts only the rows near the viewport and places them from
+   * their measured heights (Kick). When most mounted rows take no space it
+   * keeps mounting and unmounting rows (about 1,000 a second, measured live),
+   * so Solo keeps the other categories' rows in place, invisible.
+   */
+  virtual: boolean;
 }
 
 const PLATFORM_DECO: Record<Platform, PlatformDeco> = {
   // row > div > .chat-line__message (padding 5px 20px, 20px lines)
-  twitch: { indent: '20px', wave: '6px 10px 0 6px', positioned: false },
+  twitch: { indent: '20px', wave: '6px 10px 0 6px', positioned: false, virtual: false },
   // yt-live-chat-text-message-renderer: flex row, padding 4px 24px, 16px lines
-  youtube: { indent: '24px', wave: '3px 0 0 8px', positioned: false },
+  youtube: { indent: '24px', wave: '3px 0 0 8px', positioned: false, virtual: false },
   // div[data-index] (absolute) > .px-2 > .px-2 (padding-block 4px, ~22px lines)
-  kick: { indent: '16px', wave: '6px 12px 0 6px', positioned: true },
+  kick: { indent: '16px', wave: '6px 12px 0 6px', positioned: true, virtual: true },
 };
 
 const THEME_DECO: Record<Theme, Record<string, string>> = {
@@ -65,6 +83,9 @@ const THEME_DECO: Record<Theme, Record<string, string>> = {
     'tip-shadow': '0 4px 14px -2px rgba(0,0,0,0.55)',
     'wave-bg': 'rgba(132,135,255,0.16)',
     'hl-mix': '15%',
+    // a view's tag: its category color, mixed toward this ink so that it stays legible on a faded row
+    'tag-ink': '#ffffff',
+    'tag-mix': '100%',
     dim: '0.38',
   },
   light: {
@@ -78,6 +99,8 @@ const THEME_DECO: Record<Theme, Record<string, string>> = {
     'tip-shadow': '0 4px 14px -2px rgba(16,16,40,0.3)',
     'wave-bg': 'rgba(79,82,224,0.1)',
     'hl-mix': '11%',
+    'tag-ink': '#000000',
+    'tag-mix': '76%',
     dim: '0.42',
   },
 };
@@ -90,9 +113,32 @@ const ACCENTED = ['toxic', 'scam', 'spam', 'noise', 'negative', 'question', 'pos
 /** Categories that get the quiet left edge when shown / dimmed (noise would stripe half the chat). */
 const EDGED = ['toxic', 'scam', 'spam', 'negative', 'question', 'positive'] as const;
 
+/**
+ * What a hidden row's tag says in Basic's Show hidden ("Hidden · insult"):
+ * plain words, no categories. Positive and clean rows are hidden only by
+ * rules or filters, and say just "Hidden".
+ */
+const PLAIN_WORD: Partial<Record<Category, string>> = {
+  toxic: 'insult',
+  scam: 'scam',
+  spam: 'spam',
+  noise: 'one-word reply',
+  negative: 'complaint',
+  question: 'question',
+};
+
+/** What a row normally gets, by data-hush-a, as Solo's tag says it. */
+const DID: Record<Action, string> = { show: 'shown', highlight: 'highlighted', dim: 'dimmed', collapse: 'folded', hide: 'hidden' };
+
 export interface DecorationOptions {
   /** settings.decorate: category edges, highlight glow, reveal marks and reason chips. Hide/dim/collapse/highlight always apply. */
   decorate?: boolean;
+  /** Basic draws no category edges and no reason chips, whatever `decorate` says (default 'advanced'). */
+  mode?: UiMode;
+  /** Show hidden: hidden and folded rows come back in place, faded and tagged with why (no pills). */
+  peek?: boolean;
+  /** Solo: every other category's rows are hidden; this one's show in full, each tagged with its reason and normal action. Wins over peek. */
+  solo?: Category | null;
   /** Ignored (kept for compatibility): selectors are attribute-only, see the header. */
   rowSelector?: string;
 }
@@ -126,6 +172,13 @@ export function decorationCss(platform: Platform | string, theme: Theme, opts: D
   const t = THEME_DECO[theme];
   const decorate = opts.decorate ?? true;
   const accent = BRAND.accent[theme];
+  const basic = opts.mode === 'basic';
+  const solo = opts.solo ?? null;
+  const peek = !solo && !!opts.peek;
+  /** The usual view: hidden rows gone, folded runs drawn as pills. */
+  const plain = !solo && !peek;
+  /** Category edges and reason chips: Advanced only, and never in Solo (its tag says more). */
+  const hints = decorate && !basic && !solo;
 
   const vars = [
     ...ACCENTED.map((c) => {
@@ -140,6 +193,8 @@ export function decorationCss(platform: Platform | string, theme: Theme, opts: D
   // A collapsed row that is not expanded; RUN is the one that draws the run's pill.
   const COL = '[data-hush-a="collapse"]:not([data-hush-open])';
   const RUN = '[data-hush-run][data-hush-a="collapse"]:not([data-hush-open])';
+  const HIDE = '[data-hush-a="hide"]';
+  const WM = '[data-hush-wm]:not([data-hush-open])';
   const SHOWN = ['[data-hush-a="show"]', '[data-hush-a="dim"]', '[data-hush-a="highlight"]'];
   const RTL = ':dir(rtl)';
   const list = (sels: string[], suffix = '') => sels.map((s) => s + suffix).join(',');
@@ -148,17 +203,35 @@ export function decorationCss(platform: Platform | string, theme: Theme, opts: D
     `box-shadow:inset ${side === 'left' ? w : `-${w}`} 0 0 ${color},inset 0 ${w} 0 ${color},inset 0 -${w} 0 ${color}`;
   const LINE = 'var(--hush-pill-line)';
   const FOCUS = 'var(--hush-link)';
+  // The dashed edge of a row the viewer opened; in the views it also marks "normally not shown".
+  const DASHED = `box-shadow:none!important;
+  background-image:linear-gradient(var(--hush-accent,var(--hush-c-noise)) 50%,transparent 50%)!important;
+  background-size:2px 6px!important;background-repeat:repeat-y!important;background-position:0 0!important`;
+
+  // Show hidden and Solo are variants of this sheet, not rules on top of it:
+  // nothing could undo a display:none!important that is already there.
+  const X = solo ? `[data-hush-c="${solo}"]` : '';
+  /** Solo: the rows of every other category (on a virtual list they keep their place, see PlatformDeco.virtual). */
+  const OTHER = solo ? `[data-hush-c]:not(${X})` : '';
+  const gone = plain ? [HIDE, WM, `${COL}:not([data-hush-run])`] : solo && !p.virtual ? [WM, OTHER] : [WM];
+  /** Rows that carry a view's tag (::before), and rows that get the dashed "normally not shown" edge. */
+  const tagged = solo ? [X] : peek ? [HIDE, COL] : [];
+  const marked = solo ? [X + HIDE, X + COL] : tagged;
+  // Solo shows its category in full: nothing is dimmed
+  const dim = solo ? '' : '[data-hush-a="dim"]{opacity:var(--hush-dim)!important}\n[data-hush-a="dim"]:hover{opacity:1!important}\n';
 
   let css = `
 :where(:root,:host){${vars}}
 ${ACCENTED.map((c) => `[data-hush-c="${c}"]{--hush-accent:var(--hush-c-${c});--hush-edge:var(--hush-e-${c})}`).join('\n')}
 
 [data-hush-a="pending"]{visibility:hidden!important}
-[data-hush-a="hide"],[data-hush-wm]:not([data-hush-open]),${COL}:not([data-hush-run]){display:none!important}
-[data-hush-a="dim"]{opacity:var(--hush-dim)!important}
-[data-hush-a="dim"]:hover{opacity:1!important}
-[data-hush-a="highlight"]{background-color:color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) var(--hush-hl-mix),transparent)!important;box-shadow:inset 3px 0 0 var(--hush-accent,var(--hush-c-highlight))!important}
+${gone.join(',')}{display:none!important}
+${dim}[data-hush-a="highlight"]{background-color:color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) var(--hush-hl-mix),transparent)!important;box-shadow:inset 3px 0 0 var(--hush-accent,var(--hush-c-highlight))!important}
+`;
+  if (solo && p.virtual) css += `${OTHER}{visibility:hidden!important}\n`;
 
+  if (plain)
+    css += `
 /* The last row of a collapsed run is the pill ("3 hidden · show"). Its own
    content stays laid out but invisible and clipped; the pill halves come
    first and sit at the top, however tall the hidden content next to them.
@@ -193,7 +266,10 @@ ${RUN}:hover::before,${RUN}:hover::after,${RUN}:focus-visible::before,${RUN}:foc
 ${RUN}:focus-visible{outline:2px solid transparent!important;outline-offset:-2px!important}
 ${RUN}:focus-visible::before{${ring('left', '2px', FOCUS)}}
 ${RUN}:focus-visible::after{${ring('right', '2px', FOCUS)}}
+`;
 
+  if (!solo)
+    css += `
 /* Wave head: "×37" floated into the row's top-right corner, so the text wraps
    around it instead of under it (on flex rows: a trailing item, same place). */
 ${list(SHOWN.map((s) => `[data-hush-wh]${s}`), '::before')}{
@@ -201,14 +277,37 @@ ${list(SHOWN.map((s) => `[data-hush-wh]${s}`), '::before')}{
   display:block;height:18px;margin:${p.wave};padding:0 7px;border-radius:999px;
   font-size:11px;font-weight:650;font-style:normal;line-height:18px;letter-spacing:.01em;font-variant-numeric:tabular-nums;white-space:nowrap;
   color:var(--hush-wave-fg);background:var(--hush-wave-bg)}
+`;
 
+  if (tagged.length) {
+    css += `
+/* A view's tag says why a row is there, in the wave badge's box and place,
+   colored like the row's category. Floated, never absolute, so it covers
+   nothing: the row's text wraps around it. */
+${list(tagged, '::before')}{
+  float:right;order:9;align-self:flex-start;flex:none;position:static;
+  display:block;height:18px;max-width:72%;margin:${p.wave};padding:0 7px;border-radius:999px;box-sizing:border-box;overflow:hidden;
+  font-size:11px;font-weight:600;font-style:normal;line-height:18px;letter-spacing:.01em;font-variant-numeric:tabular-nums;
+  white-space:pre;text-overflow:ellipsis;text-transform:none;
+  color:color-mix(in srgb,var(--hush-accent,var(--hush-pill-fg)) var(--hush-tag-mix),var(--hush-tag-ink));
+  background:color-mix(in srgb,var(--hush-accent,var(--hush-pill-fg)) 15%,transparent)}
+${list(marked)}{
+  ${DASHED}}
+${solo ? soloTags(X, solo) : basic ? plainPeekTags(HIDE, COL) : peekTags(HIDE, COL)}`;
+    // Show hidden: what it brings back stays in the background until pointed at.
+    if (peek) css += `${list(marked)}{opacity:.6!important}\n${list(marked, ':hover')}{opacity:1!important}\n`;
+  }
+
+  css += `
 /* RTL chats (YouTube's chat frame with an Arabic, Hebrew, Persian or Urdu UI):
    every rule above that has a side, mirrored. :dir() is matched on the row
    itself (Blink keeps each element's directionality), so each selector is
    still one compound on the row. The labels are English and stay left-to-right
    inside their mirrored shapes: "show ·" then "3 hidden ●", read from the right. */
 [data-hush-a="highlight"]${RTL}{box-shadow:inset -3px 0 0 var(--hush-accent,var(--hush-c-highlight))!important}
-${RUN}${RTL}{padding:3px var(--hush-indent) 3px 8px!important}
+`;
+  if (plain)
+    css += `${RUN}${RTL}{padding:3px var(--hush-indent) 3px 8px!important}
 ${RUN}${RTL}::before{
   direction:ltr;padding:0 18px 0 5px;border-radius:0 999px 999px 0;
   background-image:radial-gradient(circle at calc(100% - 9.5px) 50%,var(--hush-accent,var(--hush-c-noise)) 0 3px,transparent 3.6px);
@@ -218,16 +317,22 @@ ${RUN}${RTL}::after{
   ${ring('left', '1px', LINE)}}
 ${RUN}:focus-visible${RTL}::before{${ring('right', '2px', FOCUS)}}
 ${RUN}:focus-visible${RTL}::after{${ring('left', '2px', FOCUS)}}
-${list(SHOWN.map((s) => `[data-hush-wh]${s}${RTL}`), '::before')}{float:left;margin:${mirrored(p.wave)};direction:ltr}
+`;
+  if (!solo) css += `${list(SHOWN.map((s) => `[data-hush-wh]${s}${RTL}`), '::before')}{float:left;margin:${mirrored(p.wave)};direction:ltr}\n`;
+  if (tagged.length)
+    css += `${list(tagged, `${RTL}::before`)}{float:left;margin:${mirrored(p.wave)};direction:ltr}
+${list(marked, RTL)}{background-position:100% 0!important}
 `;
 
   if (decorate) {
     const edged = EDGED.flatMap((c) => [`[data-hush-c="${c}"][data-hush-a="show"]`, `[data-hush-c="${c}"][data-hush-a="dim"]`]);
     const tip = [...SHOWN, '[data-hush-open]'].map((s) => `[data-hush-r]${s}:hover`);
-    css += `
+    if (hints)
+      css += `
 /* category edge (quiet) */
 ${list(edged, ':not([data-hush-open])')}{box-shadow:inset var(--hush-edge-w) 0 0 var(--hush-edge)!important}
-
+`;
+    css += `
 /* highlight: the tint fades out from a glowing left edge */
 [data-hush-a="highlight"]{
   background-color:transparent!important;
@@ -236,10 +341,10 @@ ${list(edged, ':not([data-hush-open])')}{box-shadow:inset var(--hush-edge-w) 0 0
 
 /* revealed by the user: a dashed edge, so it reads as "was hidden" */
 [data-hush-open]{
-  box-shadow:none!important;
-  background-image:linear-gradient(var(--hush-accent,var(--hush-c-noise)) 50%,transparent 50%)!important;
-  background-size:2px 6px!important;background-repeat:repeat-y!important;background-position:0 0!important}
-
+  ${DASHED}}
+`;
+    if (hints)
+      css += `
 /* Reason chip on hover: a small tooltip straddling the row's top edge, in
    the gap between this message and the previous one (it reaches 8px down:
    above the first line's glyphs on every platform, and at most the previous
@@ -259,19 +364,64 @@ ${list(tip, '::after')}{
   animation:hush-tip-in 120ms cubic-bezier(.2,.8,.2,1) 180ms both}
 @keyframes hush-tip-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){${list(tip, '::after')}{animation:none}}
-
+`;
+    css += `
 /* RTL, mirrored (see above). A revealed row keeps its dashed edge, now on the right. */
-${list(edged.map((s) => s + RTL), ':not([data-hush-open])')}{box-shadow:inset calc(-1 * var(--hush-edge-w)) 0 0 var(--hush-edge)!important}
-[data-hush-a="highlight"]${RTL}:not([data-hush-open]){
+`;
+    if (hints) css += `${list(edged.map((s) => s + RTL), ':not([data-hush-open])')}{box-shadow:inset calc(-1 * var(--hush-edge-w)) 0 0 var(--hush-edge)!important}\n`;
+    css += `[data-hush-a="highlight"]${RTL}:not([data-hush-open]){
   background-image:linear-gradient(270deg,color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) var(--hush-hl-mix),transparent),transparent 85%)!important;
   box-shadow:inset -3px 0 0 var(--hush-accent,var(--hush-c-highlight)),inset -18px 0 18px -18px color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) 55%,transparent)!important}
 [data-hush-open]${RTL}{box-shadow:none!important;background-position:100% 0!important}
-${list(tip.map((s) => s + RTL), '::after')}{
+`;
+    if (hints)
+      css += `${list(tip.map((s) => s + RTL), '::after')}{
   right:auto;left:44px;padding:0 15px 0 7px;direction:ltr;
   background:radial-gradient(circle at calc(100% - 8px) 50%,var(--hush-accent,var(--hush-link)) 0 2.5px,transparent 3.1px),var(--hush-tip-bg)}
 `;
   }
   return css;
+}
+
+/** Basic's Show hidden tags, in plain words: "Hidden · insult". */
+function plainPeekTags(hide: string, col: string): string {
+  let css = `${hide}::before,${col}::before{content:"Hidden"}\n`;
+  for (const [c, word] of Object.entries(PLAIN_WORD))
+    css += `[data-hush-c="${c}"]${hide}::before,[data-hush-c="${c}"]${col}::before{content:"Hidden · ${word}"}\n`;
+  return css;
+}
+
+/** Advanced's Show hidden tags: "hidden · toxic · 94%", "folded · repeat ×4"; the category when there is no reason. */
+function peekTags(hide: string, col: string): string {
+  let css = '';
+  for (const [sel, did] of [
+    [hide, 'hidden'],
+    [col, 'folded'],
+  ])
+    css +=
+      `${sel}::before{content:"${did} · " attr(data-hush-r)}\n` +
+      `${sel}:not([data-hush-r])::before{content:"${did} · " attr(data-hush-c)}\n` +
+      `[data-hush-c="clean"]${sel}:not([data-hush-r])::before{content:"${did} · other"}\n`;
+  return css;
+}
+
+/**
+ * Solo's tags: the reason (the category when there is none), then what the
+ * row normally gets ("spam · 97% · folded"), or "opened"; a protected
+ * author's reason already ends in "always shown". A wave head leads with its ×N.
+ */
+function soloTags(x: string, solo: Category): string {
+  const word = solo === 'clean' ? 'other' : solo;
+  const did = 'var(--hush-did,"")';
+  let css = '';
+  for (const [a, w] of Object.entries(DID)) css += `${x}[data-hush-a="${a}"]{--hush-did:" · ${w}"}\n`;
+  return `${css}${x}[data-hush-open]{--hush-did:" · opened"}
+${x}[data-hush-r$="${ALWAYS_SHOWN}"]{--hush-did:""}
+${x}::before{content:attr(data-hush-r) ${did}}
+${x}:not([data-hush-r])::before{content:"${word}" ${did}}
+${x}[data-hush-wh]::before{content:"×" attr(data-hush-wh) "  " attr(data-hush-r) ${did}}
+${x}[data-hush-wh]:not([data-hush-r])::before{content:"×" attr(data-hush-wh) "  ${word}" ${did}}
+`;
 }
 
 /** "6px 10px 0 6px" (top right bottom left) → "6px 6px 0 10px": the same box from the other side. */

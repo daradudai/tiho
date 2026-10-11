@@ -129,6 +129,9 @@ rt = new HushRuntime({
     },
     openSidePanel: () => {},
     reveal: (k) => rt.reveal(k),
+    platform: adapter.platform,
+    setPeek: (on) => rt.setPeek(on),
+    setSolo: (cat) => rt.setSolo(cat),
   }),
   onDecision: (row, _v, final) => {
     const t = (row as HTMLElement & { __t?: number }).__t;
@@ -170,8 +173,8 @@ w.__hush = {
       sim: { batches: transport.batches, items: transport.items },
       cacheHitRate: classifier.cache.hitRate(),
       sizes: rt.debugSizes(),
-      totals: store.totals.peek(),
-      counts: store.counts.peek(),
+      seen: store.seen.peek(),
+      inChat: store.inChat.peek(),
       waves: store.waves.peek().slice(0, 5).map((x) => ({ text: x.text.slice(0, 40), count: x.count, users: x.users })),
       barMounted: !!document.querySelector('hush-bar'),
     };

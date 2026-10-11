@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decorationCss, pillRuns } from '../../src/ui/decorations';
+import { decorationCss, pillRuns, type DecorationOptions } from '../../src/ui/decorations';
 import { buildCss } from '../../src/runtime/styles';
 
 /** Every selector of every style rule (keyframes skipped). */
@@ -20,24 +20,92 @@ describe('pillRuns', () => {
   });
 });
 
+/** Every mode and view the runtime can ask for. */
+const VARIANTS: DecorationOptions[] = [
+  {},
+  { mode: 'basic' },
+  { decorate: false },
+  { peek: true },
+  { peek: true, mode: 'basic' },
+  { solo: 'spam' },
+  { solo: 'clean', decorate: false },
+];
+
+/** The selectors of the rules that set display:none. */
+const hiding = (css: string) =>
+  [...css.matchAll(/([^{}]+)\{[^{}]*display:none[^{}]*\}/g)].flatMap((m) => m[1]!.replace(/\/\*[\s\S]*?\*\//g, '').split(',')).map((s) => s.trim());
+
 describe('decorationCss', () => {
-  it('uses only plain attribute selectors on the row (no scoping, combinators or counters)', () => {
+  it('uses only plain attribute selectors on the row (no scoping, combinators or counters), in every mode and view', () => {
     const run = '[data-hush-run][data-hush-a="collapse"]:not([data-hush-open])';
     for (const p of ['twitch', 'youtube', 'kick'])
-      for (const t of ['dark', 'light'] as const) {
-        const css = decorationCss(p, t);
-        expect(css).not.toContain(':is(');
-        expect(css).not.toContain(':has(');
-        expect(css).not.toContain('counter');
-        const sels = selectors(css);
-        expect(sels.length).toBeGreaterThan(30);
-        // the one exception: the pill row's own content, hidden so that the row can stay visible and take focus
-        expect(sels.filter((s) => s.includes('>'))).toEqual([`${run}>*`]);
-        for (const s of sels.filter((s) => !s.includes('>'))) {
-          // one compound selector: attributes, :not(attribute), :hover, :focus-visible, :dir(rtl), ::before / ::after
-          expect(s, s).toMatch(/^(\[data-hush-[a-z]+(="[a-z]+")?\]|:not\(\[data-hush-[a-z]+(="[a-z]+")?\]\)|:hover|:focus-visible|:dir\(rtl\)|::before|::after)+$/);
+      for (const t of ['dark', 'light'] as const)
+        for (const o of VARIANTS) {
+          const css = decorationCss(p, t, o);
+          expect(css).not.toContain(':is(');
+          expect(css).not.toContain(':has(');
+          expect(css).not.toContain('counter');
+          const sels = selectors(css);
+          expect(sels.length).toBeGreaterThan(20);
+          // the one exception: the pill row's own content, hidden so that the row can stay visible and take focus (the views draw no pills)
+          expect(sels.filter((s) => s.includes('>'))).toEqual(o.peek || o.solo ? [] : [`${run}>*`]);
+          for (const s of sels.filter((s) => !s.includes('>'))) {
+            // one compound selector: attributes (Solo also matches the end of a reason), :not(attribute), :hover, :focus-visible, :dir(rtl), ::before / ::after
+            expect(s, s).toMatch(/^(\[data-hush-[a-z]+(\$?="[a-z ]+")?\]|:not\(\[data-hush-[a-z]+(="[a-z]+")?\]\)|:hover|:focus-visible|:dir\(rtl\)|::before|::after)+$/);
+          }
         }
-      }
+  });
+
+  it('Basic: no category edges and no reason chips; the glow, the opened edge, pills, ×N, dim and highlight stay', () => {
+    const basic = decorationCss('twitch', 'dark', { mode: 'basic' });
+    expect(basic).not.toContain('var(--hush-edge)!important');
+    expect(basic).not.toContain('content:attr(data-hush-r)');
+    for (const kept of ['linear-gradient(90deg', '[data-hush-open]{', 'content:attr(data-hush-run) " hidden"', 'content:"×" attr(data-hush-wh)', '[data-hush-a="dim"]{opacity'])
+      expect(basic, kept).toContain(kept);
+    expect(hiding(basic)).toEqual(hiding(decorationCss('twitch', 'dark')));
+  });
+
+  it('Show hidden brings hidden and folded rows back in place, faded and tagged; wave members stay folded', () => {
+    const css = decorationCss('twitch', 'dark', { peek: true });
+    expect(hiding(css)).toEqual(['[data-hush-wm]:not([data-hush-open])']);
+    expect(css).not.toContain('data-hush-run'); // no pills: a pill row reads as a plain row
+    expect(css).toContain('[data-hush-a="hide"],[data-hush-a="collapse"]:not([data-hush-open]){opacity:.6!important}');
+    expect(css).toContain('[data-hush-a="hide"]:hover,[data-hush-a="collapse"]:not([data-hush-open]):hover{opacity:1!important}');
+    expect(css).toContain('[data-hush-a="hide"]::before{content:"hidden · " attr(data-hush-r)}');
+    expect(css).toContain('[data-hush-a="collapse"]:not([data-hush-open]):not([data-hush-r])::before{content:"folded · " attr(data-hush-c)}');
+    expect(css).toContain('[data-hush-c="clean"][data-hush-a="hide"]:not([data-hush-r])::before{content:"hidden · other"}');
+    // the tag floats (never absolute: it covers nothing), mirrored for RTL chats
+    expect(css).toMatch(/\[data-hush-a="hide"\]::before,\[data-hush-a="collapse"\]:not\(\[data-hush-open\]\)::before\{\s*float:right;order:9;align-self:flex-start;flex:none;position:static;/);
+    expect(css).toContain('[data-hush-a="hide"]:dir(rtl)::before,[data-hush-a="collapse"]:not([data-hush-open]):dir(rtl)::before{float:left;');
+    // Basic says it in plain words
+    const basic = decorationCss('twitch', 'dark', { peek: true, mode: 'basic' });
+    expect(basic).toContain('[data-hush-a="hide"]::before,[data-hush-a="collapse"]:not([data-hush-open])::before{content:"Hidden"}');
+    expect(basic).toContain('[data-hush-c="toxic"][data-hush-a="hide"]::before,[data-hush-c="toxic"][data-hush-a="collapse"]:not([data-hush-open])::before{content:"Hidden · insult"}');
+    expect(basic).toContain('{content:"Hidden · one-word reply"}');
+    expect(basic).not.toContain('attr(data-hush-r)');
+  });
+
+  it('Solo hides every other category and shows its own in full, each row tagged with its reason and normal action', () => {
+    const css = decorationCss('twitch', 'dark', { solo: 'spam' });
+    expect(hiding(css)).toEqual(['[data-hush-wm]:not([data-hush-open])', '[data-hush-c]:not([data-hush-c="spam"])']);
+    expect(css).not.toContain('[data-hush-a="dim"]{opacity'); // in full, even when dimmed
+    expect(css).not.toContain('data-hush-run');
+    expect(css).not.toContain('var(--hush-edge)!important'); // the tag replaces edges and chips
+    expect(css).not.toContain('content:attr(data-hush-r);');
+    expect(css).toContain('[data-hush-c="spam"][data-hush-a="collapse"]{--hush-did:" · folded"}');
+    expect(css).toContain('[data-hush-c="spam"][data-hush-open]{--hush-did:" · opened"}');
+    expect(css).toContain('[data-hush-c="spam"][data-hush-r$="always shown"]{--hush-did:""}');
+    expect(css).toContain('[data-hush-c="spam"]::before{content:attr(data-hush-r) var(--hush-did,"")}');
+    expect(css).toContain('[data-hush-c="spam"][data-hush-wh]::before{content:"×" attr(data-hush-wh) "  " attr(data-hush-r) var(--hush-did,"")}');
+    // normally not shown: the dashed edge
+    expect(css).toMatch(/\[data-hush-c="spam"\]\[data-hush-a="hide"\],\[data-hush-c="spam"\]\[data-hush-a="collapse"\]:not\(\[data-hush-open\]\)\{\s*box-shadow:none!important;\s*background-image:linear-gradient/);
+    // Kick's virtual list remounts rows in a loop when most of them take no space: there the others keep their place, invisible
+    const kick = decorationCss('kick', 'dark', { solo: 'spam' });
+    expect(hiding(kick)).toEqual(['[data-hush-wm]:not([data-hush-open])']);
+    expect(kick).toContain('[data-hush-c]:not([data-hush-c="spam"]){visibility:hidden!important}');
+    expect(css).not.toContain('[data-hush-c]:not([data-hush-c="spam"]){visibility');
+    // clean rows have no reason: "other · shown"
+    expect(decorationCss('kick', 'light', { solo: 'clean' })).toContain('[data-hush-c="clean"]:not([data-hush-r])::before{content:"other" var(--hush-did,"")}');
   });
 
   it('lets the pill row take keyboard focus: visible itself, its content hidden, a ring on the pill', () => {
@@ -99,14 +167,15 @@ describe('decorationCss', () => {
     expect(decorationCss('twitch', 'light')).toContain('--hush-c-toxic:#d42f42;--hush-e-toxic:#d42f42b3');
   });
 
-  it('is valid CSS for every platform and theme (parses in the DOM)', () => {
+  it('is valid CSS for every platform, theme, mode and view (parses in the DOM)', () => {
     for (const p of ['twitch', 'youtube', 'kick'] as const)
-      for (const t of ['dark', 'light'] as const) {
-        const style = document.createElement('style');
-        style.textContent = buildCss({ platform: p, theme: t, decorate: true });
-        document.head.appendChild(style);
-        expect(style.sheet?.cssRules.length ?? 0).toBeGreaterThan(20);
-        style.remove();
-      }
+      for (const t of ['dark', 'light'] as const)
+        for (const o of VARIANTS) {
+          const style = document.createElement('style');
+          style.textContent = buildCss({ platform: p, theme: t, decorate: true, ...o });
+          document.head.appendChild(style);
+          expect(style.sheet?.cssRules.length ?? 0).toBeGreaterThan(15);
+          style.remove();
+        }
   });
 });

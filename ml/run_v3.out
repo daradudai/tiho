@@ -1,0 +1,8 @@
++ export PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8
++ PYTHONUNBUFFERED=1
++ PYTHONIOENCODING=utf-8
++ COMMON='--epochs 4 --silver data/silver.jsonl data/silver2.jsonl --public data/public.jsonl data/public_extra.jsonl --public-ratio 1.0 --public-w 0.3 --synth-repeat 2'
++ .venv/Scripts/python.exe train/train.py --out runs/v3-small --epochs 4 --silver data/silver.jsonl data/silver2.jsonl --public data/public.jsonl data/public_extra.jsonl --public-ratio 1.0 --public-w 0.3 --synth-repeat 2
++ .venv/Scripts/python.exe train/train.py --base jhu-clsp/mmBERT-base --lr 3e-5 --out runs/v3-base --epochs 4 --silver data/silver.jsonl data/silver2.jsonl --public data/public.jsonl data/public_extra.jsonl --public-ratio 1.0 --public-w 0.3 --synth-repeat 2
++ echo DONE
+DONE

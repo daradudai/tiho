@@ -1,12 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PortRequest, PortResponse } from '../../../src/core/protocol';
 import { DEFAULT_SETTINGS, PRESETS, filterKey, type EngineFilter, type Settings } from '../../../src/core/settings';
-import { Role, type ChatMessage } from '../../../src/core/types';
+import { zeroInChat, type InChat } from '../../../src/core/store';
+import { CATEGORIES, Role, type Action, type Category, type ChatMessage } from '../../../src/core/types';
 import type { PlatformAdapter } from '../../../src/platforms/types';
 import { ClassifierClient, type ClassifierTransport } from '../../../src/runtime/classifier';
 import { HushRuntime } from '../../../src/runtime/engine';
 
 // ───────────────────────── fakes ─────────────────────────
+
+/** The channel the fake page shows (tests change it to navigate). */
+let channel = 'test';
 
 function fakeAdapter(o: { observeSubtree?: boolean; listId?: string } = {}): PlatformAdapter {
   return {
@@ -32,7 +36,7 @@ function fakeAdapter(o: { observeSubtree?: boolean; listId?: string } = {}): Pla
         ts: 0,
       };
     },
-    channel: () => 'test',
+    channel: () => channel,
     barAnchor: (doc) => ({ el: doc.querySelector('#chat') as HTMLElement, where: 'before' }),
     theme: () => 'dark',
     viewer: () => ['me'],
@@ -151,6 +155,7 @@ const held = (el: Element) =>
 
 beforeEach(() => {
   clock = 1000;
+  channel = 'test';
 });
 afterEach(() => {
   rt?.stop();
@@ -302,6 +307,7 @@ describe('runtime: model path + hold', () => {
     rt.flushNow();
     expect(C(mod)).toBe('toxic');
     expect(A(mod)).toBe('show');
+    expect(mod.getAttribute('data-hush-r')).toBe('toxic · 97% · always shown');
     expect(A(paid)).toBe('show');
   });
 
@@ -313,7 +319,7 @@ describe('runtime: model path + hold', () => {
     rt.flushNow();
     expect(A(q)).toBe('highlight');
     expect(rt.store.questions.value[0]?.msg.text).toBe('when is the next stream?');
-    expect(rt.store.counts.value.question).toBe(1);
+    expect(rt.store.inChat.value.byCat.question).toBe(1);
   });
 
   it('falls back to rules when the port dies', async () => {
@@ -342,7 +348,7 @@ describe('runtime: Hush Engine follow-ups', () => {
     const b = row('go left there is a ledge', { user: 'b' }); // same text, decided from the cache
     await frame();
     expect(A(b)).toBe('show');
-    expect(rt.store.totals.value.filtered).toBe(0);
+    expect(rt.store.inChat.value.hidden).toBe(0);
 
     port.emit({ type: 'engine', batchId: req!.batchId, ids: req!.items.map((x) => x.id), filters: { [filterKey(BACKSEAT)]: [0.91] } });
     rt.flushNow();
@@ -350,7 +356,7 @@ describe('runtime: Hush Engine follow-ups', () => {
       expect(A(r)).toBe('hide');
       expect(r.getAttribute('data-hush-r')).toBe('filter: backseating');
     }
-    expect(rt.store.totals.value.filtered).toBe(2);
+    expect(rt.store.inChat.value.hidden).toBe(2);
     expect(rt.store.filtered.value[0]?.verdict).toMatchObject({ action: 'hide', source: 'engine' });
   });
 
@@ -484,7 +490,7 @@ describe('runtime: DOM churn', () => {
     expect(button(c)).toEqual([null, null, null]);
   });
 
-  it('fills the store: totals, counts, filtered log, perf', async () => {
+  it('fills the store: in chat now, filtered log, perf', async () => {
     setup();
     row('!drop');
     row('z'.repeat(40));
@@ -493,11 +499,9 @@ describe('runtime: DOM churn', () => {
     port.replyAll(scorer);
     rt.flushNow();
     const s = rt.store;
-    expect(s.totals.value.seen).toBe(3);
-    expect(s.totals.value.filtered).toBe(1);
-    expect(s.counts.value.noise).toBe(1);
-    expect(s.counts.value.spam).toBe(1);
-    expect(s.counts.value.clean).toBe(1);
+    expect(s.seen.value).toBe(3);
+    expect(s.inChat.value).toMatchObject({ rows: 3, hidden: 0, folded: 1, inWaves: 0 });
+    expect(s.inChat.value.byCat).toMatchObject({ noise: 1, spam: 1, clean: 1 });
     expect(s.filtered.value[0]?.verdict.category).toBe('spam');
     rt.tickNow();
     expect(s.rate.value.at(-1)).toBe(3);
@@ -589,7 +593,8 @@ describe('runtime: a message seen again', () => {
     port.replyAll(() => CLEAN); // the new model disagrees
     rt.flushNow();
     expect(A(back)).toBe('show');
-    expect(rt.store.totals.value).toEqual({ seen: 1, filtered: 0 });
+    expect(rt.store.seen.value).toBe(1);
+    expect(rt.store.inChat.value).toMatchObject({ rows: 1, hidden: 0 });
   });
 
   it('in a new node keeps its verdict: no "repeat", not counted, logged or classified again', async () => {
@@ -602,8 +607,7 @@ describe('runtime: a message seen again', () => {
     expect(A(ask)).toBe('highlight');
     expect(A(bad)).toBe('hide');
     const s = rt.store;
-    const seen = s.totals.value.seen;
-    const counts = { ...s.counts.value };
+    const seen = s.seen.value;
 
     const ask2 = remount(ask);
     const bad2 = remount(bad);
@@ -615,8 +619,10 @@ describe('runtime: a message seen again', () => {
     expect(A(ask2)).toBe('highlight');
     expect(C(ask2)).toBe('question');
     expect(A(bad2)).toBe('hide');
-    expect(s.totals.value).toEqual({ seen: seen + 1, filtered: 1 });
-    expect(s.counts.value).toEqual({ ...counts, clean: counts.clean + 1 });
+    expect(s.seen.value).toBe(seen + 1);
+    // the list holds the two new nodes and the new message: nothing counted twice
+    expect(s.inChat.value).toMatchObject({ rows: 3, hidden: 1, folded: 0 });
+    expect(s.inChat.value.byCat).toMatchObject({ question: 1, toxic: 1, clean: 1 });
     expect(s.filtered.value).toHaveLength(1);
     expect(s.questions.value).toHaveLength(1);
   });
@@ -635,7 +641,8 @@ describe('runtime: a message seen again', () => {
     expect(A(ok)).toBe('show');
     expect(ok.hasAttribute('data-hush-r')).toBe(false);
     expect(A(bad)).toBe('hide');
-    expect(rt.store.totals.value).toEqual({ seen: 2, filtered: 1 });
+    expect(rt.store.seen.value).toBe(2);
+    expect(rt.store.inChat.value).toMatchObject({ rows: 2, hidden: 1 });
   });
 
   it('a real repeat by the same author still folds', async () => {
@@ -666,6 +673,331 @@ describe('runtime: a message seen again', () => {
     expect(member.hasAttribute('data-hush-wm')).toBe(true);
     expect(A(opened)).toBe('show');
     expect(opened.hasAttribute('data-hush-open')).toBe(true);
-    expect(rt.store.totals.value.seen).toBe(6);
+    expect(rt.store.seen.value).toBe(6);
+  });
+});
+
+// ───────────────────────── in chat now ─────────────────────────
+
+/** InChat recounted from the attributes on the list: what the store must always say. */
+function recount(): InChat {
+  const n = zeroInChat();
+  for (const el of Array.from(list.children)) {
+    const c = C(el) as Category | null;
+    if (!c) continue;
+    n.rows++;
+    if (el.hasAttribute('data-hush-wm')) {
+      n.inWaves++;
+      continue;
+    }
+    n.byCat[c]++;
+    if (A(el) === 'hide') n.hidden++;
+    else if (A(el) === 'collapse') n.folded++;
+  }
+  return n;
+}
+
+const inChat = () => rt.store.inChat.value;
+
+/** The same message in a new node where the old one was (Kick re-mounts rows scrolled back into view). */
+function remountRow(el: HTMLElement): HTMLElement {
+  const fresh = document.createElement('div');
+  fresh.className = 'msg';
+  for (const [k, v] of Object.entries(el.dataset)) if (!k.startsWith('hush')) fresh.dataset[k] = v;
+  fresh.textContent = el.textContent;
+  el.replaceWith(fresh);
+  return fresh;
+}
+
+describe('runtime: in chat now', () => {
+  it('always equals a recount of the list: adds, verdicts, reveals, removals, recycled and re-mounted nodes', async () => {
+    setup({ adapter: fakeAdapter({ observeSubtree: true }) });
+    let r = 7;
+    const rand = (n: number) => (r = (r * 16807) % 2147483647) % n;
+    const TEXTS = ['you are trash', 'nice play', 'when is the next stream?', '!drop', 'KEKW', 'b'.repeat(40), 'c'.repeat(40), 'GG', 'that boss fight was wild'];
+    const PRESET_IDS = ['raw', 'chill', 'focus', 'questions'] as const;
+    let enabled = true;
+    for (let step = 0; step < 400; step++) {
+      const rows = Array.from(list.children) as HTMLElement[];
+      const pick = rows[rand(rows.length || 1)];
+      const text = TEXTS[rand(TEXTS.length)]!;
+      switch (rand(12)) {
+        case 0:
+        case 1:
+        case 2: // a new message; KEKW from many people makes a wave
+          row(text, { user: `u${rand(9)}`, emotes: text === 'KEKW' ? 1 : 0 });
+          break;
+        case 3: // scrolled out of the list
+          pick?.remove();
+          break;
+        case 4: // a recycled node shows another message
+          if (pick) {
+            pick.dataset.key = `r${seq++}`;
+            pick.textContent = text;
+          }
+          break;
+        case 5: // the same message re-mounted in a new node
+          if (pick) remountRow(pick);
+          break;
+        case 6: // "Show in chat", or a click on a pill
+          if (pick && rand(2)) rt.reveal(pick.dataset.key ?? '');
+          else pick?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          break;
+        case 7: {
+          const p = PRESET_IDS[rand(PRESET_IDS.length)]!;
+          rt.setSettings({ ...DEFAULT_SETTINGS, preset: p, actions: { ...PRESETS[p] } });
+          break;
+        }
+        case 8: // Hush off and on again
+          enabled = !enabled;
+          rt.setSettings({ ...DEFAULT_SETTINGS, enabled });
+          break;
+        case 9: // holds run out
+          clock += 300;
+          break;
+        case 10: // the node moves (removed and added again)
+          if (pick) list.insertBefore(pick, rows[rand(rows.length)]!);
+          break;
+        case 11: // a new node for the same message while the old one is still there (YouTube re-renders)
+          if (pick?.dataset.key) {
+            const copy = pick.cloneNode(true) as HTMLElement;
+            for (const k of Object.keys(copy.dataset)) if (k.startsWith('hush')) delete copy.dataset[k];
+            for (const n of ['tabindex', 'role', 'aria-label']) copy.removeAttribute(n);
+            pick.after(copy);
+            await frame();
+            pick.remove();
+          }
+          break;
+      }
+      await frame();
+      if (rand(3) === 0) {
+        port.replyAll(scorer);
+        rt.flushNow();
+      }
+      const want = recount();
+      expect(inChat(), `step ${step}`).toEqual(want);
+      expect(Object.values(want.byCat).reduce((a, b) => a + b, 0) + want.inWaves).toBe(want.rows);
+    }
+    expect(rt.store.waves.value.length).toBeGreaterThan(0); // waves did form along the way
+  });
+
+  it('follows a settings change in the next store flush', async () => {
+    setup();
+    for (const ch of 'bcdef') row(ch.repeat(40)); // char floods: spam
+    for (let i = 0; i < 95; i++) row(i % 10 ? `message number ${i} here` : `you are trash number ${i}`, { user: `u${i}` });
+    await frame();
+    port.replyAll(scorer);
+    rt.flushNow();
+    expect(inChat()).toMatchObject({ rows: 100, hidden: 10, folded: 5 });
+    const hideAll = Object.fromEntries(CATEGORIES.map((c) => [c, 'hide'])) as Record<Category, Action>;
+    rt.setSettings({ ...DEFAULT_SETTINGS, preset: 'custom', actions: hideAll });
+    rt.flushNow();
+    expect(inChat()).toMatchObject({ rows: 100, hidden: 100, folded: 0 });
+    rt.setSettings({ ...DEFAULT_SETTINGS, preset: 'custom', actions: { ...hideAll, spam: 'show' } });
+    rt.flushNow();
+    expect(inChat().byCat.spam).toBe(5);
+    expect(inChat().hidden).toBe(95);
+  });
+
+  it('reads 0 once Hush or the site is off (the store is flushed, not frozen), and counts again when back', async () => {
+    setup();
+    row('you are trash');
+    row('nice play');
+    await frame();
+    port.replyAll(scorer);
+    rt.flushNow();
+    expect(inChat()).toMatchObject({ rows: 2, hidden: 1 });
+    for (const off of [{ enabled: false }, { sites: { ...DEFAULT_SETTINGS.sites, twitch: false } }]) {
+      rt.setSettings({ ...DEFAULT_SETTINGS, ...off });
+      rt.flushNow();
+      expect(inChat()).toEqual(zeroInChat());
+      rt.setSettings({ ...DEFAULT_SETTINGS });
+      rt.flushNow();
+      expect(inChat()).toMatchObject({ rows: 2, hidden: 1 });
+    }
+  });
+
+  it('writes the store only when the list changed', async () => {
+    setup();
+    row('nice play');
+    await frame();
+    port.replyAll(scorer);
+    rt.flushNow();
+    const before = inChat();
+    rt.tickNow(); // housekeeping marks the store dirty every second
+    rt.flushNow();
+    expect(inChat()).toBe(before);
+  });
+});
+
+// ───────────────────────── Show hidden and Solo ─────────────────────────
+
+describe('runtime: Show hidden and Solo', () => {
+  const advanced = { uiMode: 'advanced' } as const;
+  const css = () => document.getElementById('hush-row-style')!.textContent!;
+
+  /** A toxic message (hidden), two spam floods (one pill), a question (highlighted), a clean one. */
+  async function chat(): Promise<HTMLElement[]> {
+    const rows = [row('you are trash'), row('b'.repeat(40)), row('c'.repeat(40)), row('when is the next stream?'), row('nice play')];
+    await frame();
+    port.replyAll(scorer);
+    rt.flushNow();
+    return rows;
+  }
+
+  it('are a stylesheet swap: nothing is written on rows', async () => {
+    setup({ settings: advanced });
+    await chat();
+    const mo = new MutationObserver(() => {});
+    mo.observe(list, { subtree: true, attributes: true });
+    const before = css();
+    rt.setPeek(true);
+    expect(css()).toContain('content:"hidden · " attr(data-hush-r)');
+    rt.setSolo('spam');
+    expect(css()).toContain('[data-hush-c]:not([data-hush-c="spam"]){display:none!important}');
+    rt.setSolo(null);
+    expect(css()).toBe(before);
+    rt.flushNow();
+    expect(mo.takeRecords().filter((m) => m.target !== list)).toHaveLength(0);
+    mo.disconnect();
+  });
+
+  it('Basic tags hidden rows in plain words', async () => {
+    setup();
+    await chat();
+    rt.setPeek(true);
+    expect(rt.store.peek.value).toBe(true);
+    expect(css()).toContain('content:"Hidden · insult"');
+    expect(css()).not.toContain('attr(data-hush-r)'); // no reasons, no chips
+  });
+
+  it('Solo: Advanced only, while Hush is on; ends with Basic, Hush or the site off, another channel', async () => {
+    setup();
+    await chat();
+    rt.setSolo('spam'); // Basic: ignored
+    expect(rt.store.solo.value).toBeNull();
+    rt.setSettings({ ...DEFAULT_SETTINGS, ...advanced });
+    rt.setSolo('spam');
+    expect(rt.store.solo.value).toBe('spam');
+    rt.setSolo('toxic'); // another one: switches
+    expect(rt.store.solo.value).toBe('toxic');
+    rt.setSolo('toxic'); // the same again: everything
+    expect(rt.store.solo.value).toBeNull();
+
+    const ends: (() => void)[] = [
+      () => rt.setSettings({ ...DEFAULT_SETTINGS, uiMode: 'basic' }),
+      () => rt.setSettings({ ...DEFAULT_SETTINGS, ...advanced, enabled: false }),
+      () => rt.setSettings({ ...DEFAULT_SETTINGS, ...advanced, sites: { ...DEFAULT_SETTINGS.sites, twitch: false } }),
+      () => {
+        channel = 'someone-else';
+        rt.tickNow();
+      },
+    ];
+    for (const end of ends) {
+      rt.setSettings({ ...DEFAULT_SETTINGS, ...advanced });
+      rt.flushNow();
+      rt.setSolo('spam');
+      expect(rt.store.solo.value).toBe('spam');
+      end();
+      expect(rt.store.solo.value).toBeNull();
+    }
+    rt.setSettings({ ...DEFAULT_SETTINGS, ...advanced, enabled: false });
+    rt.setSolo('spam'); // off: ignored
+    expect(rt.store.solo.value).toBeNull();
+  });
+
+  it('Show hidden: Solo turns it off; it ends with Hush off or another channel and survives a level or mode change', async () => {
+    setup({ settings: advanced });
+    await chat();
+    rt.setPeek(true);
+    rt.setSolo('spam');
+    expect(rt.store.peek.value).toBe(false);
+    rt.setPeek(true); // and the other way round
+    expect([rt.store.peek.value, rt.store.solo.value]).toEqual([true, null]);
+    rt.setSettings({ ...DEFAULT_SETTINGS, ...advanced, preset: 'focus', actions: { ...PRESETS.focus } });
+    rt.setSettings({ ...DEFAULT_SETTINGS, uiMode: 'basic' });
+    expect(rt.store.peek.value).toBe(true);
+    rt.setSettings({ ...DEFAULT_SETTINGS, enabled: false });
+    expect(rt.store.peek.value).toBe(false);
+    rt.setPeek(true); // off: ignored
+    expect(rt.store.peek.value).toBe(false);
+    rt.setSettings({ ...DEFAULT_SETTINGS });
+    rt.flushNow();
+    rt.setPeek(true);
+    channel = 'someone-else';
+    rt.tickNow();
+    expect(rt.store.peek.value).toBe(false);
+    rt.setPeek(true);
+    rt.stop();
+    expect(rt.store.peek.value).toBe(false);
+  });
+
+  it('leave clicks and Enter on a folded row to the page', async () => {
+    setup({ settings: advanced });
+    const [, a, b] = await chat();
+    expect(b!.getAttribute('data-hush-run')).toBe('2');
+    const page = vi.fn();
+    document.addEventListener('click', page);
+    const enter = () => b!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    for (const [on, off] of [
+      [() => rt.setPeek(true), () => rt.setPeek(false)],
+      [() => rt.setSolo('spam'), () => rt.setSolo(null)],
+    ]) {
+      on!();
+      b!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(enter()).toBe(true); // not handled
+      await frame();
+      expect([a, b].some((r) => r!.hasAttribute('data-hush-open'))).toBe(false);
+      off!();
+    }
+    expect(page).toHaveBeenCalledTimes(2);
+    b!.dispatchEvent(new MouseEvent('click', { bubbles: true })); // no view: the pill opens its run
+    expect(page).toHaveBeenCalledTimes(2);
+    expect(b!.hasAttribute('data-hush-open')).toBe(true);
+    document.removeEventListener('click', page);
+  });
+
+  it('Solo hides new rows from birth and holds them for the model, even under Raw; both stop on exit', async () => {
+    setup({ settings: { ...advanced, preset: 'raw', actions: { ...PRESETS.raw } } });
+    expect(list.hasAttribute('data-hush-list')).toBe(false);
+    rt.setSolo('toxic');
+    expect(list.hasAttribute('data-hush-list')).toBe(true);
+    const r = row('such an idiot streamer');
+    await frame();
+    expect(held(r)).toBe(true);
+    port.replyAll(scorer);
+    rt.flushNow();
+    expect([A(r), C(r)]).toEqual(['show', 'toxic']); // Raw's verdict, untouched by Solo
+    rt.setSolo(null);
+    expect(list.hasAttribute('data-hush-list')).toBe(false);
+    const r2 = row('what a lovely evening');
+    await frame();
+    expect(A(r2)).toBe('show'); // not held
+  });
+
+  it('"Show in chat" of a row Solo hides ends Solo first', async () => {
+    setup({ settings: advanced });
+    const [bad, spam] = await chat();
+    rt.setSolo('spam');
+    expect(rt.reveal(spam!.dataset.key!)).toBe(true);
+    expect(rt.store.solo.value).toBe('spam'); // one of the soloed rows: Solo stays
+    expect(rt.reveal(bad!.dataset.key!)).toBe(true);
+    expect(rt.store.solo.value).toBeNull();
+    expect(A(bad!)).toBe('show');
+    expect(bad!.hasAttribute('data-hush-open')).toBe(true);
+  });
+
+  it('change no verdict and no count', async () => {
+    setup({ settings: advanced });
+    await chat();
+    const before = { ...inChat() };
+    const attrs = () => Array.from(list.children).map((el) => [A(el), C(el), el.getAttribute('data-hush-r')].join('|'));
+    const was = attrs();
+    rt.setSolo('question');
+    rt.flushNow();
+    rt.setPeek(true);
+    rt.flushNow();
+    expect(attrs()).toEqual(was);
+    expect(inChat()).toEqual(before);
   });
 });

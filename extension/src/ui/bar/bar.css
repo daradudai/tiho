@@ -3,8 +3,9 @@
  * Performance contract (it sits in a page that repaints chat all the time):
  * the compact row is size/layout/paint-contained, so a counter update lays
  * out and repaints only inside it; motion is opacity / transform only
- * (compositor); nothing animates continuously, and the calm ring steps in
- * whole percents without easing (an SVG stroke animates on the main thread). */
+ * (compositor); nothing animates continuously except the mark's loading
+ * ring, a rotation, while the model loads. The download ring steps with the
+ * model status, without easing (an SVG stroke animates on the main thread). */
 
 :host {
   all: initial !important;
@@ -109,7 +110,7 @@ button:focus-visible,
   padding: 0 8px 0 8px;
 }
 
-/* Mark with calm ring */
+/* Mark (its ring is model progress only) */
 .hb-mark {
   position: relative;
   width: 30px;
@@ -120,7 +121,8 @@ button:focus-visible,
   border-radius: 50%;
   transition: background-color var(--dur) var(--ease);
 }
-.hb-mark:hover {
+.hb-mark:hover,
+.hb[data-open] .hb-mark {
   background: var(--chip-hover);
 }
 /* the live mark: two stacked images; the excited one fades in on activity (pulseMark) */
@@ -156,73 +158,37 @@ button:focus-visible,
   stroke-width: 2;
   stroke-linecap: round;
 }
-.hb[data-off] .hb-mark {
+/* the model loads: a slow turn of a quarter ring, on the compositor */
+.hb-ring-spin {
+  position: absolute;
+  inset: 1px;
+  border-radius: 50%;
+  border: 2px solid var(--track);
+  border-top-color: var(--accent);
+  animation: hb-spin 1.6s linear infinite;
+  will-change: transform;
+}
+/* the model failed: an amber dot (simple filters still work) */
+.hb-mark-err {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 2px var(--hb-bg);
+}
+.hb[data-off] .hb-mark .hush-live {
   filter: grayscale(1);
   opacity: 0.6;
 }
-.hb[data-off] .hb-ring-fill,
-.hb-ring-fill[data-empty] {
-  opacity: 0;
-}
 
-/* Calm text (wide enough only) */
-.hb-calm {
-  display: none;
-  flex: none;
-  flex-direction: column;
-  justify-content: center;
-  min-width: 34px;
-  padding-right: 2px;
-  line-height: 1.05;
-}
-.hb-calm b {
-  font-size: 12.5px;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-}
-.hb-calm span {
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-@container hb (min-width: 360px) {
-  .hb-calm {
-    display: flex;
-  }
-}
-
-/* Preset: pill + popover when narrow, segmented control when wide */
-.hb-preset-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  height: 24px;
-  padding: 0 6px 0 8px;
-  border-radius: 7px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-  background: var(--soft-2);
-  flex: none;
-  transition: background-color var(--dur) var(--ease);
-}
-.hb-preset-pill:hover,
-.hb-preset-pill[aria-expanded="true"] {
-  background: var(--chip-hover);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
-}
-.hb-preset-pill .ico {
-  color: var(--text-3);
-}
-
+/* Segmented control (Basic's level, Advanced's preset when wide) */
 .hb-seg {
-  display: none;
   position: relative;
-  grid-template-columns: repeat(4, 1fr);
-  width: 188px;
+  display: grid;
+  grid-template-columns: repeat(var(--n), 1fr);
   height: 24px;
   padding: 2px;
   border-radius: 8px;
@@ -234,12 +200,13 @@ button:focus-visible,
   top: 2px;
   bottom: 2px;
   left: 2px;
-  width: calc((100% - 4px) / 4);
+  width: calc((100% - 4px) / var(--n));
   border-radius: 6px;
   background: var(--hb-raised);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25), inset 0 0 0 1px var(--line-strong);
   transform: translateX(calc(var(--i) * 100%));
   transition: transform var(--dur) var(--ease);
+  pointer-events: none;
 }
 .hb[data-theme="light"] .hb-seg-thumb {
   background: #fff;
@@ -264,13 +231,154 @@ button:focus-visible,
 .hb-seg-btn[aria-checked="true"] {
   color: var(--text);
 }
+.hb-seg-btn:focus-visible {
+  outline-offset: -1px;
+}
+
+/* ── Basic ─────────────────────────────────────────────────────────── */
+
+.hb-level {
+  width: 162px;
+  height: 26px;
+  margin-left: 4px;
+}
+.hb-level .hb-seg-btn {
+  font-size: 12px;
+}
+.hb-level .hb-seg-btn[aria-checked="true"] {
+  font-weight: 650;
+}
+
+/* Show hidden: text and eye; the eye alone in a narrow column */
+.hb-peek {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  margin-left: auto;
+  padding: 0 9px 0 8px;
+  border-radius: 8px;
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-2);
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.hb-peek:hover {
+  background: var(--chip-hover);
+  color: var(--text);
+}
+.hb-peek[aria-pressed="true"],
+.hb-peek-ico[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+@container hb (max-width: 299px) {
+  .hb-peek {
+    width: 26px;
+    padding: 0;
+    justify-content: center;
+  }
+  .hb-peek-t {
+    display: none;
+  }
+}
+/* where Show hidden sits while Hush is off: words, not a button */
+.hb-offnote {
+  margin-left: auto;
+  min-width: 0;
+  padding-right: 4px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-3);
+}
+
+/* ── Advanced ──────────────────────────────────────────────────────── */
+
+/* Preset: pill + popover when narrow, segmented control when wide */
+.hb-preset-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 6px 0 8px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--soft-2);
+  flex: none;
+  transition: background-color var(--dur) var(--ease);
+}
+.hb-preset-pill:hover,
+.hb-preset-pill[aria-expanded="true"] {
+  background: var(--chip-hover);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.hb-preset-pill .ico {
+  color: var(--text-3);
+}
+.hb-preset-seg {
+  display: none;
+  width: 196px;
+}
 @container hb (min-width: 520px) {
   .hb-preset-pill {
     display: none;
   }
-  .hb-seg {
+  .hb-preset-seg {
     display: grid;
   }
+}
+
+/* Solo: takes the preset's place ("Only Spam · 8 ×"); a click shows everything */
+.hb-solo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 168px;
+  height: 24px;
+  padding: 0 4px 0 7px;
+  border-radius: 7px;
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--on-accent);
+  background: var(--accent-solid);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  transition: background-color var(--dur) var(--ease);
+}
+.hb-solo:hover {
+  background: var(--accent-solid-hover);
+}
+.hb-solo-t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.hb-solo-x {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  flex: none;
+  background: rgba(255, 255, 255, 0.16);
+}
+.hb-solo:focus-visible {
+  outline-offset: 2px;
 }
 
 /* Chips: a horizontal scroller with static edge fades (overlays toggled by
@@ -348,6 +456,19 @@ button:focus-visible,
 .hb-chip:active {
   transform: scale(0.96);
 }
+/* Solo: the category shown alone is pressed; the others fade and switch it with one click */
+.hb-chip[aria-pressed="true"] {
+  color: var(--text);
+  background: color-mix(in srgb, var(--c) 18%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--c) 60%, transparent);
+}
+.hb-chip[data-faded] {
+  opacity: 0.45;
+}
+.hb-chip[data-faded]:hover,
+.hb-chip[data-faded]:focus-visible {
+  opacity: 1;
+}
 /* chips sit in a clipping scroller and menu items touch: their ring goes inside */
 .hb-chip:focus-visible,
 .hb-menu-item:focus-visible {
@@ -371,7 +492,7 @@ button:focus-visible,
   min-width: 8px;
 }
 /* state: highlight = tinted capsule */
-.hb-chip[data-a="highlight"] {
+.hb-chip[data-a="highlight"]:not([aria-pressed="true"]) {
   color: var(--text);
   background: color-mix(in srgb, var(--c) 15%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 32%, transparent);
@@ -486,7 +607,7 @@ button:focus-visible,
   background: var(--soft-2);
 }
 
-/* Paused */
+/* Off: "Hush is off" + Turn on */
 .hb-paused {
   flex: 1;
   display: flex;
@@ -522,6 +643,11 @@ button:focus-visible,
 .hb-btn:hover {
   background: var(--chip-hover);
   box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.hb-btn[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
 }
 .hb-btn-accent {
   background: var(--accent-solid);
@@ -608,12 +734,27 @@ button:focus-visible,
   color: var(--c);
   background: color-mix(in srgb, var(--c) 15%, transparent);
 }
+.hb-menu-cat .hb-menu-text b {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
 .hb-menu-cat b em {
   font-style: normal;
+  font-size: 10.5px;
   font-weight: 500;
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
-  margin-left: 2px;
+  white-space: nowrap;
+}
+.hb-menu-sep {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--line);
+}
+.hb-menu-solo .hb-menu-aico {
+  color: var(--c);
 }
 .hb-menu-item {
   display: flex;
@@ -711,41 +852,49 @@ button:focus-visible,
   scrollbar-color: var(--line-strong) transparent;
   padding: 12px 12px 12px;
 }
+/* "In chat now": what the chat list holds right now */
 .hp-head {
+  margin-bottom: 12px;
+}
+.hp-head-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: 8px;
+  min-height: 24px;
 }
-.hp-calm {
+.hp-head-btns {
   display: flex;
-  align-items: baseline;
-  gap: 7px;
-  min-width: 0;
+  gap: 5px;
+  flex: none;
 }
-.hp-calm b {
-  font-size: 24px;
-  line-height: 1;
-  font-weight: 680;
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-  background: var(--grad-brand);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.hp-calm span {
-  font-size: 11.5px;
+.hp-now {
+  margin-top: 5px;
+  font-size: 12px;
   color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
-.hp-calm em {
+.hp-now b {
+  font-size: 16px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.hp-now i {
   font-style: normal;
   color: var(--text-3);
-  margin: 0 1px;
+  margin: 0 3px;
+}
+/* the window a number describes ("last 60 s", "in chat now") */
+.hp-win {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-3);
+}
+.hp-tile .hp-win {
+  margin: -3px 0 2px;
 }
 
 .hp-tiles {
@@ -808,24 +957,60 @@ button:focus-visible,
   grid-template-columns: 1fr 1fr;
   gap: 5px;
 }
+/* a category: the row shows only it (Solo), ▾ changes what happens to it */
 .hp-cat {
-  display: grid;
-  grid-template-columns: 22px 1fr auto;
-  align-items: center;
-  gap: 8px;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
   height: 38px;
-  padding: 0 9px 0 7px;
   border-radius: 9px;
-  color: var(--text);
   background: var(--soft);
   box-shadow: inset 0 0 0 1px var(--line);
   transition:
     background-color var(--dur-fast) var(--ease),
-    box-shadow var(--dur-fast) var(--ease);
+    box-shadow var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
 }
 .hp-cat:hover {
   background: var(--chip-hover);
   box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.hp-cat-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 3px 0 7px;
+  border-radius: 9px 0 0 9px;
+  color: var(--text);
+}
+.hp-cat-more {
+  flex: none;
+  width: 21px;
+  display: grid;
+  place-items: center;
+  border-radius: 0 9px 9px 0;
+  color: var(--text-3);
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.hp-cat-more:hover {
+  color: var(--text);
+  background: var(--chip-hover);
+}
+.hp-cat-main:focus-visible,
+.hp-cat-more:focus-visible {
+  outline-offset: -2px;
+}
+.hp-cat[data-faded] {
+  opacity: 0.5;
+}
+.hp-cat[data-faded]:hover,
+.hp-cat[data-faded]:focus-within {
+  opacity: 1;
 }
 .hp-cat-ico {
   width: 22px;
@@ -900,6 +1085,10 @@ button:focus-visible,
 .hp-cat[data-a="highlight"] {
   background: color-mix(in srgb, var(--c) 9%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 28%, transparent);
+}
+.hp-cat[data-soloed] {
+  background: color-mix(in srgb, var(--c) 13%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--c) 60%, transparent);
 }
 
 .hp-waves {
@@ -997,12 +1186,19 @@ button:focus-visible,
 .hp-foot {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 4px 8px;
   padding: 8px 12px;
   border-top: 1px solid var(--line);
   background: var(--soft);
+}
+.hp-foot-links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
 }
 .hp-model {
   display: inline-flex;
@@ -1035,6 +1231,217 @@ button:focus-visible,
 }
 .hb-link:hover {
   background: var(--accent-soft);
+}
+.hb-link-quiet {
+  margin-right: 0;
+  color: var(--text-2);
+}
+.hb-link-quiet:hover {
+  color: var(--text);
+  background: var(--chip-hover);
+}
+
+/* ── Basic sheet ───────────────────────────────────────────────────── */
+
+.hb-sheet .hp-body {
+  padding: 12px 12px 14px;
+}
+.hs-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 24px;
+  padding: 0 2px 11px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+.hs-status-t {
+  flex: 1;
+  min-width: 0;
+}
+.hs-status .hb-dot,
+.hs-status .hb-spin {
+  margin: 0 2px;
+}
+.hs-status[data-tone="err"] .hb-dot {
+  --dot: var(--warn);
+}
+.hs-status[data-tone="off"] {
+  color: var(--text-2);
+}
+
+.hs-q {
+  margin: 0 2px 8px;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+.hs-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hs-level {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: start;
+  gap: 10px;
+  padding: 9px 11px 10px 10px;
+  border-radius: 10px;
+  background: var(--soft);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.hs-level:hover {
+  background: var(--chip-hover);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.hs-level[aria-checked="true"] {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent-line);
+}
+.hs-radio {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+}
+.hs-radio::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: scale(0);
+  transition: transform var(--dur) var(--ease);
+}
+.hs-level[aria-checked="true"] .hs-radio {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.hs-level[aria-checked="true"] .hs-radio::after {
+  transform: scale(1);
+}
+.hs-level-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.hs-level-text b {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.hs-level-text > span {
+  font-size: 11px;
+  line-height: 1.38;
+  color: var(--text-2);
+}
+.hs-badge {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.hs-note {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-2);
+  background: var(--soft);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.hs-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 11px 2px 0;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.hs-mode {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 11px 2px 0;
+  border-top: 1px solid var(--line);
+}
+.hs-mode-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.hs-mode-text b {
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.hs-mode-text span {
+  font-size: 11px;
+  line-height: 1.38;
+  color: var(--text-3);
+}
+.hs-mode:focus-visible {
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.hb-switch {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--soft-2);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  transition: background-color var(--dur) var(--ease);
+}
+.hb-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transition: transform var(--dur) var(--ease);
+}
+.hs-mode:hover .hb-switch {
+  background: var(--chip-hover);
+}
+[aria-checked="true"] > .hb-switch {
+  background: var(--accent-solid);
+  box-shadow: none;
+}
+[aria-checked="true"] > .hb-switch::after {
+  background: #fff;
+  transform: translateX(12px);
+}
+.hs-foot {
+  justify-content: flex-start;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--text-3);
 }
 
 /* Charts */
@@ -1074,7 +1481,8 @@ button:focus-visible,
     animation-duration: 0ms !important;
     transition-duration: 0ms !important;
   }
-  .hb-spin {
+  .hb-spin,
+  .hb-ring-spin {
     animation: none;
   }
 }

@@ -14,6 +14,11 @@
 //               (that row is the pill: a button for the keyboard too)
 //  FLUSH      : classifier batch → Port; Store (≤ 4 Hz, one batch())
 //
+// What the list holds right now (Store.inChat) is kept in O(1) per change:
+// each row remembers what it adds to the counters, and every write or removal
+// moves them by the difference. Show hidden and Solo (views of this tab) swap
+// the stylesheet and write nothing on rows.
+//
 // No layout reads, no inline styles, one stylesheet. Rows are tracked in a
 // WeakMap; a row whose content changes (recycled node) is re-evaluated. A
 // message seen before that comes back in a new node keeps what was decided
@@ -26,16 +31,16 @@ import { cleanForModel, normalize } from '../core/normalize';
 import { decide, modelCanHide, policyContext, type PolicyContext } from '../core/policy';
 import { needsModel, RuleEngine, Sig, type RuleResult } from '../core/rules';
 import type { Settings } from '../core/settings';
-import { createStore, type LogEntry, type Store } from '../core/store';
+import { createStore, zeroInChat, type InChat, type LogEntry, type Store } from '../core/store';
 import type { Category, ChatMessage, ModelStatus, PerfStats, Verdict } from '../core/types';
 import { WaveDetector, type WaveHit, type WaveOptions } from '../core/waves';
 import type { BarActions, MountBar } from '../core/bar-actions';
 import type { PlatformAdapter } from '../platforms/types';
 import { modelKey, type ClassifierClient } from './classifier';
-import { ATTR, RowStyles } from './styles';
+import { ATTR, RowStyles, type StyleOptions } from './styles';
 
 export interface RuntimeReport {
-  stats: PerfStats & { platform: string; channel: string; counts: Record<string, number> };
+  stats: PerfStats & { platform: string; channel: string };
 }
 
 export interface RuntimeOptions {
@@ -50,7 +55,7 @@ export interface RuntimeOptions {
   caf?: (id: number) => void;
   mountBar?: MountBar | null;
   barActions?: BarActions | null;
-  /** Called every ~2 s with perf + counts (e.g. forwarded to the background). */
+  /** Called every ~2 s with perf (e.g. forwarded to the background). */
   onReport?: (r: RuntimeReport) => void;
   /** Min interval between Store writes for counters/logs (ms). */
   storeIntervalMs?: number;
@@ -62,6 +67,9 @@ export interface RuntimeOptions {
   /** Called whenever the runtime attaches to a chat list (e.g. to open the classifier Port lazily). */
   onAttach?: (list: HTMLElement) => void;
 }
+
+/** What a row adds to InChat: nothing (no verdict yet), shown, hidden, folded into a pill, or folded into a wave head. */
+type Tally = '' | 'shown' | 'hidden' | 'folded' | 'wave';
 
 interface RowState {
   key: string;
@@ -81,8 +89,10 @@ interface RowState {
   /** Hold deadline (0 = not held). */
   deadline: number;
   t0: number;
-  counted: Category | null;
-  filtered: boolean;
+  /** What this row adds to inChat now, from the attributes written on it (see tally)... */
+  tk: Tally;
+  /** ...and under which category ('' when it adds nothing). */
+  tc: Category | '';
   loggedFiltered: boolean;
   loggedQuestion: boolean;
   vibed: boolean;
@@ -114,17 +124,6 @@ const COALESCE_MIN_RATE = 20; // msg/s
 const COLLAPSED = `[${ATTR.action}="collapse"]`;
 /** What the pill row says to assistive tech (the pill itself is drawn by the stylesheet). */
 const pillLabel = (n: number) => `${n} hidden message${n === 1 ? '' : 's'}, show`;
-
-const zeroCounts = (): Record<Category, number> => ({
-  toxic: 0,
-  scam: 0,
-  spam: 0,
-  noise: 0,
-  negative: 0,
-  question: 0,
-  positive: 0,
-  clean: 0,
-});
 
 /** 0 = takes no space (hidden / wave member), 1 = collapsed (part of a pill run), 2 = visible. */
 function visClass(el: Element): number {
@@ -216,6 +215,8 @@ export class HushRuntime {
 
   private running = false;
   private active = false;
+  /** The settings can hide or fold a message (an action or a block rule). */
+  private canHide = false;
   /** Hide rows until their first verdict (list-level data-hush-list). */
   private holdAtBirth = false;
   private listMarked = false;
@@ -238,11 +239,15 @@ export class HushRuntime {
   private href = '';
   private channel = '';
   private theme: 'dark' | 'light' = 'dark';
+  /** Views of this tab, never saved (mirrored in store.peek / store.solo). */
+  private peek = false;
+  private solo: Category | null = null;
 
   // store accumulators
-  private counts = zeroCounts();
+  /** What the list holds now (see tally); copied into the store when it changed. */
+  private inChat: InChat = zeroInChat();
+  private inChatDirty = false;
   private seen = 0;
-  private filteredCount = 0;
   private newQuestions: LogEntry[] = [];
   private newFiltered: LogEntry[] = [];
   private storeDirty = false;
@@ -380,6 +385,7 @@ export class HushRuntime {
     const row = this.byKey.get(key);
     const st = row && this.states.get(row);
     if (!row || !st) return false;
+    if (this.solo && st.c !== this.solo) this.setViews(false, null); // Solo hides it: show everything first
     st.revealed = true;
     row.setAttribute(ATTR.open, '');
     this.writeRow(row, st);
@@ -390,6 +396,47 @@ export class HushRuntime {
       /* not in a scrollable view */
     }
     return true;
+  }
+
+  /**
+   * Show hidden in this tab (never saved): hidden and folded rows come back in
+   * place, faded and tagged. Ends Solo. Ignored while Hush is off here.
+   */
+  setPeek(on: boolean): void {
+    if (on && !this.active) return;
+    this.setViews(on, on ? null : this.solo);
+  }
+
+  /**
+   * Show only this category in this tab (never saved); the same one again, or
+   * null, shows everything. Ends Show hidden. Advanced mode only, and only
+   * while Hush is on here: ignored otherwise.
+   */
+  setSolo(cat: Category | null): void {
+    if (cat && (!this.active || this.settings.uiMode !== 'advanced')) return;
+    const next = cat === this.solo ? null : cat;
+    this.setViews(next ? false : this.peek, next);
+  }
+
+  /**
+   * The views are user actions: the store changes at once (not with the
+   * store batch), then one stylesheet swap. Nothing is written on rows and
+   * nothing is decided again. Solo also changes what is held at birth.
+   */
+  private setViews(peek: boolean, solo: Category | null): void {
+    if (peek === this.peek && solo === this.solo) return;
+    const soloChanged = solo !== this.solo;
+    this.peek = peek;
+    this.solo = solo;
+    batch(() => {
+      this.store.peek.value = peek;
+      this.store.solo.value = solo;
+    });
+    this.styles.update(this.styleOpts());
+    if (soloChanged) {
+      this.syncHold();
+      this.syncListMark();
+    }
   }
 
   /** Run a frame synchronously (tests / harness). */
@@ -432,10 +479,11 @@ export class HushRuntime {
     this.rules.setSettings(s);
     this.ctx = policyContext(s, this.thresholds);
     const blockRules = s.rules.some((r) => r.enabled && r.mode === 'block');
-    this.holdAtBirth = Object.values(s.actions).some((a) => a === 'hide' || a === 'collapse') || blockRules;
-    this.holdOn = this.computeHold();
+    this.canHide = Object.values(s.actions).some((a) => a === 'hide' || a === 'collapse') || blockRules;
     const wasActive = this.active;
     this.active = s.enabled && s.sites[this.adapter.platform] !== false;
+    if (this.solo && s.uiMode !== 'advanced') this.setViews(this.peek, null); // Solo is Advanced only (off here: detach ends both views)
+    this.syncHold();
     if (!this.running) return;
     if (this.list) this.styles.update(this.styleOpts());
     if (wasActive && !this.active) {
@@ -473,13 +521,23 @@ export class HushRuntime {
     list.setAttribute(ATTR.list, '');
   }
 
-  private computeHold(): boolean {
-    const s = this.settings;
-    return !!this.classifier && s.holdMs > 0 && this.classifier.holdable && modelCanHide(s.actions);
+  /**
+   * New rows are hidden from birth, and held for the model, when the settings
+   * can hide one, or during Solo: any row may turn out to be another category.
+   */
+  private syncHold(): void {
+    this.holdAtBirth = this.canHide || !!this.solo;
+    this.holdOn = this.computeHold();
   }
 
-  private styleOpts() {
-    return { decorate: this.settings.decorate, theme: this.theme, platform: this.adapter.platform };
+  private computeHold(): boolean {
+    const s = this.settings;
+    return !!this.classifier && s.holdMs > 0 && this.classifier.holdable && (modelCanHide(s.actions) || !!this.solo);
+  }
+
+  private styleOpts(): StyleOptions {
+    const s = this.settings;
+    return { decorate: s.decorate, theme: this.theme, platform: this.adapter.platform, mode: s.uiMode, peek: this.peek, solo: this.solo };
   }
 
   /** Recompute verdicts for every live row (settings / thresholds changed). */
@@ -575,16 +633,25 @@ export class HushRuntime {
   }
 
   private detach(clear: boolean): void {
+    this.setViews(false, null); // Hush or the site off, another channel or page
     this.observer?.disconnect();
     this.observer = null;
     this.list?.removeEventListener('click', this.onClick, true);
     this.list?.removeEventListener('keydown', this.onKeyDown, true);
     this.list?.removeAttribute(ATTR.list);
     this.listMarked = false;
-    if (clear) {
-      for (const row of this.live) this.clearRow(row);
-      this.states = new WeakMap();
+    // the list holds nothing now; the next store flush says so (scheduled below)
+    for (const row of this.live) {
+      const st = this.states.get(row);
+      if (st) {
+        st.tk = '';
+        st.tc = '';
+      }
+      if (clear) this.clearRow(row);
     }
+    if (clear) this.states = new WeakMap();
+    this.inChat = zeroInChat();
+    this.inChatDirty = this.storeDirty = true;
     this.list = null;
     this.live.clear();
     this.byKey.clear();
@@ -597,6 +664,7 @@ export class HushRuntime {
     this.waveHeads.clear();
     this.waveDirty.clear();
     this.runDirty.clear();
+    this.schedule();
   }
 
   private isRow(n: Node): n is HTMLElement {
@@ -655,15 +723,20 @@ export class HushRuntime {
       return false;
     }
     const st = this.states.get(n);
-    if (st && this.byKey.get(st.key) === n) this.byKey.delete(st.key);
-    if (st && st.deadline) {
+    if (!st) return false;
+    this.untally(st);
+    if (this.byKey.get(st.key) === n) this.byKey.delete(st.key);
+    if (st.deadline) {
       st.deadline = 0;
       this.held.delete(n);
     }
-    return !!st && st.vis !== 0;
+    return st.vis !== 0;
   }
 
+  // Show hidden and Solo show rows as they are: clicks and keys are the page's
+  // (a click on a username in a peeked folded row must not open its run for good).
   private onClick = (e: Event): void => {
+    if (this.peek || this.solo) return;
     const t = e.target as Element | null;
     const row = t && typeof t.closest === 'function' ? t.closest(`${COLLAPSED}:not([${ATTR.open}])`) : null;
     if (row && row.parentElement === this.list) this.openPill(row, e);
@@ -671,7 +744,7 @@ export class HushRuntime {
 
   /** Enter or Space on the focused pill (the run's last row, a button: see markRun) opens it like a click. */
   private onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
+    if ((e.key !== 'Enter' && e.key !== ' ') || this.peek || this.solo) return;
     const row = e.target as Element | null;
     if (row && row.parentElement === this.list && row.hasAttribute(ATTR.run) && !row.hasAttribute(ATTR.open)) this.openPill(row, e);
   };
@@ -834,6 +907,7 @@ export class HushRuntime {
         // same message re-added / no-op content change
         this.live.add(row);
         this.byKey.set(prev.key, row);
+        this.tally(prev);
         return;
       }
       this.forget(row, prev); // recycled node: new message in an old row
@@ -860,8 +934,8 @@ export class HushRuntime {
       viaModel: false,
       deadline: 0,
       t0: now,
-      counted: null,
-      filtered: false,
+      tk: '',
+      tc: '',
       loggedFiltered: false,
       loggedQuestion: false,
       vibed: false,
@@ -950,6 +1024,8 @@ export class HushRuntime {
     const old = this.byKey.get(msg.key);
     if (old && old !== row) {
       // the list re-rendered and the old node is not gone yet
+      const st = this.states.get(old);
+      if (st) this.untally(st);
       this.live.delete(old);
       this.held.delete(old);
       this.states.delete(old);
@@ -965,8 +1041,6 @@ export class HushRuntime {
     st.wave = known.wave;
     st.viaModel = known.viaModel;
     st.t0 = 0; // its latency was measured the first time
-    st.counted = known.counted;
-    st.filtered = known.filtered;
     st.loggedFiltered = known.loggedFiltered;
     st.loggedQuestion = known.loggedQuestion;
     st.vibed = known.vibed;
@@ -1000,6 +1074,7 @@ export class HushRuntime {
   };
 
   private forget(row: HTMLElement, st: RowState): void {
+    this.untally(st);
     if (this.byKey.get(st.key) === row) this.byKey.delete(st.key);
     if (st.deadline) this.held.delete(row);
     st.deadline = 0;
@@ -1141,18 +1216,6 @@ export class HushRuntime {
     st.verdict = v;
     st.final = final;
     const cat = v.category;
-    if (st.counted !== cat) {
-      if (st.counted) this.counts[st.counted]--;
-      this.counts[cat]++;
-      st.counted = cat;
-      this.storeDirty = true;
-    }
-    const filt = v.action === 'hide' || v.action === 'collapse';
-    if (filt !== st.filtered) {
-      this.filteredCount += filt ? 1 : -1;
-      st.filtered = filt;
-      this.storeDirty = true;
-    }
     if (final) {
       const m = this.metrics;
       if (st.t0) {
@@ -1161,6 +1224,7 @@ export class HushRuntime {
         if (st.viaModel) m.modelLat[m.modelLatN++ % LAT_RING] = lat;
         st.t0 = 0;
       }
+      const filt = v.action === 'hide' || v.action === 'collapse';
       const waveMember = !!(st.wave && st.wave.role === 'member' && v.action === 'collapse');
       if (filt && !st.loggedFiltered && !waveMember) {
         st.loggedFiltered = true;
@@ -1229,6 +1293,7 @@ export class HushRuntime {
       else row.removeAttribute(ATTR.waveMember);
       st.wm = wm;
     }
+    this.tally(st);
     // Pill runs are re-counted once all rows of the frame are written
     // (writeRuns). A row at the bottom that is not and was not collapsed
     // cannot change any run: skip it (the common case).
@@ -1351,6 +1416,47 @@ export class HushRuntime {
     this.markRun(row, undefined, 0);
   }
 
+  // ───────────────────────────── in chat now ─────────────────────────────
+
+  /**
+   * Move inChat from what a row added so far to what the attributes written
+   * on it say now (its verdict's category; shown, hidden, folded, or folded
+   * into a wave head), in O(1). Every write of a live row's (a, c, wm) ends
+   * here and every row leaving `live` is untallied, so the counters always
+   * equal a recount of the list.
+   */
+  private tally(st: RowState): void {
+    const c = st.c as Category | '';
+    const k: Tally = !c ? '' : st.wm ? 'wave' : st.a === 'hide' ? 'hidden' : st.a === 'collapse' ? 'folded' : 'shown';
+    this.contribute(st, k, c);
+  }
+
+  private untally(st: RowState): void {
+    this.contribute(st, '', '');
+  }
+
+  private contribute(st: RowState, k: Tally, c: Category | ''): void {
+    if (st.tk === k && st.tc === c) return;
+    this.count(st.tk, st.tc, -1);
+    this.count(k, c, 1);
+    st.tk = k;
+    st.tc = c;
+    this.inChatDirty = this.storeDirty = true;
+  }
+
+  private count(k: Tally, c: Category | '', d: number): void {
+    if (!k) return;
+    const n = this.inChat;
+    n.rows += d;
+    if (k === 'wave') {
+      n.inWaves += d;
+      return;
+    }
+    n.byCat[c as Category] += d;
+    if (k === 'hidden') n.hidden += d;
+    else if (k === 'folded') n.folded += d;
+  }
+
   // ───────────────────────────── store ─────────────────────────────
 
   private flushStore(now: number): void {
@@ -1363,9 +1469,11 @@ export class HushRuntime {
     this.newFiltered = [];
     const wavesDirty = this.wavesDirty;
     this.wavesDirty = false;
+    const inChat = this.inChatDirty ? { ...this.inChat, byCat: { ...this.inChat.byCat } } : null;
+    this.inChatDirty = false;
     batch(() => {
-      s.counts.value = { ...this.counts };
-      s.totals.value = { seen: this.seen, filtered: this.filteredCount };
+      if (inChat) s.inChat.value = inChat;
+      s.seen.value = this.seen;
       if (nq.length) s.questions.value = nq.reverse().concat(s.questions.peek()).slice(0, 100);
       if (nf.length) s.filtered.value = nf.reverse().concat(s.filtered.peek()).slice(0, 200);
       if (wavesDirty) {
@@ -1411,6 +1519,7 @@ export class HushRuntime {
         if (ch !== this.channel) {
           this.channel = ch;
           this.store.channel.value = ch;
+          this.setViews(false, null);
           this.waves.reset();
           this.rules.reset();
           this.recent.clear();
@@ -1457,7 +1566,7 @@ export class HushRuntime {
       this.store.perf.value = perf;
     });
     if (this.onReport && this.list && this.ticks % 2 === 0) {
-      this.onReport({ stats: { ...perf, platform: this.adapter.platform, channel: this.channel, counts: { ...this.counts } } });
+      this.onReport({ stats: { ...perf, platform: this.adapter.platform, channel: this.channel } });
     }
     this.schedule();
     this.account(t0, 2);

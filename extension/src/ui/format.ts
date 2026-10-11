@@ -55,6 +55,11 @@ export function vibeWord(v: number): string {
   return 'Heated';
 }
 
+/** The color a vibe's word takes: 'mid' exactly when vibeWord says Neutral. */
+export function vibeTone(v: number): 'pos' | 'mid' | 'neg' {
+  return v > 0.15 ? 'pos' : v > -0.15 ? 'mid' : 'neg';
+}
+
 export function strictWord(v: number): string {
   if (v < 0.34) return 'Lenient';
   if (v < 0.67) return 'Balanced';

@@ -1,20 +1,42 @@
-// The in-chat bar. Compact row (~36 px): mark + calm ring, preset switch,
-// category chips with live counters, model status; expands into a mini
-// dashboard overlay. Reads only the frame-throttled View, never the raw store.
+// The in-chat bar, in two modes (docs/ux-modes.md).
+//
+// Basic (the default, for someone who sees chat for the first time): the
+// mark, one choice (Off · Clean · Quiet) and Show hidden; the mark opens a
+// sheet that says the same in words. It shows no numbers and reads no chat
+// data, so it never re-renders while chat flows (only on settings, model
+// status, the tab's views or the open state).
+//
+// Advanced (streamers, mods): presets, category chips with what is in chat
+// now (click: show only that category, right-click: change what happens to
+// it), Show hidden, model status; expands into a live view.
+//
+// Reads only the frame-throttled View, never the raw store.
 
-import { useComputed, type ReadonlySignal } from '@preact/signals';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { computed, useComputed, type ReadonlySignal } from '@preact/signals';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { BarActions } from '../../core/bar-actions';
-import type { PresetId } from '../../core/settings';
-import type { Action, Category, ModelStatus } from '../../core/types';
-import { modelSummary } from '../model-status';
+import { advancedExtras, basicLevel, type BasicLevel, type PresetId, type Settings } from '../../core/settings';
+import type { Action, Category, ModelStatus, Platform } from '../../core/types';
+import { modelSummary, plainModelStatus, retryModel } from '../model-status';
 import { CATEGORIES } from '../../core/types';
 import { LiveMark } from '../brand';
 import { Diverging, Ring, Sparkline } from '../charts';
-import { ago, compact, grouped, pct, rate, vibeWord } from '../format';
+import { ago, compact, grouped, rate, vibeTone, vibeWord } from '../format';
 import { Icon } from '../icons';
 import { iconImage } from './glyphs';
-import { ACTION_META, CATEGORY_META, CHIP_CATEGORIES, PRESET_META, PRESET_ORDER, PLATFORM_SURFACE, nextAction, type Theme } from '../tokens';
+import {
+  ACTION_META,
+  CATEGORY_META,
+  CHIP_CATEGORIES,
+  LEVEL_META,
+  LEVEL_ORDER,
+  PLAIN,
+  PRESET_META,
+  PRESET_ORDER,
+  PLATFORM_SURFACE,
+  SITE_NAME,
+  type Theme,
+} from '../tokens';
 import type { View } from './view';
 
 const SHORT: Record<Category, string> = {
@@ -30,8 +52,13 @@ const SHORT: Record<Category, string> = {
 
 const MENU_ACTIONS: Action[] = ['show', 'highlight', 'dim', 'collapse', 'hide'];
 
-type Tip = { title: string; sub?: string; x: number; y: number; below: boolean };
-/** An open menu; `from` is the chip or pill that opened it (focus returns there). */
+/**
+ * A tooltip. A sub with "{n}" names a category count (data-tip-n): it is
+ * filled in while the tip shows, so numbers stay live without rewriting
+ * attributes while chat flows.
+ */
+type Tip = { title: string; sub?: string; n?: Category; x: number; y: number };
+/** An open menu; `from` is the chip or button that opened it (focus returns there). */
 type Menu = ({ kind: 'chip'; cat: Category } | { kind: 'preset' }) & { x: number; y: number; from: HTMLElement };
 
 export interface BarProps {
@@ -51,16 +78,31 @@ export function Bar({ v, actions, markRef }: BarProps) {
   /** The tip on screen came from keyboard focus (focusout hides it). */
   const tipFocus = useRef(false);
 
-  const calm = useCalm(v);
   const settings = v.settings.value;
   const theme = v.theme.value;
   const platform = v.platform.value || 'default';
+  const site = SITE_NAME[platform] ? (platform as Platform) : undefined;
+  const peek = v.peek.value;
+  const solo = v.solo.value;
+  const advanced = settings.uiMode === 'advanced';
+  const level = basicLevel(settings, site);
+  /** Hush runs on this site: on, and not turned off here. */
+  const on = level !== 'off';
   const surf = (PLATFORM_SURFACE[platform] ?? PLATFORM_SURFACE.default)[theme];
 
-  // Close popovers on outside pointerdown / Escape. Events inside the bar are
-  // stopped at the wrapper, so anything reaching the document is "outside".
+  /** Close the menu and give focus back to the chip or button that opened it. */
+  const closeMenu = () => {
+    menu?.from.focus({ preventScroll: true });
+    setMenu(null);
+  };
+
+  // Popovers close on an outside pointerdown. Escape closes a menu, then the
+  // panel, then ends Solo, then Show hidden; the listener is there only while
+  // one of them is. Events inside the bar are stopped at the wrapper, so
+  // anything reaching the document is "outside".
   useEffect(() => {
-    if (!open && !menu) return;
+    if (!open && !menu && !peek && !solo) return;
+    const doc = root.current?.ownerDocument ?? document;
     const host = (root.current?.getRootNode() as ShadowRoot | Document | null as any)?.host as Element | undefined;
     const onDown = (e: Event) => {
       // Inside the bar the event target is retargeted to our host element.
@@ -69,18 +111,20 @@ export function Bar({ v, actions, markRef }: BarProps) {
       setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (menu) closeMenu();
-        else setOpen(false);
-      }
+      if (e.key !== 'Escape' || typing(e)) return;
+      if (menu) closeMenu();
+      else if (open) setOpen(false);
+      else if (solo) actions.setSolo(null);
+      else if (peek) actions.setPeek(false);
     };
-    document.addEventListener('pointerdown', onDown, true);
-    document.addEventListener('keydown', onKey, true);
+    const popover = open || !!menu;
+    if (popover) doc.addEventListener('pointerdown', onDown, true);
+    doc.addEventListener('keydown', onKey, true);
     return () => {
-      document.removeEventListener('pointerdown', onDown, true);
-      document.removeEventListener('keydown', onKey, true);
+      if (popover) doc.removeEventListener('pointerdown', onDown, true);
+      doc.removeEventListener('keydown', onKey, true);
     };
-  }, [open, menu]);
+  }, [open, menu, peek, solo]);
 
   const place = (el: Element, below = true) => {
     const r = root.current!.getBoundingClientRect();
@@ -89,12 +133,10 @@ export function Bar({ v, actions, markRef }: BarProps) {
   };
 
   // Tooltips: delegated, short delay, instant when moving between items; also
-  // on keyboard focus. Text is read when shown (data-tip="calm" is computed
-  // from the totals then), so live numbers never rewrite attributes while chat flows.
+  // on keyboard focus.
   const showTip = (t: HTMLElement) => {
     const p = place(t);
-    const text = t.dataset.tip === 'calm' ? calmTip(v.totals.peek()) : { title: t.dataset.tip!, sub: t.dataset.tipSub };
-    setTip({ ...text, x: p.x, y: p.y, below: true });
+    setTip({ title: t.dataset.tip!, sub: t.dataset.tipSub, n: t.dataset.tipN as Category | undefined, x: p.x, y: p.y });
     tipWarm.current = performance.now();
   };
   const hideTip = () => {
@@ -139,12 +181,6 @@ export function Bar({ v, actions, markRef }: BarProps) {
     setMenu(menu?.kind === 'preset' ? null : { kind: 'preset', x: p.x, y: p.y, from: el as HTMLElement });
   };
 
-  /** Close the menu and give focus back to the chip or pill that opened it. */
-  const closeMenu = () => {
-    menu?.from.focus({ preventScroll: true });
-    setMenu(null);
-  };
-
   const stop = (e: Event) => e.stopPropagation();
   const toggleOpen = () => {
     if (tipTimer.current) clearTimeout(tipTimer.current);
@@ -157,6 +193,9 @@ export function Bar({ v, actions, markRef }: BarProps) {
     }
     setOpen(!open);
   };
+  const togglePeek = () => actions.setPeek(!peek);
+  /** What the off row says: Hush is off everywhere, or only here. */
+  const offText = settings.enabled && site ? `Off on ${SITE_NAME[site]}` : 'Hush is off';
 
   return (
     <div
@@ -164,8 +203,11 @@ export function Bar({ v, actions, markRef }: BarProps) {
       class="hb"
       data-theme={theme}
       data-platform={platform}
+      data-mode={advanced ? 'advanced' : 'basic'}
       data-open={open ? '' : undefined}
-      data-off={settings.enabled ? undefined : ''}
+      data-off={on ? undefined : ''}
+      data-peek={peek ? '' : undefined}
+      data-solo={solo ?? undefined}
       style={{ '--hb-bg': surf.bg, '--hb-raised': surf.raised, '--hb-line': surf.line, '--hb-font': surf.font } as any}
       onPointerDown={stop}
       onClick={stop}
@@ -177,49 +219,80 @@ export function Bar({ v, actions, markRef }: BarProps) {
       onFocusIn={onFocusIn}
       onFocusOut={onFocusOut}
     >
-      <div class="hb-row" role="toolbar" aria-label="Hush chat filter">
-        <MarkButton calm={calm} open={open} onToggle={toggleOpen} markRef={markRef} />
-        {settings.enabled ? (
-          <>
-            <CalmText calm={calm} />
-            <PresetSwitch
-              preset={settings.preset}
-              menuOpen={menu?.kind === 'preset'}
-              onPick={(p) => actions.setPreset(p)}
-              onOpenMenu={openPresetMenu}
-            />
-            <Chips v={v} theme={theme} actions={actions} onMenu={openChipMenu} />
-          </>
-        ) : (
-          <div class="hb-paused">
-            <span>Hush is paused</span>
-            <button class="hb-btn hb-btn-accent" onClick={() => actions.toggleEnabled()}>
-              <Icon name="play" size={11} fill /> Resume
-            </button>
-          </div>
-        )}
-        <ModelDot model={v.model} perf={v.perf} />
-        <button
-          class="hb-iconbtn hb-expand"
-          aria-label={open ? 'Hide live stats' : 'Show live stats'}
-          aria-expanded={open}
-          data-tip={open ? 'Close' : 'Live stats'}
-          onClick={toggleOpen}
-        >
-          <Icon name="chevronDown" size={14} strokeWidth={1.8} />
-        </button>
-      </div>
+      {advanced ? (
+        <div class="hb-row" role="toolbar" aria-label="Hush chat filter">
+          <MarkButton v={v} label="Hush: open live view" title={() => 'Hush'} sub="Open live view" open={open} onToggle={toggleOpen} markRef={markRef} />
+          {on ? (
+            <>
+              {solo ? (
+                <SoloPill key={solo} v={v} cat={solo} onEnd={() => actions.setSolo(null)} />
+              ) : (
+                <PresetSwitch preset={settings.preset} menuOpen={menu?.kind === 'preset'} onPick={(p) => actions.setPreset(p)} onOpenMenu={openPresetMenu} />
+              )}
+              <Chips v={v} theme={theme} solo={solo} onSolo={(c) => actions.setSolo(c)} onMenu={openChipMenu} />
+              {!solo && <PeekButton peek={peek} onToggle={togglePeek} />}
+            </>
+          ) : (
+            <div class="hb-paused">
+              <span>{offText}</span>
+              {!settings.enabled && (
+                <button class="hb-btn hb-btn-accent" onClick={() => actions.toggleEnabled()}>
+                  <Icon name="power" size={11} strokeWidth={2} /> Turn on
+                </button>
+              )}
+            </div>
+          )}
+          <ModelDot model={v.model} perf={v.perf} />
+          <button
+            class="hb-iconbtn hb-expand"
+            aria-label={open ? 'Hide live view' : 'Show live view'}
+            aria-expanded={open}
+            data-tip={open ? 'Close' : 'Live view'}
+            onClick={toggleOpen}
+          >
+            <Icon name="chevronDown" size={14} strokeWidth={1.8} />
+          </button>
+        </div>
+      ) : (
+        <div class="hb-row" role="toolbar" aria-label="Hush chat filter">
+          <MarkButton
+            v={v}
+            label="Hush options"
+            title={(m) => statusOf(settings, site, m).text}
+            sub="Click for options"
+            open={open}
+            onToggle={toggleOpen}
+            markRef={markRef}
+          />
+          <LevelSwitch level={level} onPick={(l) => actions.setLevel(l)} />
+          {on ? (
+            <PeekButton peek={peek} words onToggle={togglePeek} />
+          ) : (
+            <span class="hb-offnote">{offText}</span>
+          )}
+        </div>
+      )}
 
-      {open && <Panel v={v} actions={actions} onChipMenu={openChipMenu} onClose={() => setOpen(false)} />}
+      {open &&
+        (advanced ? (
+          <Panel v={v} actions={actions} on={on} site={site} solo={solo} peek={peek} onChipMenu={openChipMenu} onClose={() => setOpen(false)} />
+        ) : (
+          <Sheet v={v} settings={settings} site={site} level={level} actions={actions} />
+        ))}
 
       {menu?.kind === 'chip' && (
         <ChipMenu
           key={menu.cat} // another chip's menu is a new menu: it takes focus again
+          v={v}
           cat={menu.cat}
           current={settings.actions[menu.cat]}
-          count={v.counts.value[menu.cat]}
+          soloed={solo === menu.cat}
           x={menu.x}
           y={menu.y}
+          onSolo={() => {
+            actions.setSolo(solo === menu.cat ? null : menu.cat);
+            closeMenu();
+          }}
           onPick={(a) => {
             actions.setAction(menu.cat, a);
             closeMenu();
@@ -239,68 +312,240 @@ export function Bar({ v, actions, markRef }: BarProps) {
           onClose={closeMenu}
         />
       )}
-      {tip && !menu && (
-        <div class="hb-tip" role="tooltip" style={{ '--x': `${tip.x}px`, top: `${tip.y}px` } as any}>
-          <b>{tip.title}</b>
-          {tip.sub && <span>{tip.sub}</span>}
+      {tip && !menu && <TipView tip={tip} v={v} />}
+    </div>
+  );
+}
+
+function TipView({ tip, v }: { tip: Tip; v: View }) {
+  // Only a tip with a count reads the chat (Basic's tips have none).
+  const sub = tip.n ? tip.sub?.replace('{n}', grouped(v.inChat.value.byCat[tip.n])) : tip.sub;
+  return (
+    <div class="hb-tip" role="tooltip" style={{ '--x': `${tip.x}px`, top: `${tip.y}px` } as any}>
+      <b>{tip.title}</b>
+      {sub && <span>{sub}</span>}
+    </div>
+  );
+}
+
+/** Escape belongs to whatever the viewer is typing in (Twitch's chat box is contenteditable). */
+function typing(e: Event): boolean {
+  const el = e.composedPath()[0] as Element | undefined;
+  return !!el?.closest?.('input,textarea,[contenteditable]:not([contenteditable="false"])');
+}
+
+/** :focus-visible, read when focus lands (false where the selector is unknown). */
+function focusVisible(el: Element): boolean {
+  try {
+    return el.matches(':focus-visible');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A computed that is built again when `deps` change. (useComputed keeps
+ * reading the props its first closure saw until one of its signals changes:
+ * for a label that also says a prop, that can be never while chat is quiet.)
+ */
+function useLive<T>(fn: () => T, deps: unknown[]): ReadonlySignal<T> {
+  return useMemo(() => computed(fn), deps);
+}
+
+/* ── Status, in plain words ───────────────────────────────────────── */
+
+type Tone = 'ok' | 'off' | 'load' | 'err';
+
+/** What Hush is doing here, in words: no numbers and no model jargon (Basic's sheet and mark). */
+function statusOf(s: Settings, site: Platform | undefined, m: ModelStatus): { text: string; tone: Tone } {
+  if (!s.enabled) return { text: PLAIN.off, tone: 'off' };
+  if (site && s.sites[site] === false) return { text: PLAIN.siteOff(SITE_NAME[site]!), tone: 'off' };
+  return plainModelStatus(m) ?? { text: PLAIN.on, tone: 'ok' };
+}
+
+/* ── Mark ─────────────────────────────────────────────────────────── */
+
+const RING_R = 13;
+const RING_C = 2 * Math.PI * RING_R;
+
+/**
+ * The mark opens the sheet (Basic) or the live view (Advanced). Its ring is
+ * model progress only: a download's share, or a slow turn (a transform, on
+ * the compositor) while the model loads; an amber dot when it failed. It
+ * reads the model status itself, so a download re-renders the mark alone.
+ */
+function MarkButton({
+  v,
+  label,
+  title,
+  sub,
+  open,
+  onToggle,
+  markRef,
+}: {
+  v: View;
+  label: string;
+  /** Tooltip title (Basic's says what Hush is doing, which depends on the model). */
+  title: (m: ModelStatus) => string;
+  sub: string;
+  open: boolean;
+  onToggle: () => void;
+  markRef: (el: HTMLElement | null) => void;
+}) {
+  const m = v.model.value;
+  return (
+    <button class="hb-mark" aria-label={label} aria-expanded={open} onClick={onToggle} data-tip={title(m)} data-tip-sub={sub}>
+      {m.state === 'downloading' && m.progress != null ? (
+        <svg class="hb-ring" width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
+          <circle cx="15" cy="15" r={RING_R} class="hb-ring-track" />
+          <circle cx="15" cy="15" r={RING_R} class="hb-ring-fill" stroke-dasharray={`${RING_C} ${RING_C}`} stroke-dashoffset={(RING_C * (1 - Math.min(1, m.progress))).toFixed(2)} />
+        </svg>
+      ) : (
+        (m.state === 'downloading' || m.state === 'loading') && <span class="hb-ring-spin" aria-hidden="true" />
+      )}
+      <LiveMark size={18} liveRef={markRef} />
+      {m.state === 'error' && <span class="hb-mark-err" aria-hidden="true" />}
+    </button>
+  );
+}
+
+/* ── Show hidden ──────────────────────────────────────────────────── */
+
+/** Show hidden (this tab only): Basic says it in words (the eye alone in a narrow column), Advanced shows the eye. */
+function PeekButton({ peek, words, onToggle }: { peek: boolean; words?: boolean; onToggle: () => void }) {
+  const label = peek ? 'Hide again' : 'Show hidden';
+  return (
+    <button
+      class={words ? 'hb-peek' : 'hb-iconbtn hb-peek-ico'}
+      aria-pressed={peek}
+      aria-label={label}
+      data-tip={label}
+      data-tip-sub={peek ? 'Esc also works.' : 'Brings back what Hush hid in this tab, faded.'}
+      onClick={onToggle}
+    >
+      <Icon name={peek ? 'eyeOff' : 'show'} size={14} strokeWidth={1.7} />
+      {words && <span class="hb-peek-t">{label}</span>}
+    </button>
+  );
+}
+
+/* ── Basic: level ─────────────────────────────────────────────────── */
+
+/**
+ * Arrow keys in a radio group move to the next radio and pick it, like
+ * native radios; only the checked one (or the first, when none is) is a Tab stop.
+ */
+function radioKeys<T>(values: readonly T[], current: T | null, pick: (v: T) => void) {
+  return (e: KeyboardEvent) => {
+    const step = ({ ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 } as Record<string, number>)[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const radios = [...(e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[role="radio"]')];
+    const i = Math.max(0, radios.indexOf(e.target as HTMLElement));
+    const to = (i + step + values.length) % values.length;
+    radios[to]?.focus({ preventScroll: true });
+    if (values[to] !== current) pick(values[to]!);
+  };
+}
+
+const tabStop = <T,>(value: T, current: T | null, first: T) => (value === current || (current === null && value === first) ? 0 : -1);
+
+function LevelSwitch({ level, onPick }: { level: BasicLevel | null; onPick: (l: BasicLevel) => void }) {
+  const idx = level ? LEVEL_ORDER.indexOf(level) : -1;
+  return (
+    <div
+      class="hb-seg hb-level"
+      role="radiogroup"
+      aria-label={PLAIN.levelQuestion}
+      style={{ '--i': Math.max(0, idx), '--n': LEVEL_ORDER.length } as any}
+      data-none={idx < 0 ? '' : undefined}
+      onKeyDown={radioKeys(LEVEL_ORDER, level, onPick)}
+    >
+      <span class="hb-seg-thumb" aria-hidden="true" />
+      {LEVEL_ORDER.map((l) => (
+        <button
+          role="radio"
+          aria-checked={l === level}
+          tabIndex={tabStop(l, level, LEVEL_ORDER[0])}
+          class="hb-seg-btn"
+          data-tip={LEVEL_META[l].label}
+          data-tip-sub={LEVEL_META[l].desc}
+          onClick={() => onPick(l)}
+        >
+          {LEVEL_META[l].label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ── Basic: sheet ─────────────────────────────────────────────────── */
+
+function Sheet({ v, settings, site, level, actions }: { v: View; settings: Settings; site?: Platform; level: BasicLevel | null; actions: BarActions }) {
+  const custom = settings.preset !== 'chill' && settings.preset !== 'focus';
+  const note = level === null ? PLAIN.custom : level === 'off' && custom ? PLAIN.customOff : null;
+  const extras = advancedExtras(settings);
+  return (
+    <div class="hb-panel hb-sheet" role="dialog" aria-label="Hush options">
+      <div class="hp-body">
+        <SheetStatus v={v} settings={settings} site={site} />
+
+        <div class="hs-q" id="hs-q">
+          {PLAIN.levelQuestion}
         </div>
+        <div class="hs-levels" role="radiogroup" aria-labelledby="hs-q" onKeyDown={radioKeys(LEVEL_ORDER, level, (l) => actions.setLevel(l))}>
+          {LEVEL_ORDER.map((l) => (
+            <button role="radio" aria-checked={l === level} tabIndex={tabStop(l, level, LEVEL_ORDER[0])} class="hs-level" onClick={() => actions.setLevel(l)}>
+              <span class="hs-radio" aria-hidden="true" />
+              <span class="hs-level-text">
+                <b>
+                  {LEVEL_META[l].label}
+                  {LEVEL_META[l].recommended && <em class="hs-badge">Recommended</em>}
+                </b>
+                <span>{LEVEL_META[l].desc}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+        {note && <p class="hs-note">{note}</p>}
+        {extras.length > 0 && <p class="hs-note">{PLAIN.extras(extras)}</p>}
+        <p class="hs-hint">
+          <Icon name="show" size={13} strokeWidth={1.7} />
+          <span>"Show hidden" brings back anything Hush hid.</span>
+        </p>
+
+        <button class="hs-mode" role="switch" aria-checked={false} onClick={() => actions.setMode('advanced')}>
+          <span class="hs-mode-text">
+            <b>{PLAIN.advanced}</b>
+            <span>{PLAIN.advancedHint}</span>
+          </span>
+          <span class="hb-switch" aria-hidden="true" />
+        </button>
+      </div>
+      <div class="hp-foot hs-foot">
+        <Icon name="lock" size={13} strokeWidth={1.7} />
+        <span>{PLAIN.privacy}</span>
+      </div>
+    </div>
+  );
+}
+
+function SheetStatus({ v, settings, site }: { v: View; settings: Settings; site?: Platform }) {
+  const s = statusOf(settings, site, v.model.value);
+  return (
+    <div class="hs-status" data-tone={s.tone} role="status">
+      {s.tone === 'load' ? <span class="hb-spin" /> : <span class="hb-dot" />}
+      <span class="hs-status-t">{s.text}</span>
+      {s.tone === 'err' && (
+        <button class="hb-btn" onClick={retryModel}>
+          <Icon name="refresh" size={11} strokeWidth={2} /> Retry
+        </button>
       )}
     </div>
   );
 }
 
-/* ── Mark + calm ring ─────────────────────────────────────────────── */
-
-const RING_R = 13;
-const RING_C = 2 * Math.PI * RING_R;
-
-function calmTip(t: { seen: number; filtered: number }): { title: string; sub: string } {
-  return t.seen
-    ? { title: `${pct(t.filtered / t.seen)} of chat hushed`, sub: `${grouped(t.filtered)} of ${grouped(t.seen)} messages` }
-    : { title: 'Waiting for chat', sub: 'Hush will start counting soon' };
-}
-
-/**
- * Share of chat hushed in whole percents, with a little hysteresis: a ratio
- * hovering around x.5 % would otherwise flip the ring and the number (and
- * repaint them) on every update.
- */
-function useCalm(v: View): ReadonlySignal<number | null> {
-  const shown = useRef<number | null>(null);
-  return useComputed(() => {
-    const t = v.totals.value;
-    if (!t.seen) return (shown.current = null);
-    const exact = (100 * t.filtered) / t.seen;
-    if (shown.current === null || Math.abs(exact - shown.current) >= 0.75) shown.current = Math.round(exact);
-    return shown.current;
-  });
-}
-
-function MarkButton({ calm, open, onToggle, markRef }: { calm: ReadonlySignal<number | null>; open: boolean; onToggle: () => void; markRef: (el: HTMLElement | null) => void }) {
-  const offset = useComputed(() => (RING_C * (1 - Math.min(100, calm.value ?? 0) / 100)).toFixed(2));
-  const empty = useComputed(() => (calm.value ? undefined : '')); // a zero-length round-capped stroke would still draw a dot
-  return (
-    <button class="hb-mark" aria-label="Hush — open live stats" aria-expanded={open} onClick={onToggle} data-tip="calm">
-      <svg class="hb-ring" width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
-        <circle cx="15" cy="15" r={RING_R} class="hb-ring-track" />
-        <circle cx="15" cy="15" r={RING_R} class="hb-ring-fill" stroke-dasharray={`${RING_C} ${RING_C}`} stroke-dashoffset={offset} data-empty={empty} />
-      </svg>
-      <LiveMark size={18} liveRef={markRef} />
-    </button>
-  );
-}
-
-function CalmText({ calm }: { calm: ReadonlySignal<number | null> }) {
-  const value = useComputed(() => (calm.value === null ? '—' : `${calm.value}%`));
-  return (
-    <div class="hb-calm" aria-hidden="true">
-      <b>{value}</b>
-      <span>hushed</span>
-    </div>
-  );
-}
-
-/* ── Preset switch ────────────────────────────────────────────────── */
+/* ── Advanced: preset switch ──────────────────────────────────────── */
 
 function PresetSwitch({ preset, menuOpen, onPick, onOpenMenu }: { preset: PresetId; menuOpen: boolean; onPick: (p: PresetId) => void; onOpenMenu: (el: Element) => void }) {
   const idx = PRESET_ORDER.indexOf(preset as (typeof PRESET_ORDER)[number]);
@@ -311,19 +556,27 @@ function PresetSwitch({ preset, menuOpen, onPick, onOpenMenu }: { preset: Preset
         class="hb-preset-pill"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        data-tip="Vibe preset"
-        data-tip-sub={preset === 'custom' ? 'You tweaked categories' : PRESET_META[preset as Exclude<PresetId, 'custom'>].desc}
+        data-tip="Preset"
+        data-tip-sub={preset === 'custom' ? 'You changed individual categories.' : PRESET_META[preset].desc}
         onClick={(e) => onOpenMenu(e.currentTarget)}
       >
         <span>{label}</span>
         <Icon name="chevronDown" size={11} strokeWidth={2} />
       </button>
-      <div class="hb-seg" role="radiogroup" aria-label="Vibe preset" style={{ '--i': idx, '--n': PRESET_ORDER.length } as any} data-none={idx < 0 ? '' : undefined}>
+      <div
+        class="hb-seg hb-preset-seg"
+        role="radiogroup"
+        aria-label="Preset"
+        style={{ '--i': Math.max(0, idx), '--n': PRESET_ORDER.length } as any}
+        data-none={idx < 0 ? '' : undefined}
+        onKeyDown={radioKeys(PRESET_ORDER, idx < 0 ? null : PRESET_ORDER[idx]!, onPick)}
+      >
         <span class="hb-seg-thumb" aria-hidden="true" />
         {PRESET_ORDER.map((p) => (
           <button
             role="radio"
             aria-checked={p === preset}
+            tabIndex={tabStop(p, idx < 0 ? null : preset, PRESET_ORDER[0])}
             class="hb-seg-btn"
             data-tip={PRESET_META[p].label}
             data-tip-sub={PRESET_META[p].desc}
@@ -335,15 +588,6 @@ function PresetSwitch({ preset, menuOpen, onPick, onOpenMenu }: { preset: Preset
       </div>
     </>
   );
-}
-
-/** :focus-visible, read when focus lands (false where the selector is unknown). */
-function focusVisible(el: Element): boolean {
-  try {
-    return el.matches(':focus-visible');
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -375,8 +619,8 @@ function useMenuKeys(onClose: () => void) {
 function PresetMenu({ current, x, y, onPick, onClose }: { current: PresetId; x: number; y: number; onPick: (p: PresetId) => void; onClose: () => void }) {
   const keys = useMenuKeys(onClose);
   return (
-    <div class="hb-menu hb-menu-preset" role="menu" aria-label="Vibe preset" ref={keys.ref} onKeyDown={keys.onKeyDown} style={{ '--x': `${x}px`, top: `${y}px` } as any}>
-      <div class="hb-menu-head">Vibe preset</div>
+    <div class="hb-menu hb-menu-preset" role="menu" aria-label="Preset" ref={keys.ref} onKeyDown={keys.onKeyDown} style={{ '--x': `${x}px`, top: `${y}px` } as any}>
+      <div class="hb-menu-head">Preset</div>
       {PRESET_ORDER.map((p) => (
         <button role="menuitemradio" aria-checked={p === current} class="hb-menu-item" onClick={() => onPick(p)}>
           <span class="hb-menu-check">{p === current && <Icon name="check" size={12} strokeWidth={2} />}</span>
@@ -386,14 +630,53 @@ function PresetMenu({ current, x, y, onPick, onClose }: { current: PresetId; x: 
           </span>
         </button>
       ))}
-      {current === 'custom' && <div class="hb-menu-note">Custom — you changed individual categories.</div>}
+      {current === 'custom' && <div class="hb-menu-note">Custom: you changed individual categories.</div>}
     </div>
   );
 }
 
-/* ── Category chips ───────────────────────────────────────────────── */
+/* ── Advanced: Solo pill ──────────────────────────────────────────── */
 
-function Chips({ v, theme, actions, onMenu }: { v: View; theme: Theme; actions: BarActions; onMenu: (c: Category, el: Element) => void }) {
+/** Takes the preset's place while one category shows alone: "Only Spam · 8 ×"; a click shows everything. */
+function SoloPill({ v, cat, onEnd }: { v: View; cat: Category; onEnd: () => void }) {
+  const name = SHORT[cat];
+  const n = useComputed(() => v.inChat.value.byCat[cat]);
+  const text = useComputed(() => `Only ${name} · ${n.value ? compact(n.value) : 'none yet'}`);
+  const label = useComputed(() => `Showing only ${name.toLowerCase()}, ${n.value} in chat now. Show all messages.`);
+  return (
+    <button
+      class="hb-solo"
+      data-c={cat}
+      aria-label={label}
+      data-tip={`Showing only ${name.toLowerCase()}`}
+      data-tip-sub="{n} in chat now · Esc or × shows everything"
+      data-tip-n={cat}
+      onClick={onEnd}
+    >
+      <span class="hb-chip-ico" style={{ backgroundImage: iconImage({ name: cat, fill: true, strokeWidth: 1.7 }, '#ffffff') }} />
+      <span class="hb-solo-t">{text}</span>
+      <span class="hb-solo-x" aria-hidden="true">
+        <Icon name="x" size={10} strokeWidth={2.2} />
+      </span>
+    </button>
+  );
+}
+
+/* ── Advanced: category chips ─────────────────────────────────────── */
+
+function Chips({
+  v,
+  theme,
+  solo,
+  onSolo,
+  onMenu,
+}: {
+  v: View;
+  theme: Theme;
+  solo: Category | null;
+  onSolo: (c: Category | null) => void;
+  onMenu: (c: Category, el: Element) => void;
+}) {
   const scroller = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState('');
@@ -418,6 +701,17 @@ function Chips({ v, theme, actions, onMenu }: { v: View; theme: Theme; actions: 
     };
   }, []);
 
+  // The chip shown alone stays in sight (the Solo pill is wider than the preset's).
+  useEffect(() => {
+    const el = scroller.current;
+    const chip = solo && el?.querySelector(`[data-c="${solo}"]`);
+    if (!el || !chip) return;
+    const c = chip.getBoundingClientRect();
+    const s = el.getBoundingClientRect();
+    if (c.left < s.left + 24) el.scrollLeft -= s.left + 24 - c.left;
+    else if (c.right > s.right - 24) el.scrollLeft += c.right - (s.right - 24);
+  }, [solo]);
+
   const onWheel = (e: WheelEvent) => {
     const el = scroller.current;
     if (!el || el.scrollWidth <= el.clientWidth) return;
@@ -431,7 +725,7 @@ function Chips({ v, theme, actions, onMenu }: { v: View; theme: Theme; actions: 
       <div class="hb-chips-scroll" ref={scroller} onWheel={onWheel}>
         <div class="hb-chips-in" ref={inner}>
           {CHIP_CATEGORIES.map((c) => (
-            <Chip key={c} cat={c} v={v} theme={theme} action={v.settings.value.actions[c]} actions={actions} onMenu={onMenu} />
+            <Chip key={c} cat={c} v={v} theme={theme} action={v.settings.value.actions[c]} solo={solo} onSolo={onSolo} onMenu={onMenu} />
           ))}
         </div>
       </div>
@@ -458,27 +752,53 @@ function useLongPress(cb: (el: Element) => void) {
   };
 }
 
-function Chip({ cat, v, theme, action, actions, onMenu }: { cat: Category; v: View; theme: Theme; action: Action; actions: BarActions; onMenu: (c: Category, el: Element) => void }) {
-  const n = useComputed(() => compact(v.counts.value[cat]));
-  const zero = useComputed(() => (v.counts.value[cat] ? undefined : ''));
+/**
+ * A category and how many of its messages are in chat now. Click: show only
+ * these (again: show everything). Right-click, long-press or the context-menu
+ * key: change what happens to them.
+ */
+function Chip({
+  cat,
+  v,
+  theme,
+  action,
+  solo,
+  onSolo,
+  onMenu,
+}: {
+  cat: Category;
+  v: View;
+  theme: Theme;
+  action: Action;
+  solo: Category | null;
+  onSolo: (c: Category | null) => void;
+  onMenu: (c: Category, el: Element) => void;
+}) {
+  const verb = ACTION_META[action].verb.toLowerCase();
+  const count = useComputed(() => v.inChat.value.byCat[cat]);
+  const n = useComputed(() => compact(count.value));
+  const zero = useComputed(() => (count.value ? undefined : ''));
+  const label = useLive(() => `${SHORT[cat]}, ${verb}, ${count.value} in chat now. Show only ${SHORT[cat].toLowerCase()}.`, [verb]);
   const lp = useLongPress((el) => onMenu(cat, el));
-  const meta = CATEGORY_META[cat];
-  const next = nextAction(action);
+  const soloed = solo === cat;
   return (
     <button
       class="hb-chip"
       data-a={action}
       data-c={cat}
       data-zero={zero}
-      aria-label={`${meta.label}: ${ACTION_META[action].verb}. Click to ${ACTION_META[next].label.toLowerCase()}.`}
-      data-tip={`${SHORT[cat]} · ${ACTION_META[action].verb.toLowerCase()}`}
-      data-tip-sub={`Click to ${ACTION_META[next].label.toLowerCase()} · right-click for all`}
+      data-faded={solo && !soloed ? '' : undefined}
+      aria-pressed={soloed}
+      aria-label={label}
+      data-tip={`${SHORT[cat]} · ${verb}`}
+      data-tip-sub={soloed ? 'Showing only these · Click: show everything' : '{n} in chat now · Click: show only these · Right-click: change'}
+      data-tip-n={soloed ? undefined : cat}
       onPointerDown={lp.onPointerDown}
       onPointerUp={lp.onPointerUp}
       onPointerLeave={lp.onPointerLeave}
       onClick={() => {
         if (lp.consumed()) return;
-        actions.setAction(cat, next);
+        onSolo(soloed ? null : cat);
       }}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -486,36 +806,41 @@ function Chip({ cat, v, theme, action, actions, onMenu }: { cat: Category; v: Vi
       }}
     >
       {/* an image, not an inline <svg>: see glyphs.ts */}
-      <span class="hb-chip-ico" style={{ backgroundImage: iconImage({ name: cat, fill: true, strokeWidth: 1.7 }, meta.color[theme], action === 'dim' ? 0.45 : 1) }} />
+      <span class="hb-chip-ico" style={{ backgroundImage: iconImage({ name: cat, fill: true, strokeWidth: 1.7 }, CATEGORY_META[cat].color[theme], action === 'dim' ? 0.45 : 1) }} />
       <span class="hb-chip-n">{n}</span>
     </button>
   );
 }
 
 function ChipMenu({
+  v,
   cat,
   current,
-  count,
+  soloed,
   x,
   y,
+  onSolo,
   onPick,
   onClose,
 }: {
+  v: View;
   cat: Category;
   current: Action;
-  count: number;
+  soloed: boolean;
   x: number;
   y: number;
+  onSolo: () => void;
   onPick: (a: Action) => void;
   onClose: () => void;
 }) {
   const meta = CATEGORY_META[cat];
   const keys = useMenuKeys(onClose);
+  const now = useComputed(() => `${grouped(v.inChat.value.byCat[cat])} in chat now`);
   return (
     <div
       class="hb-menu"
       role="menu"
-      aria-label={`${meta.label}: what to do`}
+      aria-label={`${SHORT[cat]}: what to do`}
       ref={keys.ref}
       onKeyDown={keys.onKeyDown}
       style={{ '--x': `${x}px`, top: `${y}px`, '--c': `var(--c-${cat})` } as any}
@@ -526,11 +851,21 @@ function ChipMenu({
         </span>
         <span class="hb-menu-text">
           <b>
-            {meta.label} <em>{grouped(count)}</em>
+            {SHORT[cat]}
+            <em>{now}</em>
           </b>
           <span>{meta.desc}</span>
         </span>
       </div>
+      <button role="menuitem" class="hb-menu-item hb-menu-solo" aria-pressed={soloed} onClick={onSolo}>
+        <span class="hb-menu-aico">
+          <Icon name={soloed ? 'eyeOff' : 'show'} size={13} />
+        </span>
+        <span class="hb-menu-text">
+          <b>{soloed ? 'Show everything' : `Show only ${SHORT[cat]}`}</b>
+        </span>
+      </button>
+      <div class="hb-menu-sep" role="separator" />
       {MENU_ACTIONS.map((a) => (
         <button role="menuitemradio" aria-checked={a === current} class="hb-menu-item" data-a={a} onClick={() => onPick(a)}>
           <span class="hb-menu-aico">
@@ -546,7 +881,7 @@ function ChipMenu({
   );
 }
 
-/* ── Model status ─────────────────────────────────────────────────── */
+/* ── Advanced: model status ───────────────────────────────────────── */
 
 function ModelDot({ model, perf }: { model: ReadonlySignal<ModelStatus>; perf: ReadonlySignal<{ p50ms: number }> }) {
   const m = model.value;
@@ -555,133 +890,225 @@ function ModelDot({ model, perf }: { model: ReadonlySignal<ModelStatus>; perf: R
   const sub = m.state === 'ready' && p50 > 0 ? `${s.sub} · ${p50.toFixed(0)} ms` : s.sub;
   return (
     <span class="hb-status" data-tone={s.tone} data-tip={s.title} data-tip-sub={sub} role="status" aria-label={s.title} tabIndex={0}>
-      {s.tone === 'load' ? (
-        m.progress != null ? (
-          <Ring value={m.progress} size={14} stroke={2} />
-        ) : (
-          <span class="hb-spin" />
-        )
-      ) : (
-        <span class="hb-dot" />
-      )}
+      {s.tone === 'load' ? m.progress != null ? <Ring value={m.progress} size={14} stroke={2} /> : <span class="hb-spin" /> : <span class="hb-dot" />}
     </span>
   );
 }
 
-/* ── Expanded mini dashboard ──────────────────────────────────────── */
+/* ── Advanced: live view ──────────────────────────────────────────── */
 
-function Panel({ v, actions, onChipMenu, onClose }: { v: View; actions: BarActions; onChipMenu: (c: Category, el: Element) => void; onClose: () => void }) {
+function Panel({
+  v,
+  actions,
+  on,
+  site,
+  solo,
+  peek,
+  onChipMenu,
+  onClose,
+}: {
+  v: View;
+  actions: BarActions;
+  on: boolean;
+  site?: Platform;
+  solo: Category | null;
+  peek: boolean;
+  onChipMenu: (c: Category, el: Element) => void;
+  onClose: () => void;
+}) {
   const settings = v.settings.value;
-  const ratio = useComputed(() => {
-    const t = v.totals.value;
-    return t.seen ? pct(t.filtered / t.seen) : '—';
-  });
-  const sub = useComputed(() => {
-    const t = v.totals.value;
-    return `${grouped(t.filtered)} of ${grouped(t.seen)} messages`;
-  });
   const now = useComputed(() => {
     const r = v.rate.value;
     return rate(r[r.length - 1] ?? 0);
   });
-  const vibeNow = useComputed(() => {
+  const mood = useComputed(() => {
     const x = v.vibe.value;
     // average the last 3 buckets (15 s) for a steadier word
     const tail = x.slice(-3);
     return tail.length ? tail.reduce((a, b) => a + b, 0) / tail.length : 0;
   });
   return (
-    <div class="hb-panel" role="dialog" aria-label="Hush live stats">
+    <div class="hb-panel" role="dialog" aria-label="Hush live view">
       <div class="hp-body">
-      <div class="hp-head">
-        <div class="hp-calm">
-          <b>{ratio}</b>
-          <span>
-            hushed <em>·</em> {sub}
-          </span>
-        </div>
-        <button class="hb-btn" onClick={() => actions.toggleEnabled()} aria-label={settings.enabled ? 'Pause Hush' : 'Resume Hush'}>
-          <Icon name={settings.enabled ? 'pause' : 'play'} size={11} strokeWidth={2} fill={!settings.enabled} />
-          {settings.enabled ? 'Pause' : 'Resume'}
-        </button>
-      </div>
+        <InChatHead v={v} actions={actions} on={on} enabled={settings.enabled} site={site} solo={solo} peek={peek} />
 
-      <div class="hp-tiles">
-        <div class="hp-tile">
-          <div class="hp-tile-top">
-            <span class="hp-label">Messages / s</span>
-            <b class="hp-num">{now}</b>
+        <div class="hp-tiles">
+          <div class="hp-tile">
+            <div class="hp-tile-top">
+              <span class="hp-label">Messages / s</span>
+              <b class="hp-num">{now}</b>
+            </div>
+            <div class="hp-win">last 60 s</div>
+            <Sparkline values={v.rate} height={30} color="var(--accent)" />
           </div>
-          <Sparkline values={v.rate} height={34} color="var(--accent)" />
-        </div>
-        <div class="hp-tile">
-          <div class="hp-tile-top">
-            <span class="hp-label">Vibe</span>
-            <b class="hp-num" data-vibe={vibeNow.value > 0.05 ? 'pos' : vibeNow.value < -0.05 ? 'neg' : 'mid'}>
-              {vibeWord(vibeNow.value)}
-            </b>
+          <div class="hp-tile">
+            <div class="hp-tile-top">
+              <span class="hp-label">Mood</span>
+              <b class="hp-num" data-vibe={vibeTone(mood.value)}>
+                {vibeWord(mood.value)}
+              </b>
+            </div>
+            <div class="hp-win">last 5 min</div>
+            <Diverging values={v.vibe} height={30} />
           </div>
-          <Diverging values={v.vibe} height={34} />
         </div>
-      </div>
 
-      <section class="hp-sec">
-        <div class="hp-sec-head">
-          <span class="hp-label">Categories</span>
-          <span class="hp-hint">click to cycle</span>
-        </div>
-        <div class="hp-cats">
-          {CATEGORIES.map((c) => (
-            <CatRow cat={c} v={v} action={settings.actions[c]} actions={actions} onMenu={onChipMenu} />
-          ))}
-        </div>
-      </section>
+        <section class="hp-sec">
+          <div class="hp-sec-head">
+            <span class="hp-label">
+              Categories <span class="hp-win">· in chat now</span>
+            </span>
+            <span class="hp-hint">click: show only · ▾: change</span>
+          </div>
+          <div class="hp-cats">
+            {CATEGORIES.map((c) => (
+              <CatRow cat={c} v={v} action={settings.actions[c]} solo={solo} onSolo={(x) => actions.setSolo(x)} onMenu={onChipMenu} />
+            ))}
+          </div>
+        </section>
 
-      <Waves v={v} />
-      <Questions v={v} actions={actions} />
+        <Waves v={v} />
+        <Questions v={v} actions={actions} />
       </div>
 
       <div class="hp-foot">
         <FootModel v={v} />
-        <button
-          class="hb-link"
-          onClick={() => {
-            actions.openSidePanel();
-            onClose();
-          }}
-        >
-          Open dashboard <Icon name="arrowUpRight" size={12} strokeWidth={1.8} />
-        </button>
+        <span class="hp-foot-links">
+          <button class="hb-link hb-link-quiet" onClick={() => actions.setMode('basic')}>
+            {PLAIN.basic}
+          </button>
+          <button
+            class="hb-link"
+            onClick={() => {
+              actions.openSidePanel();
+              onClose();
+            }}
+          >
+            Side panel <Icon name="arrowUpRight" size={12} strokeWidth={1.8} />
+          </button>
+        </span>
       </div>
     </div>
   );
 }
 
-function CatRow({ cat, v, action, actions, onMenu }: { cat: Category; v: View; action: Action; actions: BarActions; onMenu: (c: Category, el: Element) => void }) {
-  const n = useComputed(() => compact(v.counts.value[cat]));
+/** "In chat now": what the chat list holds right now, recounted as verdicts change. */
+function InChatHead({
+  v,
+  actions,
+  on,
+  enabled,
+  site,
+  solo,
+  peek,
+}: {
+  v: View;
+  actions: BarActions;
+  on: boolean;
+  enabled: boolean;
+  site?: Platform;
+  solo: Category | null;
+  peek: boolean;
+}) {
+  const rows = useComputed(() => grouped(v.inChat.value.rows));
+  const msgs = useComputed(() => (v.inChat.value.rows === 1 ? 'message' : 'messages'));
+  const hidden = useComputed(() => grouped(v.inChat.value.hidden));
+  const folded = useComputed(() => grouped(v.inChat.value.folded));
+  const only = useLive(() => (solo ? grouped(v.inChat.value.byCat[solo]) : ''), [solo]);
+  if (!on)
+    return (
+      <div class="hp-head">
+        <div class="hp-head-top">
+          <span class="hp-label">In chat now</span>
+          {!enabled && (
+            <button class="hb-btn hb-btn-accent" onClick={() => actions.toggleEnabled()}>
+              <Icon name="power" size={11} strokeWidth={2} /> Turn on
+            </button>
+          )}
+        </div>
+        <div class="hp-now">{enabled && site ? PLAIN.siteOff(SITE_NAME[site]!) : PLAIN.off}</div>
+      </div>
+    );
   return (
-    <button
-      class="hp-cat"
-      data-a={action}
-      data-c={cat}
-      onClick={() => actions.setAction(cat, nextAction(action))}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        onMenu(cat, e.currentTarget);
-      }}
-      aria-label={`${CATEGORY_META[cat].label}: ${ACTION_META[action].verb}`}
-    >
-      <span class="hp-cat-ico">
-        <Icon name={cat} size={13} fill />
-      </span>
-      <span class="hp-cat-text">
-        <span class="hp-cat-name">{SHORT[cat]}</span>
-        <span class="hp-cat-a" data-a={action}>
-          {ACTION_META[action].verb}
+    <div class="hp-head">
+      <div class="hp-head-top">
+        <span class="hp-label">In chat now</span>
+        <span class="hp-head-btns">
+          {solo ? (
+            <button class="hb-btn" onClick={() => actions.setSolo(null)}>
+              Show everything
+            </button>
+          ) : (
+            <>
+              <button class="hb-btn" aria-pressed={peek} onClick={() => actions.setPeek(!peek)}>
+                <Icon name={peek ? 'eyeOff' : 'show'} size={12} strokeWidth={1.8} /> {peek ? 'Hide again' : 'Show hidden'}
+              </button>
+              <button class="hb-btn" onClick={() => actions.toggleEnabled()}>
+                <Icon name="power" size={11} strokeWidth={2} /> Turn off
+              </button>
+            </>
+          )}
         </span>
-      </span>
-      <span class="hp-cat-n">{n}</span>
-    </button>
+      </div>
+      {solo ? (
+        <div class="hp-now">
+          Only {SHORT[solo]}: <b>{only}</b> of <b>{rows}</b> {msgs}
+        </div>
+      ) : (
+        <div class="hp-now">
+          <b>{rows}</b> {msgs} <i>·</i> <b>{hidden}</b> hidden <i>·</i> <b>{folded}</b> folded
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A category row: a click shows only it (again: everything); ▾ changes what happens to it. */
+function CatRow({
+  cat,
+  v,
+  action,
+  solo,
+  onSolo,
+  onMenu,
+}: {
+  cat: Category;
+  v: View;
+  action: Action;
+  solo: Category | null;
+  onSolo: (c: Category | null) => void;
+  onMenu: (c: Category, el: Element) => void;
+}) {
+  const n = useComputed(() => compact(v.inChat.value.byCat[cat]));
+  const soloed = solo === cat;
+  const name = SHORT[cat];
+  return (
+    <div class="hp-cat" data-a={action} data-c={cat} data-soloed={soloed ? '' : undefined} data-faded={solo && !soloed ? '' : undefined}>
+      <button
+        class="hp-cat-main"
+        aria-pressed={soloed}
+        aria-label={`${name}: ${ACTION_META[action].verb.toLowerCase()}. Show only ${name.toLowerCase()}.`}
+        onClick={() => onSolo(soloed ? null : cat)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onMenu(cat, e.currentTarget.nextElementSibling ?? e.currentTarget);
+        }}
+      >
+        <span class="hp-cat-ico">
+          <Icon name={cat} size={13} fill />
+        </span>
+        <span class="hp-cat-text">
+          <span class="hp-cat-name">{name}</span>
+          <span class="hp-cat-a" data-a={action}>
+            {ACTION_META[action].verb}
+          </span>
+        </span>
+        <span class="hp-cat-n">{n}</span>
+      </button>
+      <button class="hp-cat-more" aria-haspopup="menu" aria-label={`Change what happens to ${name.toLowerCase()}`} onClick={(e) => onMenu(cat, e.currentTarget)}>
+        <Icon name="chevronDown" size={11} strokeWidth={2} />
+      </button>
+    </div>
   );
 }
 
@@ -715,7 +1142,7 @@ function Questions({ v, actions }: { v: View; actions: BarActions }) {
     <section class="hp-sec">
       <div class="hp-sec-head">
         <span class="hp-label">Latest questions</span>
-        <span class="hp-hint">{v.questions.value.length ? `${v.questions.value.length} so far` : ''}</span>
+        {qs.length > 0 && <span class="hp-hint">newest first</span>}
       </div>
       {qs.length ? (
         <div class="hp-qs">
@@ -735,7 +1162,7 @@ function Questions({ v, actions }: { v: View; actions: BarActions }) {
           ))}
         </div>
       ) : (
-        <div class="hp-empty">No questions yet — they'll gather here.</div>
+        <div class="hp-empty">No questions yet. They'll gather here.</div>
       )}
     </section>
   );
@@ -755,4 +1182,3 @@ function FootModel({ v }: { v: View }) {
     </span>
   );
 }
-

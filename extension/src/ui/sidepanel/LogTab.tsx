@@ -8,9 +8,20 @@ import { Empty, useTick } from '../kit/kit';
 import { ACTION_META, CATEGORY_META } from '../tokens';
 import { Avatar } from './InboxTab';
 import { NoChat } from './SidePanelApp';
-import { connection, filtered, live } from './state';
+import { canView, connection, filtered, live, setSolo, views } from './state';
 
 const SENSITIVE = new Set<Category>(['toxic']);
+
+/** Check a category in chat: everything else is hidden there until "Show all". */
+function SoloButton({ cat }: { cat: Category }) {
+  const on = views.value.solo === cat;
+  return (
+    <button type="button" class={`k-btn k-btn-sm ${on ? 'k-btn-subtle' : ''}`} aria-pressed={on} disabled={!canView.value} onClick={() => setSolo(cat)}>
+      <Icon name={on ? 'x' : 'show'} size={12} strokeWidth={1.8} />
+      {on ? 'Show all in chat' : 'Show only these in chat'}
+    </button>
+  );
+}
 
 export function LogTab() {
   useTick(10_000);
@@ -42,11 +53,12 @@ export function LogTab() {
 
   return (
     <div class="sp-stack">
-      <div class="sp-toolbar">
+      <div class="sp-toolbar sp-toolbar-wrap">
         <div>
-          <h2 class="sp-h2">Filtered</h2>
-          <p class="sp-h2-sub">What Hush kept out of chat, and why</p>
+          <h2 class="sp-h2">Hidden messages</h2>
+          <p class="sp-h2-sub">What Hush hid or folded since you opened this panel, newest first</p>
         </div>
+        {cat !== 'all' && <SoloButton cat={cat} />}
       </div>
       <div class="sp-filters" role="tablist">
         <button class="sp-filter" aria-selected={cat === 'all'} onClick={() => setCat('all')}>
@@ -69,7 +81,7 @@ export function LogTab() {
         </div>
       ) : (
         <div class="k-card">
-          <Empty icon="shield" title="Nothing filtered yet">
+          <Empty icon="shield" title="Nothing hidden yet">
             When Hush hides or folds a message, it shows up here with the reason.
           </Empty>
         </div>

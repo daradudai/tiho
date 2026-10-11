@@ -3,6 +3,7 @@
 //   node tests/ui/shoot.mjs            # all shots
 //   node tests/ui/shoot.mjs chat-      # only shots whose name starts with "chat-"
 //   node tests/ui/shoot.mjs --no-build
+//   HUSH_SHOWCASE_OUT=tests/ui/.dist-mine node tests/ui/shoot.mjs   # build into another folder (parallel runs)
 import { chromium } from '@playwright/test';
 import { build } from 'vite';
 import http from 'node:http';
@@ -11,14 +12,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const dist = path.join(here, '.dist');
+const dist = process.env.HUSH_SHOWCASE_OUT ? path.resolve(process.env.HUSH_SHOWCASE_OUT) : path.join(here, '.dist');
 const outDir = path.join(here, 'screenshots');
 const args = process.argv.slice(2);
 const filter = args.find((a) => !a.startsWith('--'));
 fs.mkdirSync(outDir, { recursive: true });
 
 if (!args.includes('--no-build')) {
-  await build({ configFile: path.join(here, 'vite.config.ts'), logLevel: 'warn' });
+  await build({ configFile: path.join(here, 'vite.config.ts'), logLevel: 'warn', build: { outDir: dist } });
 }
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png' };
@@ -37,60 +38,95 @@ const base = `http://127.0.0.1:${server.address().port}/showcase.html`;
 
 const shots = [];
 const chat = (name, qs, w, h = 640, act) => shots.push({ name, url: `${base}?view=chat&${qs}`, w, h, act });
+// In-chat bar and rows, in both modes (mode=basic is the default; every chat shot names its mode).
+const openBar = async (pg) => {
+  await pg.locator('.hb-mark').click();
+  await pg.waitForTimeout(250);
+};
 for (const theme of ['dark', 'light']) {
   for (const [p, w] of [['twitch', 340], ['youtube', 400], ['kick', 340]]) {
-    chat(`chat-${p}-${theme}`, `platform=${p}&theme=${theme}`, w);
-    chat(`chat-${p}-${theme}-open`, `platform=${p}&theme=${theme}`, w, 720, async (pg) => {
-      await pg.locator('.hb-mark').click();
-      await pg.waitForTimeout(250);
-    });
-  }
-}
-chat('chat-twitch-dark-chipmenu', 'platform=twitch&theme=dark', 340, 640, async (pg) => {
-  await pg.locator('.hb-chip[data-c="spam"]').click({ button: 'right' });
-  await pg.waitForTimeout(200);
-});
-chat('chat-twitch-dark-presetmenu', 'platform=twitch&theme=dark', 340, 640, async (pg) => {
-  await pg.locator('.hb-preset-pill').click();
-  await pg.waitForTimeout(200);
-});
-chat('chat-twitch-dark-tooltip', 'platform=twitch&theme=dark', 340, 640, async (pg) => {
-  await pg.locator('.hb-chip[data-c="toxic"]').hover();
-  await pg.waitForTimeout(450);
-});
-// Reason chip on hover (the last question, right under a long wave head), the pill, a revealed run.
-for (const theme of ['dark', 'light']) {
-  for (const [p, w] of [['twitch', 340], ['youtube', 400], ['kick', 340]]) {
-    chat(`chat-${p}-${theme}-hover`, `platform=${p}&theme=${theme}`, w, 640, async (pg) => {
+    for (const mode of ['basic', 'advanced']) {
+      chat(`chat-${p}-${theme}-${mode}`, `platform=${p}&theme=${theme}&mode=${mode}`, w);
+      chat(`chat-${p}-${theme}-${mode}-open`, `platform=${p}&theme=${theme}&mode=${mode}`, w, 720, openBar);
+    }
+    // Show hidden (tags in plain words) and Solo (every row of one category, tagged): the floats must not overlap rows
+    chat(`chat-${p}-${theme}-basic-peek`, `platform=${p}&theme=${theme}&mode=basic&peek`, w);
+    chat(`chat-${p}-${theme}-advanced-peek`, `platform=${p}&theme=${theme}&mode=advanced&peek`, w);
+    chat(`chat-${p}-${theme}-advanced-solo`, `platform=${p}&theme=${theme}&mode=advanced&solo=spam`, w);
+    // Reason chip on hover (Advanced only: the last question, right under a long wave head)
+    chat(`chat-${p}-${theme}-advanced-hover`, `platform=${p}&theme=${theme}&mode=advanced`, w, 640, async (pg) => {
       await pg.locator('.bd-row[data-hush-c="question"]').last().hover();
       await pg.waitForTimeout(500);
     });
   }
+  chat(`chat-twitch-${theme}-basic-off`, `platform=twitch&theme=${theme}&mode=basic&off`, 340, 300);
+  chat(`chat-twitch-${theme}-advanced-solo-open`, `platform=twitch&theme=${theme}&mode=advanced&solo=spam`, 340, 720, openBar);
+  chat(`chat-twitch-${theme}-advanced-chipmenu`, `platform=twitch&theme=${theme}&mode=advanced`, 340, 640, async (pg) => {
+    await pg.locator('.hb-chip[data-c="spam"]').click({ button: 'right' });
+    await pg.waitForTimeout(200);
+  });
 }
-chat('chat-twitch-light-pill', 'platform=twitch&theme=light', 340, 640, async (pg) => {
+chat('chat-twitch-dark-basic-siteoff', 'platform=twitch&theme=dark&mode=basic&siteoff', 340, 300);
+chat('chat-twitch-dark-basic-narrow', 'platform=twitch&theme=dark&mode=basic&w=280', 280, 300);
+chat('chat-twitch-dark-basic-loading-open', 'platform=twitch&theme=dark&mode=basic&model=downloading&empty', 340, 640, openBar);
+chat('chat-twitch-light-basic-error-open', 'platform=twitch&theme=light&mode=basic&model=error', 340, 640, openBar);
+chat('chat-twitch-dark-basic-custom-open', 'platform=twitch&theme=dark&mode=basic&preset=raw', 340, 640, openBar);
+chat('chat-twitch-dark-basic-tooltip', 'platform=twitch&theme=dark&mode=basic', 340, 400, async (pg) => {
+  await pg.locator('.hb-level .hb-seg-btn').nth(2).hover();
+  await pg.waitForTimeout(450);
+});
+chat('chat-twitch-dark-advanced-presetmenu', 'platform=twitch&theme=dark&mode=advanced', 340, 640, async (pg) => {
+  await pg.locator('.hb-preset-pill').click();
+  await pg.waitForTimeout(200);
+});
+chat('chat-twitch-dark-advanced-tooltip', 'platform=twitch&theme=dark&mode=advanced', 340, 400, async (pg) => {
+  await pg.locator('.hb-chip[data-c="spam"]').hover();
+  await pg.waitForTimeout(450);
+});
+chat('chat-twitch-dark-advanced-off', 'platform=twitch&theme=dark&mode=advanced&off', 340, 300);
+chat('chat-twitch-dark-advanced-loading', 'platform=twitch&theme=dark&mode=advanced&model=downloading&empty', 340, 300);
+chat('chat-twitch-light-basic-pill', 'platform=twitch&theme=light&mode=basic', 340, 640, async (pg) => {
   await pg.locator('.bd-row[data-hush-run]').last().hover({ force: true, position: { x: 50, y: 13 } }); // the row itself is visibility:hidden, its pill parts are not
   await pg.waitForTimeout(200);
 });
-chat('chat-twitch-dark-revealed', 'platform=twitch&theme=dark', 340, 640, async (pg) => {
+chat('chat-twitch-dark-advanced-revealed', 'platform=twitch&theme=dark&mode=advanced', 340, 640, async (pg) => {
   await pg.locator('.bd-row[data-hush-run]').last().click({ force: true, position: { x: 50, y: 13 } });
   await pg.waitForTimeout(200);
   await pg.locator('.bd-row[data-hush-open]').last().hover();
   await pg.waitForTimeout(500);
 });
-chat('chat-twitch-dark-wide', 'platform=twitch&theme=dark&w=560', 560, 480);
-chat('chat-youtube-dark-wide-light', 'platform=youtube&theme=light&w=560', 560, 480);
-chat('chat-twitch-dark-loading', 'platform=twitch&theme=dark&model=downloading&empty', 340, 300);
-chat('chat-twitch-dark-off', 'platform=twitch&theme=dark&off', 340, 300);
-chat('chat-kick-dark-raw', 'platform=kick&theme=dark&preset=raw', 340, 640);
-chat('chat-twitch-light-focus', 'platform=twitch&theme=light&preset=focus', 340, 640);
+chat('chat-twitch-dark-advanced-wide', 'platform=twitch&theme=dark&mode=advanced&w=560', 560, 480);
+chat('chat-youtube-light-basic-wide', 'platform=youtube&theme=light&mode=basic&w=560', 560, 480);
+chat('chat-kick-dark-advanced-raw', 'platform=kick&theme=dark&mode=advanced&preset=raw', 340, 640);
+chat('chat-twitch-light-basic-quiet', 'platform=twitch&theme=light&mode=basic&preset=focus', 340, 640);
 
+// Extension pages. Basic is the default mode; the Advanced popup and side panel tabs carry mode=advanced.
+const popup = (name, qs) => shots.push({ name, url: `${base}?view=popup&${qs}`, w: 360, h: 600, full: true });
+const panel = (name, qs, act) => shots.push({ name, url: `${base}?view=sidepanel&${qs}`, w: 400, h: 900, act });
 for (const theme of ['dark', 'light']) {
-  shots.push({ name: `popup-${theme}`, url: `${base}?view=popup&theme=${theme}`, w: 360, h: 600, full: true });
+  popup(`popup-basic-${theme}`, `theme=${theme}`);
+  popup(`popup-advanced-${theme}`, `theme=${theme}&mode=advanced`);
+  panel(`sidepanel-basic-${theme}`, `theme=${theme}`);
   for (const tab of ['live', 'inbox', 'log', 'rules', 'settings'])
-    shots.push({ name: `sidepanel-${tab}-${theme}`, url: `${base}?view=sidepanel&theme=${theme}&tab=${tab}${tab === 'rules' ? '&engine' : ''}`, w: 400, h: 900 });
+    panel(`sidepanel-${tab}-${theme}`, `theme=${theme}&mode=advanced&tab=${tab}${tab === 'rules' ? '&engine' : ''}`);
   shots.push({ name: `onboarding-${theme}`, url: `${base}?view=onboarding&theme=${theme}&downloading`, w: 1280, h: 900, full: true, wait: 1600 });
 }
-shots.push({ name: 'popup-nochat-dark', url: `${base}?view=popup&theme=dark&nochat&model=downloading`, w: 360, h: 600, full: true });
+popup('popup-basic-loading-dark', 'theme=dark&model=downloading');
+popup('popup-basic-error-light', 'theme=light&model=error');
+popup('popup-basic-custom-dark', 'theme=dark&preset=custom');
+popup('popup-basic-off-light', 'theme=light&off');
+popup('popup-basic-nochat-dark', 'theme=dark&nochat');
+popup('popup-advanced-off-dark', 'theme=dark&mode=advanced&off');
+panel('sidepanel-basic-loading-light', 'theme=light&model=loading');
+panel('sidepanel-live-solo-dark', 'theme=dark&mode=advanced&tab=live&solo=spam', async (pg) => {
+  await pg.locator('.sp-solo').scrollIntoViewIfNeeded();
+  await pg.waitForTimeout(150);
+});
+panel('sidepanel-live-peek-light', 'theme=light&mode=advanced&tab=live&peek');
+panel('sidepanel-log-only-dark', 'theme=dark&mode=advanced&tab=log', async (pg) => {
+  await pg.locator('.sp-filter[data-c="scam"]').click();
+  await pg.waitForTimeout(150);
+});
 
 const browser = await chromium.launch();
 let n = 0;

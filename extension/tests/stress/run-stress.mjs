@@ -290,7 +290,7 @@ async function paired(skin, rate, cpu = 1, variant = '') {
     frames: { base: sum(base.map((r) => r.mock.frames.n)), hush: sum(hush.map((r) => r.mock.frames.n)) },
     lat: { p50: med(hush.map((r) => r.runtime.latency.p50)), p95: med(hush.map((r) => r.runtime.latency.p95)) },
     decided: ['rule', 'cache', 'model', 'timeout'].map((key) => sum(hush.map((r) => r.runtime.decided[key]))),
-    filtered: med(hush.map((r) => r.runtime.totals.filtered / Math.max(1, r.runtime.totals.seen))),
+    filtered: med(hush.map((r) => (r.runtime.inChat.hidden + r.runtime.inChat.folded) / Math.max(1, r.runtime.inChat.rows))),
   };
   const tag = `${skin}-${rate}${cpu > 1 ? `-cpu${cpu}` : ''}${variant ? '-' + variant.replace(/\W+/g, '') : ''}`;
   fs.writeFileSync(path.join(runsDir, `paired-${tag}.json`), JSON.stringify({ res, base, hush }, null, 2));

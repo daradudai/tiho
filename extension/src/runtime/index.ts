@@ -81,6 +81,9 @@ export async function startHush({ adapter }: StartOptions): Promise<HushHandle> 
     save: (patch) => saveSettings(patch).catch((e) => console.warn('[hush] save settings failed', e)),
     openSidePanel: () => void send({ type: 'hush:openSidePanel' }),
     reveal: (key) => void rt?.reveal(key),
+    platform: adapter.platform,
+    setPeek: (on) => rt?.setPeek(on),
+    setSolo: (cat) => rt?.setSolo(cat),
   });
 
   rt = new HushRuntime({
@@ -99,7 +102,11 @@ export async function startHush({ adapter }: StartOptions): Promise<HushHandle> 
       // by a frame that shows a chat, never by an empty SPA page or embed.
       if (!offLive) {
         try {
-          offLive = serveLive(store, { reveal: (key) => void rt?.reveal(key) });
+          offLive = serveLive(store, {
+            reveal: (key) => void rt?.reveal(key),
+            peek: (on) => rt?.setPeek(on),
+            solo: (cat) => rt?.setSolo(cat),
+          });
         } catch {
           /* no extension context (tests) */
         }

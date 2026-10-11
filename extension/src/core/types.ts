@@ -47,6 +47,13 @@ export type Scores = Float32Array | number[];
 
 export type Action = 'show' | 'highlight' | 'dim' | 'collapse' | 'hide';
 
+/**
+ * Ends the reason of a protected author's message that its category would
+ * dim, fold or hide ("toxic · 94% · always shown"); the row stylesheet's Solo
+ * tag matches it.
+ */
+export const ALWAYS_SHOWN = 'always shown';
+
 export interface Verdict {
   /** Primary category used for styling and counters. */
   category: Category;

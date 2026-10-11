@@ -1,48 +1,46 @@
+import type { ComponentChildren } from 'preact';
 import { PRESETS } from '../../core/settings';
+import type { InChat } from '../../core/store';
 import type { Action, Category } from '../../core/types';
 import { CATEGORIES } from '../../core/types';
-import { Mark } from '../brand';
 import { Diverging, Sparkline } from '../charts';
-import { ago, compact, grouped, pct, rate as fmtRate, signed, vibeWord } from '../format';
+import { ago, compact, grouped, pct, rate as fmtRate, signed, vibeTone, vibeWord } from '../format';
 import { Icon } from '../icons';
 import { Card, Segmented, settings, updateSettings } from '../kit/kit';
 import { modelSummary } from '../model-status';
 import { ACTION_META, CATEGORY_META, PRESET_META, PRESET_ORDER } from '../tokens';
 import { NoChat } from './SidePanelApp';
-import { live, rate, vibe } from './state';
+import { canView, live, rate, setPeek, setSolo, vibe, views } from './state';
 
 const ACTIONS: Action[] = ['show', 'highlight', 'dim', 'collapse', 'hide'];
+
+/** A card title with the window its numbers cover ("last 60 s", "in chat now"). */
+function Titled({ title, window: w }: { title: ComponentChildren; window: string }) {
+  return (
+    <>
+      {title}
+      <em class="sp-win">{w}</em>
+    </>
+  );
+}
 
 export function LiveTab() {
   const s = live.value;
   if (!s) return <NoChat />;
-  const seen = s.totals.seen;
-  const ratio = seen ? s.totals.filtered / seen : 0;
   const now = s.rate[s.rate.length - 1] ?? 0;
   const peak = Math.max(0, ...s.rate);
   const avg = s.rate.length ? s.rate.reduce((a, b) => a + b, 0) / s.rate.length : 0;
   const v3 = s.vibe.slice(-3);
-  const vibeNow = v3.length ? v3.reduce((a, b) => a + b, 0) / v3.length : 0;
+  const mood = v3.length ? v3.reduce((a, b) => a + b, 0) / v3.length : 0;
   const ms = modelSummary(s.model);
+  const solo = views.value.solo;
 
   return (
     <div class="sp-stack">
-      <section class="sp-hero">
-        <div class="sp-hero-main">
-          <span class="k-label">Hushed</span>
-          <b class="sp-hero-num">{seen ? pct(ratio) : '—'}</b>
-          <span class="sp-hero-sub">
-            {grouped(s.totals.filtered)} of {grouped(seen)} messages
-          </span>
-        </div>
-        <div class="sp-ring-wrap">
-          <HushRing ratio={ratio} />
-          <Mark size={26} />
-        </div>
-      </section>
+      <Hero inChat={s.inChat} />
 
       <Card
-        title="Messages per second"
+        title={<Titled title="Messages per second" window="last 60 s" />}
         action={
           <span class="sp-metric">
             <b>{fmtRate(now)}</b> now · avg {fmtRate(avg)} · peak {fmtRate(peak)}
@@ -57,10 +55,10 @@ export function LiveTab() {
       </Card>
 
       <Card
-        title="Vibe"
+        title={<Titled title="Mood" window="last 5 min" />}
         action={
-          <span class="sp-metric" data-vibe={vibeNow > 0.05 ? 'pos' : vibeNow < -0.05 ? 'neg' : 'mid'}>
-            <b>{vibeWord(vibeNow)}</b> {signed(vibeNow)}
+          <span class="sp-metric" data-vibe={vibeTone(mood)}>
+            <b>{vibeWord(mood)}</b> {signed(mood)}
           </span>
         }
       >
@@ -74,12 +72,21 @@ export function LiveTab() {
         </div>
       </Card>
 
-      <Card title="Categories" action={<PresetPicker />} pad={false}>
+      <Card title={<Titled title="Categories" window="in chat now" />} action={<PresetPicker />} pad={false}>
         <div class="sp-cats">
           {CATEGORIES.map((c) => (
-            <CatRow cat={c} count={s.counts[c]} total={seen} action={settings.value.actions[c]} />
+            <CatRow cat={c} count={s.inChat.byCat[c]} total={s.inChat.rows} action={settings.value.actions[c]} solo={solo} />
           ))}
         </div>
+        {solo && (
+          <div class="sp-solo" data-c={solo} role="status">
+            <Icon name={solo} size={13} fill />
+            <span>Only {CATEGORY_META[solo].label} in chat</span>
+            <button type="button" class="k-btn k-btn-sm k-btn-subtle" disabled={!canView.value} onClick={() => setSolo(null)}>
+              Show all
+            </button>
+          </div>
+        )}
       </Card>
 
       {s.waves.length > 0 && (
@@ -92,7 +99,7 @@ export function LiveTab() {
                 </span>
                 <span class="sp-wave-n">×{compact(w.count)}</span>
                 <span class="sp-wave-meta">
-                  {w.users} people · {ago(w.lastAt)} ago
+                  {w.users} people · {ago(w.lastAt) === 'now' ? 'now' : `${ago(w.lastAt)} ago`}
                 </span>
               </div>
             ))}
@@ -100,54 +107,54 @@ export function LiveTab() {
         </Card>
       )}
 
-      <Card title="Engine room" action={<span class={`sp-tone sp-tone-${ms.tone}`}>{ms.title}</span>}>
+      <Card title="Performance" action={<span class={`sp-tone sp-tone-${ms.tone}`}>{ms.title}</span>}>
         <div class="sp-perf">
-          <Perf label="Latency p50" value={`${s.perf.p50ms.toFixed(0)} ms`} />
-          <Perf label="Latency p95" value={`${s.perf.p95ms.toFixed(0)} ms`} />
-          <Perf label="Inferences / s" value={fmtRate(s.perf.inferPerSec)} />
-          <Perf label="Cache hits" value={pct(s.perf.cacheHitRate)} />
+          <Perf label="Latency p50" window="recent" value={`${s.perf.p50ms.toFixed(0)} ms`} />
+          <Perf label="Latency p95" window="recent" value={`${s.perf.p95ms.toFixed(0)} ms`} />
+          <Perf label="Inferences / s" window="now" value={fmtRate(s.perf.inferPerSec)} />
+          <Perf label="Cache hits" window="since this chat opened" value={pct(s.perf.cacheHitRate)} />
         </div>
       </Card>
     </div>
   );
 }
 
-function Perf({ label, value }: { label: string; value: string }) {
+/** What the chat list holds now: hidden and folded rows, and Show hidden for that tab. */
+function Hero({ inChat }: { inChat: InChat }) {
+  const { peek, solo } = views.value;
+  const away = inChat.hidden + inChat.folded;
+  return (
+    <section class="sp-hero">
+      <span class="k-label">In chat now</span>
+      <b class="sp-hero-num">
+        {grouped(away)}
+        <span>hidden or folded</span>
+      </b>
+      <span class="sp-hero-sub">
+        {grouped(inChat.hidden)} hidden · {grouped(inChat.folded)} folded · {grouped(inChat.rows)} messages
+      </span>
+      <button
+        type="button"
+        class={`k-btn k-btn-sm sp-peek ${peek ? 'k-btn-subtle' : ''}`}
+        aria-pressed={peek}
+        disabled={!canView.value || !!solo}
+        title={solo ? 'Not while one category is shown alone' : peek ? 'Hidden messages are back in chat, faded' : 'Bring back what Hush hid in that tab, faded'}
+        onClick={() => setPeek(!peek)}
+      >
+        <Icon name={peek ? 'eyeOff' : 'show'} size={13} strokeWidth={1.8} />
+        {peek ? 'Hide again' : 'Show hidden in chat'}
+      </button>
+    </section>
+  );
+}
+
+function Perf({ label, window: w, value }: { label: string; window: string; value: string }) {
   return (
     <div class="sp-perf-cell">
       <span>{label}</span>
       <b>{value}</b>
+      <em>{w}</em>
     </div>
-  );
-}
-
-function HushRing({ ratio }: { ratio: number }) {
-  const r = 30;
-  const c = 2 * Math.PI * r;
-  return (
-    <svg class="sp-ring" width="76" height="76" viewBox="0 0 76 76" aria-hidden="true">
-      <defs>
-        <linearGradient id="sp-ring-g" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#7c83ff" />
-          <stop offset="0.55" stop-color="#a78bfa" />
-          <stop offset="1" stop-color="#5ab2ff" />
-        </linearGradient>
-      </defs>
-      <circle cx="38" cy="38" r={r} fill="none" stroke="var(--track)" stroke-width="7" />
-      <circle
-        cx="38"
-        cy="38"
-        r={r}
-        fill="none"
-        stroke="url(#sp-ring-g)"
-        stroke-width="7"
-        stroke-linecap="round"
-        stroke-dasharray={`${c} ${c}`}
-        stroke-dashoffset={c * (1 - Math.min(1, Math.max(0.005, ratio)))}
-        transform="rotate(-90 38 38)"
-        style={{ transition: 'stroke-dashoffset 600ms var(--ease-out)' }}
-      />
-    </svg>
   );
 }
 
@@ -164,12 +171,13 @@ function PresetPicker() {
   );
 }
 
-function CatRow({ cat, count, total, action }: { cat: Category; count: number; total: number; action: Action }) {
+function CatRow({ cat, count, total, action, solo }: { cat: Category; count: number; total: number; action: Action; solo: Category | null }) {
   const share = total ? count / total : 0;
   const meta = CATEGORY_META[cat];
+  const only = solo === cat;
   const set = (a: Action) => updateSettings({ preset: 'custom', actions: { ...settings.value.actions, [cat]: a } });
   return (
-    <div class="sp-cat" data-c={cat} data-a={action}>
+    <div class="sp-cat" data-c={cat} data-a={action} data-solo={only ? '' : undefined} data-faded={solo && !only ? '' : undefined}>
       <span class="sp-cat-ico">
         <Icon name={cat} size={14} fill />
       </span>
@@ -178,14 +186,23 @@ function CatRow({ cat, count, total, action }: { cat: Category; count: number; t
           <span class="sp-cat-name" title={meta.desc}>
             {meta.label}
           </span>
-          <span class="sp-cat-n">
-            {compact(count)} <em>{pct(share, share < 0.1 && share > 0 ? 1 : 0)}</em>
-          </span>
+          <span class="sp-cat-n">{compact(count)}</span>
         </div>
         <div class="sp-cat-bar">
           <span style={{ width: `${Math.max(share * 100, count ? 1.5 : 0)}%` }} />
         </div>
       </div>
+      <button
+        type="button"
+        class="sp-only"
+        aria-pressed={only}
+        aria-label={only ? 'Show all messages in chat' : `Show only ${meta.label.toLowerCase()} in chat`}
+        title={only ? 'Show every category again' : `Show only ${meta.label.toLowerCase()} in chat, to check what Hush put there`}
+        disabled={!canView.value}
+        onClick={() => setSolo(cat)}
+      >
+        {only ? 'Show all' : 'Only'}
+      </button>
       <div class="sp-acts" role="radiogroup" aria-label={`${meta.label} action`}>
         {ACTIONS.map((a) => (
           <button role="radio" aria-checked={a === action} class="sp-act" data-a={a} title={`${ACTION_META[a].label} — ${ACTION_META[a].desc}`} onClick={() => set(a)}>
@@ -196,4 +213,3 @@ function CatRow({ cat, count, total, action }: { cat: Category; count: number; t
     </div>
   );
 }
-

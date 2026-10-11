@@ -73,8 +73,7 @@ def corpus(pattern: str, exclude: set[str]) -> list[str]:
 def main(a):
     random.seed(0)
     torch.manual_seed(0)
-    tok = AutoTokenizer.from_pretrained(a.teacher)
-    teacher = AutoModelForSequenceClassification.from_pretrained(a.teacher).cuda().eval()
+    tok = AutoTokenizer.from_pretrained(a.teacher[0])
     gold = load_jsonl("data/gold.jsonl")
     gold_texts = {clean_for_model(g["text"]) for g in gold}
     labeled = []
@@ -91,15 +90,29 @@ def main(a):
     texts = unl + [t for t, _ in labeled]
     print(f"distill set: {len(unl)} unlabeled + {len(labeled)} labeled", flush=True)
     t0 = time.time()
-    P = predict(teacher, tok, texts, bs=512)
-    print(f"teacher probs in {time.time()-t0:.0f}s", flush=True)
+    # One teacher, or an ensemble whose probabilities are averaged (all mmBERT, same tokenizer).
+    P = None
+    for path in a.teacher:
+        teacher = AutoModelForSequenceClassification.from_pretrained(path).cuda().eval()
+        p = predict(teacher, tok, texts, bs=512)
+        P = p if P is None else P + p
+        del teacher
+        torch.cuda.empty_cache()
+    P /= len(a.teacher)
+    print(f"teacher probs ({len(a.teacher)} teacher(s)) in {time.time()-t0:.0f}s", flush=True)
     targets = P.copy()
     for j, (_, y) in enumerate(labeled):
         targets[len(unl) + j] = a.label_mix * np.array(y) + (1 - a.label_mix) * P[len(unl) + j]
     data = list(zip(texts, targets.tolist()))
 
-    student = build_student(teacher, [int(b) for b in a.blocks.split(",")]).cuda()
-    del teacher
+    if a.student_init:
+        # Cross-architecture distillation (e.g. a wider teacher): start from an existing student.
+        student = AutoModelForSequenceClassification.from_pretrained(a.student_init).cuda()
+        print(f"student initialized from {a.student_init} ({student.config.num_hidden_layers} layers)")
+    else:
+        teacher = AutoModelForSequenceClassification.from_pretrained(a.teacher[0]).cuda()
+        student = build_student(teacher, [int(b) for b in a.blocks.split(",")]).cuda()
+        del teacher
     torch.cuda.empty_cache()
 
     def collate(batch):
@@ -147,7 +160,8 @@ def main(a):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--teacher", default="runs/v2/best")
+    ap.add_argument("--teacher", nargs="+", default=["runs/v2/best"], help="one or more teachers; probabilities are averaged")
+    ap.add_argument("--student-init", help="start from this checkpoint instead of slicing the teacher (needed when the teacher is wider)")
     ap.add_argument("--blocks", default="0,3,6", help="3-layer blocks to keep (block b = layers 3b..3b+2)")
     ap.add_argument("--out", default="runs/v2-9L")
     ap.add_argument("--epochs", type=int, default=3)

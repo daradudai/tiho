@@ -1,4 +1,4 @@
-/* Popup — 360 px wide */
+/* Popup — 360 px wide. Basic: the levels and the mode switch. Advanced: site card, presets, strictness, status. */
 
 .pp {
   width: 360px;
@@ -131,6 +131,7 @@
 .pp-kpi span {
   font-size: 11px;
   color: var(--text-3);
+  text-wrap: balance;
 }
 .pp-kpi-grad {
   background: var(--grad-brand);
@@ -141,11 +142,28 @@
 .pp-spark {
   margin-top: 10px;
 }
+.pp-cap {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--text-3);
+  text-align: right;
+}
 
 .pp-strip {
-  margin-top: 12px;
+  margin-top: 8px;
+}
+.pp-strip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pp-strip-row .k-label {
+  flex: none;
+  font-size: 10px;
 }
 .pp-strip-bar {
+  flex: 1;
   display: flex;
   gap: 2px;
   height: 6px;
@@ -309,15 +327,35 @@
   box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
+/* Basic: the question above the levels */
+.pp-q {
+  margin: 0 2px 10px;
+  font-size: 14px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+}
+
 /* footer */
 .pp-foot {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 12px;
   padding: 12px 16px;
   border-top: 1px solid var(--line);
   background: var(--surface-1);
+}
+.pp-foot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pp-foot-row + .k-modeswitch {
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+.pp-foot-basic {
+  padding: 14px 16px 12px;
 }
 .pp-status {
   display: flex;
@@ -403,12 +441,6 @@
 }
 
 .pp-privacy {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
   padding: 0 16px 12px;
-  font-size: 11px;
-  color: var(--text-3);
   background: var(--surface-1);
 }

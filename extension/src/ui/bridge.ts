@@ -3,7 +3,7 @@
 //
 //   side panel ──chrome.tabs.connect(tabId, {name: 'hush:live'})──▶ content script
 //                ◀── { type: 'snapshot', snapshot } every ~1 s while connected
-//                ──▶ LiveCommand (reveal, feedback)
+//                ──▶ LiveCommand (reveal, feedback, peek, solo)
 //   popup ──chrome.tabs.sendMessage(tabId, {type:'hush:getSnapshot'})──▶ content (one-shot)
 //         ──chrome.runtime.sendMessage({type:'hush:getPerf'})──▶ background (fallback)
 //   any page ──{type:'hush:getStatus'}──▶ background → ModelStatus
@@ -14,26 +14,33 @@
 // frames without a chat never answer. Nothing is pushed unless a page is listening.
 
 import type { EngineStatus, EngineTestRequest, EngineTestResult, RuntimeMessage } from '../core/protocol';
-import type { Store, LogEntry, WaveInfo } from '../core/store';
-import type { Category, ModelStatus, PerfStats } from '../core/types';
+import type { InChat, Store, LogEntry, WaveInfo } from '../core/store';
+import { CATEGORIES, type Category, type ModelStatus, type PerfStats } from '../core/types';
 import { loadSettings, saveSettings, type UserRule } from '../core/settings';
 
 export const PORT_LIVE = 'hush:live';
 export const FEEDBACK_KEY = 'hush.feedback.v1';
 
+/** Version of LiveSnapshot: pages ignore snapshots of another one (an old content script still running in a tab). */
+export const SNAPSHOT_V = 2;
+
 export interface LiveSnapshot {
-  v: 1;
+  v: typeof SNAPSHOT_V;
   platform: string;
   channel: string;
   theme: 'dark' | 'light';
   enabled: boolean;
   model: ModelStatus;
   perf: PerfStats;
-  counts: Record<Category, number>;
-  totals: { seen: number; filtered: number };
+  /** What the chat list holds right now (Store.inChat). */
+  inChat: InChat;
+  /** Show hidden is on in that tab. */
+  peek: boolean;
+  /** The category shown alone in that tab, or null. */
+  solo: Category | null;
   /** msgs/s, last 60 s, oldest first */
   rate: number[];
-  /** vibe in [-1,1], last 60 × 5 s, oldest first */
+  /** mood in [-1,1], last 60 × 5 s (5 min), oldest first */
   vibe: number[];
   waves: WaveInfo[];
   /** most recent first, ≤ 50 */
@@ -46,7 +53,11 @@ export interface LiveSnapshot {
 export type LiveCommand =
   | { type: 'reveal'; key: string }
   /** User says this message was misjudged; runtime should un-hide it now. */
-  | { type: 'feedback'; key: string; label: Category };
+  | { type: 'feedback'; key: string; label: Category }
+  /** Show hidden in that tab, or hide again. */
+  | { type: 'peek'; on: boolean }
+  /** Show only this category in that tab (the same one again, or null: everything). */
+  | { type: 'solo'; cat: Category | null };
 
 /** Port messages content → page. */
 export type LivePush = { type: 'snapshot'; snapshot: LiveSnapshot };
@@ -59,15 +70,16 @@ export type TabMessage = { type: 'hush:getSnapshot' } | { type: 'hush:command'; 
 export function snapshotFromStore(store: Store): LiveSnapshot {
   const s = store.settings.peek();
   return {
-    v: 1,
+    v: SNAPSHOT_V,
     platform: store.platform.peek(),
     channel: store.channel.peek(),
     theme: store.theme.peek(),
     enabled: s.enabled,
     model: store.model.peek(),
     perf: store.perf.peek(),
-    counts: store.counts.peek(),
-    totals: store.totals.peek(),
+    inChat: store.inChat.peek(),
+    peek: store.peek.peek(),
+    solo: store.solo.peek(),
     rate: store.rate.peek(),
     vibe: store.vibe.peek(),
     waves: store.waves.peek(),
@@ -80,6 +92,8 @@ export function snapshotFromStore(store: Store): LiveSnapshot {
 export interface LiveHandlers {
   reveal(key: string): void;
   feedback?(key: string, label: Category): void;
+  peek?(on: boolean): void;
+  solo?(cat: Category | null): void;
 }
 
 /**
@@ -95,6 +109,8 @@ export function serveLive(store: Store, handlers: LiveHandlers, intervalMs = 100
     if (!cmd || typeof cmd !== 'object') return;
     if (cmd.type === 'reveal') handlers.reveal(cmd.key);
     else if (cmd.type === 'feedback') (handlers.feedback ?? ((k) => handlers.reveal(k)))(cmd.key, cmd.label);
+    else if (cmd.type === 'peek') handlers.peek?.(cmd.on === true);
+    else if (cmd.type === 'solo' && (cmd.cat === null || CATEGORIES.includes(cmd.cat))) handlers.solo?.(cmd.cat);
   };
 
   const pushAll = () => {
@@ -197,14 +213,14 @@ export async function getSnapshot(tabId: number, timeoutMs = 800): Promise<LiveS
       chrome.tabs.sendMessage(tabId, { type: 'hush:getSnapshot' } satisfies TabMessage),
       new Promise((r) => setTimeout(() => r(null), timeoutMs)),
     ]);
-    return res && (res as LiveSnapshot).v === 1 ? (res as LiveSnapshot) : null;
+    return res && (res as LiveSnapshot).v === SNAPSHOT_V ? (res as LiveSnapshot) : null;
   } catch {
     return null;
   }
 }
 
 /** Fallback perf from the background (`hush:getPerf` in entrypoints/background.ts). */
-export async function getPerf(): Promise<{ stats: PerfStats & { platform?: string; channel?: string; counts?: Record<string, number> } } | null> {
+export async function getPerf(): Promise<{ stats: PerfStats & { platform?: string; channel?: string } } | null> {
   try {
     const r = (await chrome.runtime.sendMessage({ type: 'hush:getPerf' })) as any;
     if (!r) return null;
@@ -290,7 +306,7 @@ export function connectLive(onUpdate: (s: LiveSnapshot | null, tab: ActiveTab | 
       port = p;
       if (!stale) armStale();
       p.onMessage.addListener((m: LivePush) => {
-        if (m?.type === 'snapshot') {
+        if (m?.type === 'snapshot' && m.snapshot?.v === SNAPSHOT_V) {
           answered = true;
           armStale();
           onUpdate(m.snapshot, tab);

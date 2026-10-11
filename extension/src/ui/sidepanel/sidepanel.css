@@ -1,4 +1,4 @@
-/* Side panel dashboard */
+/* Side panel: the Basic page and the Advanced dashboard */
 
 html,
 body {
@@ -152,13 +152,18 @@ body {
   gap: 12px;
 }
 
-/* hero */
+/* hero: what the chat list holds now */
 .sp-hero {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "label peek"
+    "num   peek"
+    "sub   sub";
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 16px 16px 18px;
+  column-gap: 12px;
+  row-gap: 2px;
+  padding: 16px 16px 15px 18px;
   border-radius: var(--r-xl);
   background:
     radial-gradient(90% 120% at 100% 0%, rgba(124, 131, 255, 0.16), transparent 60%),
@@ -168,12 +173,14 @@ body {
     var(--highlight),
     var(--shadow-sm);
 }
-.sp-hero-main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.sp-hero > .k-label {
+  grid-area: label;
 }
 .sp-hero-num {
+  grid-area: num;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   font-size: 40px;
   line-height: 1.05;
   font-weight: 700;
@@ -184,22 +191,38 @@ body {
   background-clip: text;
   color: transparent;
 }
+.sp-hero-num span {
+  font-size: 17px;
+  font-weight: 640;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  -webkit-text-fill-color: var(--text);
+}
 .sp-hero-sub {
+  grid-area: sub;
+  margin-top: 4px;
   font-size: 12px;
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
 }
-.sp-ring-wrap {
-  position: relative;
-  width: 76px;
-  height: 76px;
-  flex: none;
-  display: grid;
-  place-items: center;
+.sp-peek {
+  grid-area: peek;
+  align-self: center;
 }
-.sp-ring {
-  position: absolute;
-  inset: 0;
+.sp-peek[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+/* a card title's window ("last 60 s", "in chat now") */
+.sp-win {
+  display: block;
+  margin-top: 1px;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-3);
 }
 
 .sp-metric {
@@ -252,15 +275,73 @@ body {
 }
 .sp-cat {
   display: grid;
-  grid-template-columns: 26px 1fr auto;
+  grid-template-columns: 26px 1fr auto auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   padding: 7px 8px;
   border-radius: 10px;
-  transition: background-color var(--dur-fast) var(--ease);
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    opacity var(--dur) var(--ease);
 }
 .sp-cat:hover {
   background: var(--surface-hover);
+}
+.sp-cat[data-solo] {
+  background: color-mix(in srgb, var(--c) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent);
+}
+.sp-cat[data-faded] .sp-cat-ico,
+.sp-cat[data-faded] .sp-cat-body {
+  opacity: 0.45;
+}
+
+/* Solo: show only this category in chat */
+.sp-only {
+  height: 22px;
+  min-width: 40px;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-2);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.sp-only:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-3);
+}
+.sp-only[aria-pressed="true"] {
+  color: var(--on-accent);
+  background: var(--accent-solid);
+  box-shadow: none;
+}
+.sp-only[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--accent-solid-hover);
+}
+.sp-solo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 6px 6px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--c) 10%, var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 28%, transparent);
+}
+.sp-solo > .ico {
+  color: var(--c);
+}
+.sp-solo > span {
+  flex: 1;
+  min-width: 0;
 }
 .sp-cat-ico {
   width: 26px;
@@ -411,17 +492,23 @@ body {
 /* perf */
 .sp-perf {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px 10px;
 }
 .sp-perf-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  column-gap: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
 }
 .sp-perf-cell span {
-  font-size: 10.5px;
-  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 560;
+  color: var(--text-2);
   white-space: nowrap;
 }
 .sp-perf-cell b {
@@ -429,6 +516,12 @@ body {
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
+}
+.sp-perf-cell em {
+  grid-column: 1 / -1;
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--text-3);
 }
 .sp-tone {
   display: inline-flex;
@@ -470,6 +563,17 @@ body {
   gap: 12px;
   padding: 2px 2px 0;
 }
+.sp-toolbar-wrap {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+.sp-toolbar-wrap > div {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.sp-toolbar-wrap > .k-btn {
+  margin-left: auto;
+}
 .sp-h2 {
   font-size: 17px;
   font-weight: 680;
@@ -479,6 +583,7 @@ body {
   font-size: 12px;
   color: var(--text-2);
   margin-top: 1px;
+  text-wrap: pretty;
 }
 
 /* lists */
@@ -1417,4 +1522,18 @@ body {
   font-weight: 600;
   background: var(--surface-1);
   box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* Basic: one page */
+.sp-basic .sp-top {
+  padding-bottom: 12px;
+}
+.sp-ask {
+  margin: 0 2px 12px;
+  font-size: 14px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+}
+.sp-basic-privacy {
+  padding: 4px 0;
 }

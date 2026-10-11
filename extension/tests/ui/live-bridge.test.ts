@@ -127,7 +127,10 @@ describe('startHush ↔ side panel / popup', () => {
     fake.runtime.onConnect.emit(p);
     const first = p.sent[0] as { type: string; snapshot: LiveSnapshot };
     expect(first.type).toBe('snapshot');
-    expect(first.snapshot).toMatchObject({ v: 1, platform: 'twitch', channel: 'somechannel', enabled: true });
+    expect(first.snapshot).toMatchObject({ v: 2, platform: 'twitch', channel: 'somechannel', enabled: true, peek: false, solo: null });
+    expect(first.snapshot.inChat).toMatchObject({ rows: 0, hidden: 0, folded: 0, inWaves: 0 });
+    expect(first.snapshot).not.toHaveProperty('counts');
+    expect(first.snapshot).not.toHaveProperty('totals');
 
     p.onMessage.emit({ type: 'reveal', key: 'k1' });
     p.onMessage.emit({ type: 'feedback', key: 'k2', label: 'clean' });
@@ -136,11 +139,37 @@ describe('startHush ↔ side panel / popup', () => {
     // the popup's one-shot request
     const sendResponse = vi.fn();
     fake.runtime.onMessage.emit({ type: 'hush:getSnapshot' }, {}, sendResponse);
-    expect(sendResponse.mock.calls[0]![0]).toMatchObject({ v: 1, channel: 'somechannel' });
+    expect(sendResponse.mock.calls[0]![0]).toMatchObject({ v: 2, channel: 'somechannel' });
 
     hush.stop();
     expect(fake.runtime.onConnect.size).toBe(0);
     expect(p.disconnect).toHaveBeenCalled();
+  });
+
+  it('takes Show hidden and Solo commands from the side panel; the next snapshot says so', async () => {
+    storage[SETTINGS_KEY] = { uiMode: 'advanced' };
+    document.body.innerHTML = '<div id="chat"></div>';
+    const hush = await startHush({ adapter });
+    const peek = vi.spyOn(hush.runtime, 'setPeek');
+    const solo = vi.spyOn(hush.runtime, 'setSolo');
+    const p = port(PORT_LIVE);
+    fake.runtime.onConnect.emit(p);
+    const latest = () => {
+      const sendResponse = vi.fn();
+      fake.runtime.onMessage.emit({ type: 'hush:getSnapshot' }, {}, sendResponse);
+      return sendResponse.mock.calls[0]![0] as LiveSnapshot;
+    };
+
+    p.onMessage.emit({ type: 'peek', on: true });
+    expect(latest()).toMatchObject({ peek: true, solo: null });
+    p.onMessage.emit({ type: 'solo', cat: 'nope' }); // not a category: dropped
+    p.onMessage.emit({ type: 'solo', cat: 'spam' });
+    expect(latest()).toMatchObject({ peek: false, solo: 'spam' });
+    fake.runtime.onMessage.emit({ type: 'hush:command', cmd: { type: 'solo', cat: null } }, {}, vi.fn()); // the one-shot path
+    expect(latest()).toMatchObject({ peek: false, solo: null });
+    expect(peek.mock.calls).toEqual([[true]]);
+    expect(solo.mock.calls).toEqual([['spam'], [null]]);
+    hush.stop();
   });
 });
 
@@ -149,7 +178,7 @@ describe('startHush ↔ side panel / popup', () => {
 describe('connectLive', () => {
   it('reports the tab at once when nothing serves it, and connects when the chat appears', async () => {
     vi.useFakeTimers();
-    const SNAP = { v: 1, channel: 'somechannel' } as LiveSnapshot;
+    const SNAP = { v: 2, channel: 'somechannel' } as LiveSnapshot;
     let serving = false;
     fake.tabs.connect = (_id, { name }) => {
       const p = port(name);
@@ -171,7 +200,7 @@ describe('connectLive', () => {
 
   it('still goes stale while retries fail after the chat stopped answering', async () => {
     vi.useFakeTimers();
-    const SNAP = { v: 1, channel: 'somechannel' } as LiveSnapshot;
+    const SNAP = { v: 2, channel: 'somechannel' } as LiveSnapshot;
     let serving = true;
     fake.tabs.connect = (_id, { name }) => {
       const p = port(name);
@@ -189,6 +218,20 @@ describe('connectLive', () => {
     expect(updates).toEqual([SNAP]);
     await vi.advanceTimersByTimeAsync(4000); // retries every 2 s must not keep the stale timer from firing
     expect(updates.at(-1)).toBeNull();
+    conn.dispose();
+  });
+
+  it('ignores snapshots of another version (a content script from before an update)', async () => {
+    vi.useFakeTimers();
+    fake.tabs.connect = (_id, { name }) => {
+      const p = port(name);
+      setTimeout(() => p.onMessage.emit({ type: 'snapshot', snapshot: { v: 1, channel: 'somechannel', totals: { seen: 9, filtered: 3 } } }), 0);
+      return p;
+    };
+    const updates: (LiveSnapshot | null)[] = [];
+    const conn = connectLive((s) => updates.push(s));
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(updates).toEqual([null]); // "no chat here", once the stale timer runs out
     conn.dispose();
   });
 

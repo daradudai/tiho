@@ -1,0 +1,8 @@
++ export PYTHONUNBUFFERED=1 PYTHONIOENCODING=utf-8
++ PYTHONUNBUFFERED=1
++ PYTHONIOENCODING=utf-8
++ P=.venv/Scripts/python.exe
++ .venv/Scripts/python.exe train/distill.py --teacher runs/v3-base/best --student-init runs/v2-6L/best --out runs/v3-6L-base
++ .venv/Scripts/python.exe train/distill.py --teacher runs/v3-base/best runs/v2/best --student-init runs/v2-6L/best --out runs/v3-6L-ens
++ echo DONE
+DONE

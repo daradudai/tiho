@@ -3,6 +3,7 @@
 import { computed, signal } from '@preact/signals';
 import type { EngineStatus } from '../../core/protocol';
 import type { LogEntry } from '../../core/store';
+import type { Category } from '../../core/types';
 import { connectLive, getEngineStatus, onEngineStatus, type ActiveTab, type LiveConnection, type LiveSnapshot } from '../bridge';
 import { settings } from '../kit/kit';
 
@@ -19,6 +20,36 @@ export const done = signal<Set<string>>(new Set());
 
 /** Hush Engine connection (pushed by the background on change, polled for counters). */
 export const engineStatus = signal<EngineStatus | null>(null);
+
+/**
+ * What this panel asked the tab for (Show hidden, Solo) and when: shown at
+ * once, and kept until a snapshot made after the request answers with the
+ * tab's own state (which may differ: Solo needs Advanced and Hush on).
+ */
+const asked = signal<{ peek: boolean; solo: Category | null; at: number } | null>(null);
+
+/** The tab's views: what its last snapshot says, or what this panel just asked for. */
+export const views = computed(() => {
+  const a = asked.value;
+  const s = live.value;
+  return a ? { peek: a.peek, solo: a.solo } : { peek: s?.peek ?? false, solo: s?.solo ?? null };
+});
+
+/** A view can be asked for while a chat answers and Hush is on. */
+export const canView = computed(() => !!live.value?.enabled);
+
+/** Show hidden in the tab, or hide again. */
+export function setPeek(on: boolean): void {
+  asked.value = { peek: on, solo: views.value.solo, at: Date.now() };
+  conn?.send({ type: 'peek', on });
+}
+
+/** Show only this category in the tab; null, or the soloed one again, shows everything. Entering Solo ends Show hidden. */
+export function setSolo(cat: Category | null): void {
+  const next = cat === views.value.solo ? null : cat;
+  asked.value = { peek: next ? false : views.value.peek, solo: next, at: Date.now() };
+  conn?.send({ type: 'solo', cat: next });
+}
 
 let conn: LiveConnection | null = null;
 let engineWatch = false;
@@ -41,6 +72,8 @@ export function startLive(): LiveConnection {
       questions.value = [];
       filtered.value = [];
     }
+    // One machine, one clock: a snapshot made after the request carries the tab's answer.
+    if (!s || (asked.value && s.ts >= asked.value.at)) asked.value = null;
     live.value = s;
     if (s) {
       questions.value = mergeLog(questions.value, s.questions, 300);

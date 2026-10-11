@@ -2,7 +2,7 @@ import { DEFAULT_SETTINGS, type Settings } from '../../core/settings';
 import type { Platform } from '../../core/types';
 import { Mark } from '../brand';
 import { Icon, PlatformGlyph } from '../icons';
-import { Button, Card, Row, Slider, Toggle, modelStatus, settings, updateSettings } from '../kit/kit';
+import { Button, Card, Row, Segmented, Slider, Toggle, modelStatus, settings, updateSettings } from '../kit/kit';
 import { BACKEND_LABEL, modelLayers, modelProblem, modelSummary, prettyModel, retryModel } from '../model-status';
 import { strictWord } from '../format';
 import { REPO_URL } from './filter-presets';
@@ -35,6 +35,19 @@ export function SettingsTab() {
   const set = updateSettings;
   return (
     <div class="sp-stack">
+      <Card title="Mode">
+        <Segmented
+          label="Mode"
+          value={s.uiMode}
+          options={[
+            { value: 'basic', label: 'Basic' },
+            { value: 'advanced', label: 'Advanced' },
+          ]}
+          onChange={(m) => set({ uiMode: m })}
+        />
+        <p class="sp-field-hint">Advanced adds categories, rules, stats and custom AI filters. Made for streamers. Filtering is the same in both.</p>
+      </Card>
+
       <Card title="Sites">
         {SITES.map((x) => (
           <Row icon={<PlatformGlyph platform={x.id} size={15} />} title={x.name} desc={s.sites[x.id] ? 'Filtering live chat' : 'Off'}>
@@ -69,10 +82,10 @@ export function SettingsTab() {
       </Card>
 
       <Card title="Appearance">
-        <Row icon={<Mark size={15} />} title="Bar above chat" desc="Live counters, presets and quick stats inside the chat">
+        <Row icon={<Mark size={15} />} title="Bar above chat" desc="The bar with levels and Show hidden (Basic) or presets and categories (Advanced)">
           <Toggle checked={s.showBar} label="Bar above chat" onChange={(v) => set({ showBar: v })} />
         </Row>
-        <Row icon={<Icon name="highlight" size={14} fill />} title="Message decorations" desc="Category tint, question glow, reason on hover">
+        <Row icon={<Icon name="highlight" size={14} fill />} title="Message decorations" desc="Category tint, question glow, reason on hover (Advanced mode)">
           <Toggle checked={s.decorate} label="Message decorations" onChange={(v) => set({ decorate: v })} />
         </Row>
         <Row icon={<Icon name="zap" size={14} />} title="Use the GPU" desc="WebGPU when available, otherwise CPU">

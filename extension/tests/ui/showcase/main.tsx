@@ -7,7 +7,8 @@ import './showcase.css';
 import { makeStore, runLive } from './fake';
 import { installChrome } from './mock-chrome';
 import { ChatBackdrop } from './backdrops';
-import type { ModelStatus } from '../../../src/core/types';
+import type { Store } from '../../../src/core/store';
+import type { Category, ModelStatus } from '../../../src/core/types';
 
 const q = new URLSearchParams(location.search);
 const view = q.get('view') ?? 'overview';
@@ -26,15 +27,30 @@ const MODEL: Record<string, ModelStatus> = {
   error: { state: 'error', backend: 'none', error: 'WebGPU adapter lost; falling back' },
 };
 
+/**
+ * The UI mode and the tab's views: mode=basic|advanced (default basic), peek,
+ * solo=<category> (Advanced only, as in the runtime); off, siteoff.
+ */
+function applyParams(store: Store) {
+  const s = store.settings.value;
+  store.settings.value = {
+    ...s,
+    uiMode: q.get('mode') === 'advanced' ? 'advanced' : 'basic',
+    enabled: !q.has('off'),
+    sites: q.has('siteoff') ? { ...s.sites, [platform]: false } : s.sites,
+  };
+  const on = !q.has('off') && !q.has('siteoff');
+  store.peek.value = on && q.has('peek') && !q.get('solo');
+  store.solo.value = on && q.get('mode') === 'advanced' ? ((q.get('solo') as Category | null) ?? null) : null;
+}
+
 async function main() {
   const modelKey = q.get('model') ?? 'ready';
   if (view === 'chat') {
     const store = makeStore(platform, theme, (q.get('preset') as any) ?? 'chill');
     store.model.value = MODEL[modelKey] ?? MODEL.ready;
-    if (q.has('off')) store.settings.value = { ...store.settings.value, enabled: false };
+    applyParams(store);
     if (q.has('empty')) {
-      store.totals.value = { seen: 0, filtered: 0 };
-      store.counts.value = { toxic: 0, scam: 0, spam: 0, noise: 0, negative: 0, question: 0, positive: 0, clean: 0 };
       store.questions.value = [];
       store.waves.value = [];
     }
@@ -51,8 +67,11 @@ async function main() {
   }
 
   if (view === 'popup' || view === 'sidepanel' || view === 'onboarding') {
-    const store = q.has('nochat') ? null : makeStore(platform, theme);
-    if (store) store.model.value = MODEL[modelKey] ?? MODEL.ready;
+    const store = q.has('nochat') ? null : makeStore(platform, theme, (q.get('preset') as any) ?? 'chill');
+    if (store) {
+      store.model.value = MODEL[modelKey] ?? MODEL.ready;
+      applyParams(store);
+    }
     installChrome({
       store,
       url: q.has('nochat') ? 'https://github.com/' : platform === 'youtube' ? 'https://www.youtube.com/watch?v=jfKfPfyJRdk' : platform === 'kick' ? 'https://kick.com/trainwreckstv' : 'https://www.twitch.tv/xqc',

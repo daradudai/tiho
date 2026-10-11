@@ -1,17 +1,18 @@
 // Onboarding (opened once on install): hero with live demo, three steps
-// (what Hush does · pick your vibe · model download), privacy, sites, tips.
+// (what Hush does · how much it should hide · getting ready), privacy,
+// sites, tips. Plain words only: no categories, percentages or model jargon.
 
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { PRESETS, type PresetId } from '../../core/settings';
+import { PRESETS, basicLevel, type BasicLevel } from '../../core/settings';
 import type { Action, Category } from '../../core/types';
 import { BUBBLE_PATH, WAVE_CALM, WAVE_EXCITED, WAVE_FLAT, WAVE_TURBULENT } from '../brand';
 import { decorationCss, pillRuns } from '../decorations';
-import { pct } from '../format';
 import { Icon, PlatformGlyph, type IconName } from '../icons';
 import { Kbd, initModelStatus, initSettings, initTheme, modelStatus, settings, updateSettings } from '../kit/kit';
-import { BACKEND_LABEL, modelLayers, modelProblem } from '../model-status';
-import { CATEGORY_META, CHIP_CATEGORIES, PRESET_META, PRESET_ORDER } from '../tokens';
+import { LevelGlyph, pickLevel } from '../kit/levels';
+import { retryModel } from '../model-status';
+import { LEVEL_META, PLAIN } from '../tokens';
 import './onboarding.css';
 
 export function OnboardingApp() {
@@ -60,8 +61,8 @@ export function OnboardingApp() {
             <span class="ob-grad">minus the noise.</span>
           </h1>
           <p class="ob-lead">
-            Hush is an ad-blocker for live chat. It quietly folds away toxicity, scams and spam on YouTube, Twitch and Kick, and lifts real questions to the
-            top — with a small AI model that runs entirely on your device, in any language.
+            Hush is an ad-blocker for live chat. It hides insults, scams and spam on YouTube, Twitch and Kick, and makes questions stand out. A small AI runs
+            on your computer, in any language.
           </p>
           <div class="ob-hero-meta">
             <span>
@@ -84,20 +85,20 @@ export function OnboardingApp() {
             <Feature icon="shield" title="Hides the ugly" tone="toxic">
               Insults, scam links, bots and copypasta floods are hidden or folded into a thin <i>“3 hidden · show”</i> line. One click brings them back.
             </Feature>
-            <Feature icon="question" title="Surfaces questions" tone="question">
-              Real questions glow softly and gather in your inbox, so the one person asking something never drowns in the KEKWs.
+            <Feature icon="question" title="Questions stand out" tone="question">
+              Real questions glow softly, so the one person asking something doesn't drown in emotes.
             </Feature>
-            <Feature icon="activity" title="Reads the room" tone="positive">
-              A calm meter, the chat’s vibe and live waves (“KEKW ×37”) sit in a slim bar above chat. Nothing more.
+            <Feature icon="wave" title="Folds repeats" tone="positive">
+              When 37 people type KEKW, you see one line: KEKW ×37.
             </Feature>
           </div>
         </Step>
 
-        <Step n={2} title="Pick your vibe" sub="You can switch any time from the bar above chat or the toolbar.">
-          <PresetPicker />
+        <Step n={2} title={PLAIN.levelQuestion} sub="You can change this any time in the bar above chat.">
+          <LevelCards />
         </Step>
 
-        <Step n={3} title="Get the model" sub="Release builds include it, so nothing is downloaded and Hush works offline from the first message.">
+        <Step n={3} title="Getting ready">
           <ModelStep />
         </Step>
       </section>
@@ -215,7 +216,7 @@ function ChatDemo({ theme }: { theme: 'dark' | 'light' }) {
   const [hushed, setHushed] = useState(false);
   useEffect(() => {
     const el = document.createElement('style');
-    el.textContent = decorationCss('twitch', theme);
+    el.textContent = decorationCss('twitch', theme, { mode: 'basic' });
     document.head.appendChild(el);
     return () => el.remove();
   }, [theme]);
@@ -256,18 +257,22 @@ function ChatDemo({ theme }: { theme: 'dark' | 'light' }) {
           <span class={hushed ? 'is-on' : ''}>With Hush</span>
         </button>
       </div>
-      <div class="ob-demo-bar">
-        <svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true">
+      {/* the Basic bar, as a picture: it follows the toggle above */}
+      <div class="ob-demo-bar" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 32 32">
           <path d={BUBBLE_PATH} fill="url(#ob-g)" />
           <path d={WAVE_CALM} stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" />
         </svg>
-        <span class="ob-demo-preset">Chill</span>
-        {(['toxic', 'scam', 'spam', 'question'] as Category[]).map((c) => (
-          <span class="ob-demo-chip" data-c={c} data-a={hushed ? PRESETS.chill[c] : 'show'}>
-            <Icon name={c} size={12} fill />
-          </span>
-        ))}
-        <span class="ob-demo-calm">{hushed ? '38% hushed' : 'unfiltered'}</span>
+        <span class="ob-demo-seg" style={{ '--i': hushed ? 1 : 0 } as any}>
+          <i class="ob-demo-thumb" />
+          {(['off', 'chill', 'focus'] as const).map((l, i) => (
+            <span data-on={(hushed ? 1 : 0) === i ? '' : undefined}>{LEVEL_META[l].label}</span>
+          ))}
+        </span>
+        <span class="ob-demo-peek">
+          <Icon name="show" size={13} strokeWidth={1.8} />
+          Show hidden
+        </span>
       </div>
       <div class="ob-demo-list">
         {DEMO.map((m, i) => (
@@ -284,7 +289,7 @@ function ChatDemo({ theme }: { theme: 'dark' | 'light' }) {
 
 /* ── steps ───────────────────────────────────────────────────────── */
 
-function Step({ n, title, sub, children }: { n: number; title: string; sub: string; children: ComponentChildren }) {
+function Step({ n, title, sub, children }: { n: number; title: string; sub?: string; children: ComponentChildren }) {
   return (
     <div class="ob-step">
       <div class="ob-step-rail">
@@ -292,7 +297,7 @@ function Step({ n, title, sub, children }: { n: number; title: string; sub: stri
       </div>
       <div class="ob-step-body">
         <h2>{title}</h2>
-        <p class="ob-step-sub">{sub}</p>
+        {sub && <p class="ob-step-sub">{sub}</p>}
         <div class="ob-step-content">{children}</div>
       </div>
     </div>
@@ -311,65 +316,77 @@ function Feature({ icon, title, tone, children }: { icon: IconName; title: strin
   );
 }
 
-function PresetPicker() {
-  const cur = settings.value.preset;
-  const pick = (p: Exclude<PresetId, 'custom'>) => updateSettings({ preset: p, actions: { ...PRESETS[p] } });
+/** Clean or Quiet (Off is not a first choice), and Advanced mode for streamers and mods. */
+function LevelCards() {
+  const s = settings.value;
+  const level = basicLevel(s);
   return (
-    <div class="ob-presets" role="radiogroup" aria-label="Vibe preset">
-      {PRESET_ORDER.map((p) => (
-        <button role="radio" aria-checked={cur === p} class="ob-preset" onClick={() => pick(p)}>
-          <span class="ob-preset-top">
-            <b>{PRESET_META[p].label}</b>
-            <span class="ob-radio" />
-          </span>
-          <span class="ob-preset-desc">{PRESET_META[p].desc}</span>
-          <span class="ob-preset-cats">
-            {CHIP_CATEGORIES.map((c) => (
-              <span class="ob-pc" data-c={c} data-a={PRESETS[p][c]} title={`${CATEGORY_META[c].label}: ${PRESETS[p][c]}`}>
-                <Icon name={c} size={11} fill />
+    <>
+      <div class="ob-presets" role="radiogroup" aria-label={PLAIN.levelQuestion}>
+        {(['chill', 'focus'] as const satisfies readonly BasicLevel[]).map((l) => (
+          <button type="button" role="radio" aria-checked={level === l} class="ob-preset" onClick={() => void pickLevel(l)}>
+            <span class="ob-preset-top">
+              <span class="ob-preset-ico">
+                <LevelGlyph level={l} size={26} />
               </span>
-            ))}
-          </span>
-          {p === 'chill' && <span class="ob-rec">Recommended</span>}
-        </button>
-      ))}
-    </div>
+              <b>{LEVEL_META[l].label}</b>
+              <span class="ob-radio" />
+            </span>
+            <span class="ob-preset-desc">{LEVEL_META[l].desc}</span>
+            {LEVEL_META[l].recommended && <span class="ob-rec">Recommended</span>}
+          </button>
+        ))}
+      </div>
+      <label class="ob-adv">
+        <input type="checkbox" checked={s.uiMode === 'advanced'} onChange={(e) => void updateSettings({ uiMode: (e.target as HTMLInputElement).checked ? 'advanced' : 'basic' })} />
+        <span>
+          I stream or moderate. Use Advanced mode <span class="faint">(categories, stats, rules, custom AI filters)</span>.
+        </span>
+      </label>
+    </>
   );
 }
 
 function ModelStep() {
   const m = modelStatus.value;
   const state = m?.state ?? 'idle';
-  const p = state === 'ready' ? 1 : (m?.progress ?? 0);
+  const getting = state === 'downloading' || state === 'loading';
   const title =
     state === 'ready'
-      ? `Ready — running on ${BACKEND_LABEL[m!.backend] ?? m!.backend}`
-      : state === 'downloading'
-        ? `Downloading Hush Lite · ${pct(p)}`
-        : state === 'loading'
-          ? 'Warming up…'
-          : state === 'error'
-            ? 'Could not load the model'
-            : 'Starts when you open a stream';
-  const layers = modelLayers(m);
-  const sub =
-    state === 'ready'
-      ? `${layers ? `${layers}-layer model, picked for ${m!.backend === 'webgpu' ? 'your GPU' : 'your CPU'}. ` : ''}Stored on this device; Hush works offline.`
-      : state === 'error'
-        ? `${modelProblem(m?.error)}. Rules keep filtering chat meanwhile.`
-        : 'About 125 MB if it has to be downloaded, once. Rules already filter meanwhile.';
+      ? 'Ready. Hush runs on this computer and works offline.'
+      : getting
+        ? 'Getting ready…'
+        : state === 'error'
+          ? "Hush's AI didn't start."
+          : 'Ready when you open a live stream.';
+  const sub = getting
+    ? 'About 125 MB, once. Simple filters already work.'
+    : state === 'error'
+      ? 'Simple filters still work. Hush tries again by itself.'
+      : state === 'idle'
+        ? 'Its small AI starts as soon as chat appears. Simple filters work from the first message.'
+        : '';
+  const progress = state === 'downloading' ? m?.progress : undefined;
   return (
     <div class="ob-model" data-state={state}>
-      <div class="ob-model-ico">{state === 'ready' ? <Icon name="check" size={18} strokeWidth={2.2} /> : <Icon name="download" size={18} />}</div>
+      <div class="ob-model-ico">
+        {state === 'ready' ? <Icon name="check" size={18} strokeWidth={2.2} /> : state === 'error' ? <Icon name="info" size={18} /> : <Icon name="download" size={18} />}
+      </div>
       <div class="ob-model-body">
         <div class="ob-model-top">
           <b>{title}</b>
-          <span class="ob-model-pct">{state === 'downloading' ? pct(p) : state === 'ready' ? '100%' : ''}</span>
+          {state === 'error' && (
+            <button type="button" class="k-btn k-btn-sm" onClick={retryModel}>
+              Retry
+            </button>
+          )}
         </div>
-        <div class="ob-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(p * 100)}>
-          <span style={{ width: `${Math.max(2, p * 100)}%` }} />
-        </div>
-        <p>{sub}</p>
+        {getting && (
+          <div class="ob-progress" role="progressbar" aria-label="Getting ready" data-busy={progress == null ? '' : undefined}>
+            <span style={progress == null ? undefined : { width: `${Math.max(2, progress * 100)}%` }} />
+          </div>
+        )}
+        {sub && <p>{sub}</p>}
       </div>
     </div>
   );
@@ -389,18 +406,21 @@ function Tips() {
   return (
     <div class="ob-card ob-tips">
       <span class="ob-card-ico">
-        <Icon name="keyboard" size={16} />
+        <Icon name="info" size={16} />
       </span>
       <h3>Good to know</h3>
       <ul>
         <li>
-          <Icon name="mouse" size={13} /> <span>Click a category chip to cycle <b>show → dim → fold → hide</b></span>
+          <Icon name="show" size={13} /> <span>"Show hidden" above chat brings back anything Hush hid.</span>
         </li>
         <li>
-          <Icon name="more" size={13} /> <span>Right-click (or long-press) a chip for every option</span>
+          <Icon name="mouse" size={13} /> <span>Click a "2 hidden · show" line to open it.</span>
         </li>
         <li>
-          <Icon name="info" size={13} /> <span>Hover a message to see why it was flagged</span>
+          <Icon name="shield" size={13} /> <span>The streamer, mods and VIPs are never hidden.</span>
+        </li>
+        <li>
+          <Icon name="sliders" size={13} /> <span>Streamer or mod? Turn on Advanced mode in the toolbar popup.</span>
         </li>
         {shortcut && (
           <li>

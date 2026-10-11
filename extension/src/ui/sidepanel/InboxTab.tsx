@@ -40,7 +40,7 @@ export function InboxTab() {
         <div>
           <h2 class="sp-h2">Questions</h2>
           <p class="sp-h2-sub">
-            {all.length} asked · {all.length - all.filter((q) => d.has(q.msg.key)).length} open
+            {all.length} asked since you opened this panel · {all.length - all.filter((q) => d.has(q.msg.key)).length} open
           </p>
         </div>
         <Segmented

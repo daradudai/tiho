@@ -192,16 +192,28 @@ cache key is the normalized text; the model sees the original (lightly cleaned).
 
 ## 7. UI
 
-- **In-chat bar** (shadow DOM, docked at top of chat): Hush logo, live "calm meter"
-  (filtered %), one preset switch (Raw · Chill · Focus · Questions), compact chips per
-  category with live counters; click chip cycles show/dim/collapse/hide. Expands to a
-  mini dashboard (msgs/s sparkline, vibe trend, top waves).
-- **Message decorations**: left accent tint per category, `?` glow for questions,
-  collapsed pill "3 hidden · show", hover tooltip with reason ("toxic · 94%", "wave ×37").
-- **Popup**: on/off per site, preset, model status, open side panel.
-- **Side panel**: dashboard (stats, vibe timeline), Questions inbox, filtered log with
-  reasons + "not spam" feedback, rules editor, Engine connection, model details.
-- **Onboarding page**: model download progress + quick preset pick.
+- **Two modes** (`settings.uiMode`, UI only: filtering is the same in both). **Basic**
+  (default): one choice, Off · Clean · Quiet, and Show hidden; no numbers, categories
+  or percentages. **Advanced** (streamers, mods): presets, per-category actions, live
+  counts, rules, custom AI filters, Solo. Spec: [docs/ux-modes.md](docs/ux-modes.md).
+- **In-chat bar** (shadow DOM, docked at top of chat). Basic: Hush logo, the level
+  switch, Show hidden. Advanced: one preset switch (Raw · Clean · Quiet · Questions),
+  compact chips per category with what is in chat now; click a chip for Solo (only
+  that category, each row tagged with its reason and normal action), right-click to
+  change its action. Expands to a mini dashboard (msgs/s sparkline, mood over the
+  last 5 min, top waves, latest questions).
+- **Show hidden / Solo**: per-tab views, never saved, one stylesheet swap each.
+- **Message decorations**: left accent tint per category (Advanced), `?` glow for
+  questions, collapsed pill "3 hidden · show", hover tooltip with reason ("toxic ·
+  94%", "wave ×37", Advanced).
+- **Popup**: Basic: level cards, Advanced mode switch. Advanced: on/off per site,
+  preset, strictness, model status, open side panel.
+- **Side panel**: Basic: one page (level, Advanced mode switch). Advanced: live view
+  (in chat now, rate, mood, per-category control and Solo), Questions inbox, filtered
+  log with reasons + "not spam" feedback, rules editor, Engine connection, model
+  details.
+- **Onboarding page**: model download progress + level pick (Clean or Quiet) and an
+  Advanced mode checkbox.
 - Respect platform light/dark theme; animations ≤ 150 ms, `prefers-reduced-motion`.
 
 ## 8. Performance rules

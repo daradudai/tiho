@@ -15,8 +15,10 @@
 //                   birth until their first verdict — no flash of unfiltered text)
 //
 // The row rules and all visuals live in src/ui/decorations.ts (themed per
-// platform and light/dark); this module adds the list-level rule and owns the
-// <style> element. Performance: selectors are plain attribute selectors (Blink
+// platform and light/dark, Basic or Advanced); this module adds the list-level
+// rule and owns the <style> element. Show hidden and Solo are variants of the
+// whole sheet: turning one on or off is one text swap (one style recalc, like
+// a theme change), with no write on any row. Performance: selectors are plain attribute selectors (Blink
 // buckets them by attribute, so only rows carrying data-hush-* are ever
 // matched), never scoped with the platform row selector — only the runtime
 // writes these attributes, and only on rows. Measured in tests/stress:
@@ -25,7 +27,8 @@
 // (The one child rule left, scoped to pill rows, measured within noise.)
 // No inline styles are ever written on rows.
 
-import type { Platform } from '../core/types';
+import type { UiMode } from '../core/settings';
+import type { Category, Platform } from '../core/types';
 import { decorationCss } from '../ui/decorations';
 
 export const ATTR = {
@@ -46,6 +49,12 @@ export interface StyleOptions {
   theme: 'dark' | 'light';
   /** Platform skin of the decorations (pill indent, badge placement). */
   platform?: Platform;
+  /** Basic draws no category edges and no reason chips (default 'advanced'). */
+  mode?: UiMode;
+  /** Show hidden: hidden and folded rows come back in place, faded and tagged. */
+  peek?: boolean;
+  /** Solo: only this category's rows, each tagged with its reason and normal action. */
+  solo?: Category | null;
   /** Accepted for compatibility; ignored — selectors are attribute-only (see header). */
   rowSelector?: string;
 }
@@ -53,7 +62,7 @@ export interface StyleOptions {
 export function buildCss(o: StyleOptions): string {
   return (
     '[data-hush-list]>:not([data-hush-a]){visibility:hidden!important}' +
-    decorationCss(o.platform ?? 'twitch', o.theme, { decorate: o.decorate })
+    decorationCss(o.platform ?? 'twitch', o.theme, { decorate: o.decorate, mode: o.mode, peek: o.peek, solo: o.solo })
   );
 }
 

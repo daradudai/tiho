@@ -8,20 +8,20 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Store } from '../../../src/core/store';
 import type { Action } from '../../../src/core/types';
 import { mountBar } from '../../../src/ui/bar';
-import { buildCss } from '../../../src/runtime/styles';
-import { CHAT, fakeActions, rnd, type FakeMsg } from './fake';
+import { buildCss, type StyleOptions } from '../../../src/runtime/styles';
+import { CHAT, fakeActions, hushOn, inChatOf, rnd, type FakeMsg } from './fake';
 
 type Platform = 'twitch' | 'youtube' | 'kick';
 
-function useDecorations(platform: Platform, theme: 'dark' | 'light', decorate = true) {
+function useDecorations(o: StyleOptions) {
   useEffect(() => {
     const el = document.createElement('style');
     el.id = 'hush-deco';
-    // Exactly what ships: the runtime's row stylesheet (decorations included).
-    el.textContent = buildCss({ platform, decorate, theme });
+    // Exactly what ships: the runtime's row stylesheet (decorations, mode and the tab's views included).
+    el.textContent = buildCss(o);
     document.head.appendChild(el);
     return () => el.remove();
-  }, [platform, theme, decorate]);
+  }, [o.platform, o.theme, o.decorate, o.mode, o.peek, o.solo]);
 }
 
 interface Row extends FakeMsg {
@@ -43,11 +43,13 @@ function initialRows(): Row[] {
 }
 
 export function ChatBackdrop({ platform, theme, store, live }: { platform: Platform; theme: 'dark' | 'light'; store: Store; live?: boolean }) {
-  useDecorations(platform, theme, store.settings.value.decorate);
+  const settings = store.settings.value;
+  const views = { peek: store.peek.value, solo: store.solo.value };
+  useDecorations({ platform, theme, decorate: settings.decorate, mode: settings.uiMode, ...views });
   const listRef = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<Row[]>(initialRows);
-  const actions = store.settings.value.actions;
-  const enabled = store.settings.value.enabled;
+  const actions = settings.actions;
+  const enabled = hushOn(settings, platform);
 
   useEffect(() => {
     const el = listRef.current!;
@@ -75,10 +77,10 @@ export function ChatBackdrop({ platform, theme, store, live }: { platform: Platf
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
-  // Clicking a pill reveals its whole run (what the runtime does).
+  // Clicking a pill reveals its whole run (what the runtime does; not while a view is on).
   const onClick = (e: MouseEvent) => {
     const row = (e.target as Element).closest('[data-hush-run]') as HTMLElement | null;
-    if (!row) return;
+    if (!row || views.peek || views.solo) return;
     const keys: string[] = [];
     for (let n: Element | null = row; n && n.matches('[data-hush-a="collapse"],[data-hush-a="hide"]'); n = n.previousElementSibling)
       keys.push((n as HTMLElement).dataset.key!);
@@ -87,6 +89,11 @@ export function ChatBackdrop({ platform, theme, store, live }: { platform: Platf
 
   const act = (r: Row): Action => (!enabled ? 'show' : (r.a ?? actions[r.c]));
   const runs = runMarks(rows, act);
+
+  // This list is the chat: the in-chat-now counters describe it (a live chat feeds them from fake.ts).
+  useEffect(() => {
+    if (!live) store.inChat.value = inChatOf(rows.map((r) => ({ c: r.c, a: r.peek ? 'show' : act(r) })), enabled);
+  }, [rows, settings, live]);
 
   return (
     <div class={`bd bd-${platform}`} data-theme={theme}>
@@ -97,12 +104,15 @@ export function ChatBackdrop({ platform, theme, store, live }: { platform: Platf
             key={r.key}
             data-key={r.key}
             class="bd-row"
-            data-hush-c={r.c}
-            data-hush-a={act(r)}
-            data-hush-r={r.r}
-            data-hush-wh={r.w ? String(r.w) : undefined}
-            data-hush-run={runs.get(r.key)}
-            data-hush-open={r.peek ? '' : undefined}
+            {...(enabled && {
+              // off on this site, the runtime lets the list go: no attributes at all
+              'data-hush-c': r.c,
+              'data-hush-a': act(r),
+              'data-hush-r': r.r,
+              'data-hush-wh': r.w ? String(r.w) : undefined,
+              'data-hush-run': runs.get(r.key),
+              'data-hush-open': r.peek ? '' : undefined,
+            })}
           >
             <RowBody platform={platform} m={r} />
           </div>

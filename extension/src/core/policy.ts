@@ -15,7 +15,7 @@
 
 import { Sig, type RuleResult } from './rules';
 import { activeFilters, filterKey, filterLabel, type EngineSettings, type Settings } from './settings';
-import { LABELS, type Action, type Category, type Label, type Verdict } from './types';
+import { ALWAYS_SHOWN, LABELS, type Action, type Category, type Label, type Verdict } from './types';
 import type { WaveHit } from './waves';
 
 export const LABEL_INDEX: Record<Label, number> = {
@@ -270,7 +270,12 @@ export function decide(
     }
   }
 
-  if (rule.protect && SEVERITY[action] >= SEVERITY.dim) action = 'show';
+  // Protected authors are never dimmed, folded or hidden; the reason says so
+  // (the hover chip and Solo's tag show it: "toxic · 94% · always shown").
+  if (rule.protect && SEVERITY[action] >= SEVERITY.dim) {
+    action = 'show';
+    reason = reason ? `${reason} · ${ALWAYS_SHOWN}` : ALWAYS_SHOWN;
+  }
 
   const v: Verdict = { category, action, reason, source: src };
   if (scores) v.scores = Array.isArray(scores) ? (scores as number[]) : Array.from(scores);

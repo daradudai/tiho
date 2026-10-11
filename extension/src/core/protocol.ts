@@ -84,7 +84,7 @@ export type RuntimeMessage =
   | { type: 'hush:status'; status: ModelStatus }
   // Retry in the popup / side panel: load a model that failed to load again now
   | { type: 'hush:reloadModel' }
-  | { type: 'hush:perf'; tabId?: number; stats: PerfStats & { platform: string; channel: string; counts: Record<string, number> } }
+  | { type: 'hush:perf'; tabId?: number; stats: PerfStats & { platform: string; channel: string } }
   | { type: 'hush:getPerf' }
   | { type: 'hush:openSidePanel' }
   // Hush Engine (extension pages ↔ background)

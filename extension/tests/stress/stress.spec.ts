@@ -31,7 +31,7 @@ interface HushStats {
   maxSliceMs: number;
   latency: { p50: number; p95: number };
   sizes: Record<string, number>;
-  totals: { seen: number; filtered: number };
+  inChat: { rows: number; hidden: number; folded: number };
   waves: { count: number }[];
 }
 
@@ -76,6 +76,6 @@ for (const skin of ['twitch', 'youtube'] as const) {
     expect(s.sizes.byKey).toBeLessThanOrEqual(rows.total);
     expect(s.sizes.cache).toBeLessThanOrEqual(5000);
     expect(s.sizes.waveClusters).toBeLessThanOrEqual(4096);
-    expect(s.totals.filtered).toBeGreaterThan(0);
+    expect(s.inChat.hidden + s.inChat.folded).toBeGreaterThan(0);
   });
 }

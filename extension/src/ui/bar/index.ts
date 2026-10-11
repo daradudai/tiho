@@ -22,7 +22,7 @@ export type BarAnchor = { el: HTMLElement; where: 'before' | 'prepend' };
 export interface MountOptions {
   /**
    * Shadow root mode. Default 'closed': page scripts cannot reach the bar's
-   * buttons (pause, presets) and press them. Tests pass 'open'.
+   * buttons (on/off, levels, presets) and press them. Tests pass 'open'.
    */
   shadow?: ShadowRootMode;
   /** Act on script-generated events too (tests drive the bar with el.click()). Default: only the viewer's own input. */
@@ -105,7 +105,7 @@ export function mountBar(anchor: BarAnchor, store: Store, actions: BarActions, o
   let lastPulse = -Infinity;
   let lastSeen = -1;
   const disposePulse = effect(() => {
-    const seen = view.totals.value.seen;
+    const seen = view.seen.value;
     const t = performance.now();
     const moved = seen !== lastSeen;
     lastSeen = seen;

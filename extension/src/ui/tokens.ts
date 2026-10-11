@@ -4,7 +4,7 @@
 // host page, canvas, generated icons).
 
 import type { Action, Category } from '../core/types';
-import type { PresetId } from '../core/settings';
+import type { BasicLevel, PresetId } from '../core/settings';
 
 export type Theme = 'dark' | 'light';
 
@@ -23,7 +23,7 @@ export const CATEGORY_META: Record<Category, CategoryMeta> = {
   negative: { label: 'Negative', desc: 'Complaints and criticism, no abuse', color: { dark: '#ee7bc2', light: '#bc3185' } },
   question: { label: 'Questions', desc: 'Genuine questions to the streamer or chat', color: { dark: '#5ab2ff', light: '#1a72d1' } },
   positive: { label: 'Positive', desc: 'Kind, supportive, hype', color: { dark: '#4cd69a', light: '#138a55' } },
-  clean: { label: 'Everything else', desc: 'Regular chat', color: { dark: '#b9bac6', light: '#7a7b88' } },
+  clean: { label: 'Other', desc: 'Regular chat', color: { dark: '#b9bac6', light: '#7a7b88' } },
 };
 
 /** Categories shown as chips in the compact bar (clean lives in the expanded view). */
@@ -45,23 +45,46 @@ export const ACTION_META: Record<Action, { label: string; verb: string; desc: st
   hide: { label: 'Hide', verb: 'Hidden', desc: 'Remove it from chat' },
 };
 
-/** Order a chip click cycles through. */
-export const ACTION_CYCLE: Action[] = ['show', 'dim', 'collapse', 'hide'];
-
-export function nextAction(a: Action): Action {
-  if (a === 'highlight') return 'dim';
-  const i = ACTION_CYCLE.indexOf(a);
-  return ACTION_CYCLE[(i + 1) % ACTION_CYCLE.length];
-}
+// Words. A setting has one name on every surface (bar, popup, side panel,
+// onboarding, README): the presets 'chill' and 'focus' are Basic's levels
+// Clean and Quiet, and say the same thing in both modes.
 
 export const PRESET_META: Record<Exclude<PresetId, 'custom'>, { label: string; short: string; desc: string }> = {
-  raw: { label: 'Raw', short: 'Raw', desc: 'Everything, unfiltered' },
-  chill: { label: 'Chill', short: 'Chill', desc: 'No toxicity or scams, spam folded' },
-  focus: { label: 'Focus', short: 'Focus', desc: 'Only real conversation' },
-  questions: { label: 'Questions', short: 'Q&A', desc: 'Questions up front, the rest faded' },
+  raw: { label: 'Raw', short: 'Raw', desc: 'Hides nothing. Marks every message.' },
+  chill: { label: 'Clean', short: 'Clean', desc: 'Hides insults, scams and spam. Questions stand out.' },
+  focus: { label: 'Quiet', short: 'Quiet', desc: 'Also hides one-word replies like "W" and "LOL". Complaints are dimmed.' },
+  questions: { label: 'Questions', short: 'Q&A', desc: 'Questions up front, the rest dimmed.' },
 };
 
 export const PRESET_ORDER = ['raw', 'chill', 'focus', 'questions'] as const;
+
+/** Basic's one choice: how much Hush hides. Clean is the one to recommend. */
+export const LEVEL_META: Record<BasicLevel, { label: string; desc: string; recommended?: true }> = {
+  off: { label: 'Off', desc: 'Shows every message.' },
+  chill: { label: PRESET_META.chill.label, desc: PRESET_META.chill.desc, recommended: true },
+  focus: { label: PRESET_META.focus.label, desc: PRESET_META.focus.desc },
+};
+
+export const LEVEL_ORDER = ['off', 'chill', 'focus'] as const;
+
+/** Sentences more than one surface says (Basic has no numbers, so none of these has one). */
+export const PLAIN = {
+  levelQuestion: 'How much should Hush hide?',
+  on: 'Hush is cleaning up this chat.',
+  off: 'Hush is off. Chat shows every message.',
+  siteOff: (site: string) => `Hush is off on ${site}.`,
+  loading: 'Getting ready… Simple filters already work.',
+  error: "Hush's AI didn't start. Simple filters still work.",
+  custom: "You're using a custom setup from Advanced mode. Pick a level to replace it.",
+  customOff: 'Your custom setup from Advanced mode is kept while Hush is off. Turn it back on in Advanced mode, or pick a level to replace it.',
+  extras: (extras: string[]) => `Also on from Advanced mode: ${extras.join(', ')}.`,
+  advanced: 'Advanced mode',
+  advancedHint: 'For streamers and mods: categories, stats, rules and custom AI filters.',
+  basic: 'Basic mode',
+  privacy: 'Runs on your computer. Nothing leaves it.',
+} as const;
+
+export const SITE_NAME: Record<string, string> = { youtube: 'YouTube', twitch: 'Twitch', kick: 'Kick' };
 
 /** Platform chat surfaces (approximate), used for solid overlays in-chat. */
 export const PLATFORM_SURFACE: Record<string, Record<Theme, { bg: string; raised: string; line: string; font: string }>> = {

@@ -1,20 +1,23 @@
-// Toolbar popup (360 px): master switch, this site, live stats, preset,
-// strictness, model (and Hush Engine) status, open dashboard.
+// Toolbar popup (360 px). Basic: how much Hush hides (Off · Clean · Quiet),
+// the Advanced mode switch, nothing else. Advanced: master switch, this
+// site, what its chat holds now, preset, strictness, model (and Hush
+// Engine) status, side panel.
 
 import { signal, useComputed } from '@preact/signals';
 import { useEffect, useState } from 'preact/hooks';
 import type { EngineStatus } from '../../core/protocol';
-import type { PresetId } from '../../core/settings';
-import { PRESETS } from '../../core/settings';
+import { PRESETS, basicLevel, type PresetId, type Settings } from '../../core/settings';
+import type { InChat } from '../../core/store';
 import type { Action, Category } from '../../core/types';
 import { Mark } from '../brand';
 import { engineSummary, getActiveTab, getEngineStatus, getPerf, getSnapshot, onEngineStatus, type ActiveTab, type LiveSnapshot } from '../bridge';
 import { Sparkline } from '../charts';
-import { compact, pct, rate, strictWord, vibeWord } from '../format';
+import { compact, rate, strictWord, vibeTone, vibeWord } from '../format';
 import { Icon, PlatformGlyph } from '../icons';
-import { Button, Slider, Toggle, initModelStatus, initSettings, initTheme, modelStatus, settings, updateSettings } from '../kit/kit';
+import { Button, Slider, Toggle, initModelStatus, initSettings, initTheme, modelStatus, settings, settingsReady, updateSettings } from '../kit/kit';
+import { LevelNotes, LevelPicker, ModeSwitch, ModelNotice, PeekHint, PrivacyLine, pickLevel } from '../kit/levels';
 import { modelSummary, retryModel } from '../model-status';
-import { CATEGORY_META, CHIP_CATEGORIES, PRESET_META, PRESET_ORDER } from '../tokens';
+import { CATEGORY_META, CHIP_CATEGORIES, PLAIN, PRESET_META, PRESET_ORDER, SITE_NAME } from '../tokens';
 import './popup.css';
 
 const tab = signal<ActiveTab | null>(null);
@@ -23,12 +26,10 @@ const perfOnly = signal<{ msgsPerSec: number } | null>(null);
 const rateSig = signal<number[]>([]);
 const engine = signal<EngineStatus | null>(null);
 
-export const SITE_NAME: Record<string, string> = { youtube: 'YouTube', twitch: 'Twitch', kick: 'Kick' };
-
-
 async function refresh() {
   const t = tab.value ?? (tab.value = await getActiveTab());
-  if (!t?.platform) return;
+  // Basic shows nothing about the chat itself: only the tab's site is needed.
+  if (!t?.platform || settings.peek().uiMode !== 'advanced') return;
   const s = await getSnapshot(t.id);
   snap.value = s;
   if (s) rateSig.value = s.rate;
@@ -43,7 +44,7 @@ async function refreshEngine() {
   if (e.enabled) engine.value = await getEngineStatus(e.url);
 }
 
-async function openDashboard() {
+async function openSidePanel() {
   try {
     const id = tab.value?.id;
     if (id != null) await chrome.sidePanel.open({ tabId: id });
@@ -55,6 +56,14 @@ async function openDashboard() {
     /* side panel unavailable */
   }
   window.close?.();
+}
+
+/** What Hush is doing for the active tab, in both modes. */
+export function popupSubtitle(s: Settings, t: ActiveTab | null): string {
+  if (!s.enabled) return 'Hush is off';
+  if (!t?.platform) return 'Open a live stream to start';
+  const site = SITE_NAME[t.platform];
+  return s.sites[t.platform] ? `Cleaning up ${site} chat` : `Hush is off on ${site}`;
 }
 
 export function PopupApp() {
@@ -73,28 +82,61 @@ export function PopupApp() {
     };
   }, []);
 
-  const s = settings.value;
-  useEffect(() => void refreshEngine(), [s.engine.enabled, s.engine.url]);
-  const t = tab.value;
-  const onSite = !!t?.platform;
-  const siteOn = onSite ? s.sites[t!.platform!] : false;
+  // Nothing until the settings are read: an Advanced popup must not flash as Basic.
+  if (!settingsReady.value) return null;
+  return settings.value.uiMode === 'advanced' ? <AdvancedPopup /> : <BasicPopup />;
+}
 
+/* ── Basic ─────────────────────────────────────────────────────────── */
+
+function BasicPopup() {
+  const s = settings.value;
+  const t = tab.value;
+  const level = basicLevel(s, t?.platform ?? undefined);
   return (
-    <div class="pp" data-off={s.enabled ? undefined : ''}>
+    <div class="pp" data-mode="basic">
       <header class="pp-head">
         <div class="pp-brand">
           <Mark size={30} />
           <div>
             <h1>Hush</h1>
-            <p class="pp-sub">
-              {s.enabled
-                ? onSite
-                  ? siteOn
-                    ? `Filtering ${SITE_NAME[t!.platform!]} chat`
-                    : `Off on ${SITE_NAME[t!.platform!]}`
-                  : 'Ready for your next stream'
-                : 'Paused everywhere'}
-            </p>
+            <p class="pp-sub">{popupSubtitle(s, t)}</p>
+          </div>
+        </div>
+      </header>
+
+      <main class="pp-main">
+        <ModelNotice m={modelStatus.value} />
+        <section class="pp-sec">
+          <h2 class="pp-q">{PLAIN.levelQuestion}</h2>
+          <LevelPicker value={level} onPick={(l) => void pickLevel(l, t?.platform)} />
+          <LevelNotes s={s} level={level} />
+        </section>
+        {t?.platform && level !== 'off' && <PeekHint />}
+      </main>
+
+      <footer class="pp-foot pp-foot-basic">
+        <ModeSwitch hint={PLAIN.advancedHint} />
+      </footer>
+      <PrivacyLine class="pp-privacy" />
+    </div>
+  );
+}
+
+/* ── Advanced ──────────────────────────────────────────────────────── */
+
+function AdvancedPopup() {
+  const s = settings.value;
+  useEffect(() => void refresh(), []); // the first refresh may have run before the settings said Advanced
+  useEffect(() => void refreshEngine(), [s.engine.enabled, s.engine.url]);
+  return (
+    <div class="pp" data-mode="advanced" data-off={s.enabled ? undefined : ''}>
+      <header class="pp-head">
+        <div class="pp-brand">
+          <Mark size={30} />
+          <div>
+            <h1>Hush</h1>
+            <p class="pp-sub">{popupSubtitle(s, tab.value)}</p>
           </div>
         </div>
         <Toggle size="lg" checked={s.enabled} label="Hush on/off" onChange={(v) => updateSettings({ enabled: v })} />
@@ -105,8 +147,8 @@ export function PopupApp() {
 
         <section class="pp-sec">
           <div class="pp-sec-head">
-            <h2 class="k-label">Vibe</h2>
-            {s.preset === 'custom' && <span class="pp-custom">Custom mix</span>}
+            <h2 class="k-label">Preset</h2>
+            {s.preset === 'custom' && <span class="pp-custom">Custom</span>}
           </div>
           <Presets current={s.preset} />
         </section>
@@ -121,18 +163,18 @@ export function PopupApp() {
       </main>
 
       <footer class="pp-foot">
-        <div class="pp-status">
-          <ModelLine />
-          {s.engine.enabled && <EngineLine />}
+        <div class="pp-foot-row">
+          <div class="pp-status">
+            <ModelLine />
+            {s.engine.enabled && <EngineLine />}
+          </div>
+          <Button variant="primary" size="md" iconRight="arrowRight" onClick={openSidePanel}>
+            Side panel
+          </Button>
         </div>
-        <Button variant="primary" size="md" iconRight="arrowRight" onClick={openDashboard}>
-          Dashboard
-        </Button>
+        <ModeSwitch />
       </footer>
-      <div class="pp-privacy">
-        <Icon name="lock" size={11} strokeWidth={1.8} />
-        Runs on your device · no message ever leaves it
-      </div>
+      <PrivacyLine class="pp-privacy" />
     </div>
   );
 }
@@ -141,7 +183,7 @@ function SiteCard() {
   const t = tab.value;
   const s = settings.value;
   const sn = snap.value;
-  const vibe = useComputed(() => {
+  const mood = useComputed(() => {
     const v = snap.value?.vibe ?? [];
     const tail = v.slice(-3);
     return tail.length ? tail.reduce((a, b) => a + b, 0) / tail.length : 0;
@@ -172,7 +214,6 @@ function SiteCard() {
   const p = t.platform;
   const on = s.sites[p];
   const channel = sn?.channel || t.url.split('/').filter(Boolean).pop() || t.host;
-  const seen = sn?.totals.seen ?? 0;
   const live = !!sn;
   return (
     <div class="pp-site" data-live={live ? '' : undefined}>
@@ -197,31 +238,34 @@ function SiteCard() {
         </div>
         <Toggle size="sm" checked={on} label={`Hush on ${SITE_NAME[p]}`} onChange={(v) => updateSettings({ sites: { ...s.sites, [p]: v } })} />
       </div>
-      {live && on && (
+      {live && on && s.enabled && (
         <>
           <div class="pp-kpis">
             <div class="pp-kpi">
-              <b class="pp-kpi-grad">{seen ? pct(sn!.totals.filtered / seen) : '—'}</b>
-              <span>hushed</span>
+              <b class="pp-kpi-grad">{compact(sn!.inChat.hidden + sn!.inChat.folded)}</b>
+              <span>hidden in chat now</span>
             </div>
             <div class="pp-kpi">
               <b>{rate(sn!.rate[sn!.rate.length - 1] ?? sn!.perf.msgsPerSec)}</b>
-              <span>msgs / s</span>
+              <span>msgs/s now</span>
             </div>
             <div class="pp-kpi">
-              <b data-vibe={vibe.value > 0.05 ? 'pos' : vibe.value < -0.05 ? 'neg' : 'mid'}>{vibeWord(vibe.value)}</b>
-              <span>vibe</span>
+              <b data-vibe={vibeTone(mood.value)}>{vibeWord(mood.value)}</b>
+              <span>mood</span>
             </div>
           </div>
-          <Sparkline values={rateSig} height={30} color="var(--accent)" class="pp-spark" />
-          <CategoryStrip counts={sn!.counts} actions={s.actions} />
+          <div class="pp-spark">
+            <Sparkline values={rateSig} height={30} color="var(--accent)" />
+            <span class="pp-cap">last 60 s</span>
+          </div>
+          <CategoryStrip inChat={sn!.inChat} actions={s.actions} />
         </>
       )}
-      {!live && on && perfOnly.value && (
+      {!live && on && s.enabled && perfOnly.value && (
         <div class="pp-kpis">
           <div class="pp-kpi">
             <b>{rate(perfOnly.value.msgsPerSec)}</b>
-            <span>msgs / s</span>
+            <span>msgs/s now</span>
           </div>
         </div>
       )}
@@ -229,17 +273,21 @@ function SiteCard() {
   );
 }
 
-function CategoryStrip({ counts, actions }: { counts: Record<Category, number>; actions: Record<Category, Action> }) {
+function CategoryStrip({ inChat, actions }: { inChat: InChat; actions: Record<Category, Action> }) {
   const all = [...CHIP_CATEGORIES, 'clean' as Category];
+  const counts = inChat.byCat;
   const total = all.reduce((a, c) => a + counts[c], 0) || 1;
   const filtered = CHIP_CATEGORIES.filter((c) => actions[c] === 'hide' || actions[c] === 'collapse');
   return (
-    <div class="pp-strip" aria-label="Chat composition">
-      <div class="pp-strip-bar">
-        {all.map((c) => {
-          const w = (counts[c] / total) * 100;
-          return w > 0.4 ? <span data-c={c} data-a={actions[c]} style={{ flexGrow: w }} title={`${CATEGORY_META[c].label}: ${compact(counts[c])}`} /> : null;
-        })}
+    <div class="pp-strip">
+      <div class="pp-strip-row">
+        <span class="k-label">In chat now</span>
+        <div class="pp-strip-bar" role="img" aria-label="What the chat holds now, by category">
+          {all.map((c) => {
+            const w = (counts[c] / total) * 100;
+            return w > 0.4 ? <span data-c={c} data-a={actions[c]} style={{ flexGrow: w }} title={`${CATEGORY_META[c].label}: ${compact(counts[c])}`} /> : null;
+          })}
+        </div>
       </div>
       {filtered.length > 0 && (
         <div class="pp-strip-legend">
@@ -260,7 +308,7 @@ function Presets({ current }: { current: PresetId }) {
   const shown = hover ?? (current === 'custom' ? null : current);
   return (
     <>
-      <div class="pp-presets" role="radiogroup" aria-label="Vibe preset" onPointerLeave={() => setHover(null)}>
+      <div class="pp-presets" role="radiogroup" aria-label="Preset" onPointerLeave={() => setHover(null)}>
         {PRESET_ORDER.map((p) => (
           <button
             type="button"
@@ -280,7 +328,7 @@ function Presets({ current }: { current: PresetId }) {
           </button>
         ))}
       </div>
-      <p class="pp-preset-desc">{shown ? PRESET_META[shown].desc : 'Your own mix — tune it in the dashboard'}</p>
+      <p class="pp-preset-desc">{shown ? PRESET_META[shown].desc : 'Custom: you changed individual categories.'}</p>
     </>
   );
 }

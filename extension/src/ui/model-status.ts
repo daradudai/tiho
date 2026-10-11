@@ -3,6 +3,7 @@
 import type { RuntimeMessage } from '../core/protocol';
 import type { ModelStatus } from '../core/types';
 import { pct } from './format';
+import { PLAIN } from './tokens';
 
 export type StatusTone = 'ok' | 'gpu' | 'cpu' | 'engine' | 'load' | 'err' | 'idle';
 
@@ -39,6 +40,17 @@ export function retryModel(): void {
   } catch {
     /* no extension context (showcase) */
   }
+}
+
+/**
+ * The model in plain words, for Basic surfaces: a line only while it is not
+ * ready (no layers, backends or numbers; `progress` drives a bar, never a
+ * percentage), null when there is nothing to say (ready, idle, unknown).
+ */
+export function plainModelStatus(m: ModelStatus | null | undefined): { text: string; tone: 'load' | 'err'; progress?: number } | null {
+  if (m?.state === 'downloading' || m?.state === 'loading') return { text: PLAIN.loading, tone: 'load', progress: m.state === 'downloading' ? m.progress : undefined };
+  if (m?.state === 'error') return { text: PLAIN.error, tone: 'err' };
+  return null;
 }
 
 export function modelSummary(m: ModelStatus): { title: string; sub: string; tone: StatusTone } {

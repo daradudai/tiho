@@ -20,7 +20,7 @@
 <!-- docs/img/hush-demo.gif and .mp4: node extension/tests/tools/media-shoot.mjs <Twitch popout chat url> clip
      --viewport 340x600 --trim 0.8 --clip-height 502 -->
 <p align="center">
-  <img src="docs/img/hush-demo.gif" width="420" alt="Hush on a live Twitch chat: the bar counts hushed toxic, scam and spam messages, spam folds into '1 hidden · show' pills, and 20 identical 'LOL' messages fold into one line marked ×20">
+  <img src="docs/img/hush-demo.gif" width="420" alt="Hush on a live Twitch chat: spam folds into '1 hidden · show' pills, and 20 identical 'LOL' messages fold into one line marked ×20">
   <br><sub>Hush on a live Twitch chat, 14 seconds (<a href="docs/img/hush-demo.mp4">MP4</a>). Names are made up, see below.</sub>
 </p>
 
@@ -30,13 +30,13 @@
      sidepanel-live = sidepanel-live-dark, sidepanel-log = sidepanel-log-dark -->
 <table>
   <tr>
-    <td align="center" width="25%"><img src="docs/img/twitch-chill.png" alt="Twitch chat with Hush, Chill preset"><br><sub><b>Twitch, Chill preset.</b> Toxic and scam hidden, spam folded, "KEKW ×37" wave, questions lit up.</sub></td>
+    <td align="center" width="25%"><img src="docs/img/twitch-chill.png" alt="Twitch chat with Hush, Clean"><br><sub><b>Twitch, Clean.</b> Toxic and scam hidden, spam folded, "KEKW ×37" wave, questions lit up.</sub></td>
     <td align="center" width="25%"><img src="docs/img/youtube-reason.png" alt="YouTube chat with a reason tooltip"><br><sub><b>YouTube.</b> Hover a message to see why it was tagged.</sub></td>
     <td align="center" width="25%"><img src="docs/img/kick-chill.png" alt="Kick chat with Hush"><br><sub><b>Kick.</b> Same bar, native look on each site.</sub></td>
-    <td align="center" width="25%"><img src="docs/img/twitch-focus.png" alt="Twitch light theme, Focus preset"><br><sub><b>Focus preset.</b> One-word noise gone, complaints dimmed.</sub></td>
+    <td align="center" width="25%"><img src="docs/img/twitch-focus.png" alt="Twitch light theme, Quiet"><br><sub><b>Quiet.</b> One-word noise gone, complaints dimmed.</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/img/twitch-dashboard.png" alt="Expanded in-chat dashboard"><br><sub><b>Bar, expanded.</b> Rate, vibe, categories, waves, latest questions.</sub></td>
+    <td align="center"><img src="docs/img/twitch-dashboard.png" alt="Expanded in-chat dashboard"><br><sub><b>Bar, expanded.</b> Rate, mood, categories, waves, latest questions.</sub></td>
     <td align="center"><img src="docs/img/popup.png" alt="Toolbar popup"><br><sub><b>Popup.</b> Preset, strictness, model status.</sub></td>
     <td align="center"><img src="docs/img/sidepanel-live.png" alt="Side panel live dashboard"><br><sub><b>Side panel.</b> Live stats and per-category control.</sub></td>
     <td align="center"><img src="docs/img/sidepanel-log.png" alt="Side panel filtered log"><br><sub><b>Log.</b> What was filtered and why. One click to undo.</sub></td>
@@ -49,19 +49,19 @@
 <p align="center"><b>On live streams</b></p>
 <table>
   <tr>
-    <td align="center" width="25%"><img src="docs/img/live-twitch-chat.png" alt="Live Twitch chat with Hush, Chill preset: two folded spam pills, a highlighted question and an o7 wave marked ×5"><br><sub><b>Twitch.</b> Spam folded into pills, a question lit up, an "o7" wave counted ×5.</sub></td>
+    <td align="center" width="25%"><img src="docs/img/live-twitch-chat.png" alt="Live Twitch chat with Hush on Clean: two folded spam pills, a highlighted question and an o7 wave marked ×5"><br><sub><b>Twitch.</b> Spam folded into pills, a question lit up, an "o7" wave counted ×5.</sub></td>
     <td align="center" width="25%"><img src="docs/img/live-twitch-light.png" alt="Live Twitch chat in the light theme with a ×6 wave, a folded pill and highlighted questions"><br><sub><b>Light theme.</b> The bar and the marks follow the site's theme.</sub></td>
     <td align="center" width="25%"><img src="docs/img/live-kick-chat.png" alt="Live Kick chat of a chess stream with many highlighted questions"><br><sub><b>Kick.</b> A chess stream: questions to the streamer stand out.</sub></td>
     <td align="center" width="25%"><img src="docs/img/live-youtube-chat.png" alt="Live YouTube chat on the watch page with highlighted questions in English and Hindi"><br><sub><b>YouTube.</b> Watch-page chat, questions in English and Hindi.</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/img/live-twitch-dashboard.png" alt="The in-chat bar expanded on a live Twitch chat: 24% hushed, rate and vibe charts, category counts, waves and latest questions"><br><sub><b>Bar, expanded.</b> 24% hushed, waves, latest questions.</sub></td>
-    <td align="center"><img src="docs/img/live-sidepanel-live.png" alt="Side panel Live tab: hushed share, messages per second, vibe and per-category counts"><br><sub><b>Side panel.</b> Rate, vibe and every category.</sub></td>
+    <td align="center"><img src="docs/img/live-twitch-dashboard.png" alt="The in-chat bar expanded on a live Twitch chat: rate and mood charts, category counts, waves and latest questions"><br><sub><b>Bar, expanded.</b> Rate, mood, waves, latest questions.</sub></td>
+    <td align="center"><img src="docs/img/live-sidepanel-live.png" alt="Side panel Live tab: messages per second, mood and per-category counts"><br><sub><b>Side panel.</b> Rate, mood and every category.</sub></td>
     <td align="center"><img src="docs/img/live-sidepanel-inbox.png" alt="Side panel Inbox tab listing questions from chat"><br><sub><b>Inbox.</b> Every question from chat in one list.</sub></td>
     <td align="center"><img src="docs/img/live-sidepanel-log.png" alt="Side panel Log tab: hidden toxic messages blurred, folded spam and copypasta with the reason"><br><sub><b>Log.</b> What was filtered and why. Toxic text stays blurred.</sub></td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="docs/img/live-popup.png" width="62%" alt="Toolbar popup on a live Twitch chat: 23% hushed, 3 messages per second, Chill preset, model ready on WebGPU"><br><sub><b>Popup.</b> Preset, strictness, model status.</sub></td>
+    <td align="center" colspan="2"><img src="docs/img/live-popup.png" width="62%" alt="Toolbar popup on a live Twitch chat: 3 messages per second, Clean preset, model ready on WebGPU"><br><sub><b>Popup.</b> Preset, strictness, model status.</sub></td>
     <td align="center" colspan="2"><img src="docs/img/live-engine.png" width="62%" alt="Custom AI filters card connected to Hush Engine (Clef-Flash on an RTX 3090) with a Backseating filter, a stream context and a test that scores a message 89%"><br><sub><b>Custom AI filters.</b> Hush Engine on an RTX 3090 with a Backseating filter.</sub></td>
   </tr>
 </table>
@@ -75,18 +75,18 @@
 - **Hides the ugly.** Insults, harassment, slurs, threats, scam links, bots and "free robux" pitches are hidden. Spam is folded into a thin `2 hidden · show` pill. One click (or Enter on the focused pill) brings any of it back.
 - **Folds waves.** When 37 people type `KEKW` within a few seconds, you see one `KEKW ×37` with a live counter. Waves are chat culture, not spam, so they stay, just compact. Copypasta with small edits joins the same wave.
 - **Surfaces questions.** Real questions get a soft highlight and collect in an inbox in the side panel, so the one person asking something does not drown in emotes.
-- **Reads the room.** A slim bar above chat shows how much was hushed, messages per second and a **vibe meter** (positive vs. negative over the last few minutes).
-- **Four presets, full control.** Raw, Chill, Focus, Questions. Click a category chip to cycle show / dim / fold / hide, or set each category exactly in the side panel. A strictness slider moves every threshold at once.
+- **One choice, or full control.** **Basic** mode (the default) is one choice above chat: Off, Clean or Quiet. No numbers, no categories. **Show hidden** brings back what Hush took out, faded and labelled in place (`Hidden · spam`), until you press it again. **Advanced** mode is for streamers and mods: four presets (Raw, Clean, Quiet, Questions), what to do with each category, live counts of what is in chat now, rules, custom AI filters, messages per second and the mood of the last 5 minutes. A strictness slider moves every threshold at once. Switching modes never changes what is filtered.
+- **Solo: check one category.** In Advanced mode, click a category chip and chat shows only that category, each message tagged with why it is there and what normally happens to it (`spam · 97% · folded`). Click again or press Esc to see everything. Right-click a chip, or use the side panel, to change what happens to that category.
 - **Any language.** The model is [mmBERT](https://huggingface.co/jhu-clsp/mmBERT-small), pre-trained on 1800+ languages, fine-tuned on real chat from Twitch, YouTube and Kick channels in about 30 stream languages. Quality is measured for the 13 of them with at least 40 messages in the test set, German included (see the [model card](docs/MODEL_CARD.md#evaluation)). Rules see through leetspeak and lookalike letters (`fr33 r0bux` reads as `free robux`).
 - **Your rules first.** Word, regex and user rules (block, allow or highlight) run before the model, in microseconds. "Not spam" in the log adds an allow rule.
 - **Never hides by default:** the broadcaster, moderators and VIPs, paid messages (Super Chats, Bits, Kicks), and messages that mention you (on Twitch and YouTube, where Hush can tell who you are).
 - **Private.** Every message is classified on your device, on the GPU through WebGPU or on the CPU through WebAssembly. No account, no analytics, no server. See [PRIVACY.md](PRIVACY.md).
 
-| Preset | Toxic | Scam | Spam | Noise | Negative | Questions | Positive | Everything else |
+| Preset | Toxic | Scam | Spam | Noise | Negative | Questions | Positive | Other |
 |---|---|---|---|---|---|---|---|---|
 | **Raw** | show | show | show | show | show | show | show | show |
-| **Chill** (default) | hide | hide | fold | show | show | highlight | show | show |
-| **Focus** | hide | hide | hide | hide | dim | highlight | show | show |
+| **Clean** (default) | hide | hide | fold | show | show | highlight | show | show |
+| **Quiet** | hide | hide | hide | hide | dim | highlight | show | show |
 | **Questions** | hide | hide | hide | hide | hide | highlight | dim | dim |
 
 "Noise" means one-word reactions with no content (`W`, `L`, `lol`, `first`, `!commands`). Folding waves is a separate switch (on by default), so it works with every preset.
@@ -99,7 +99,7 @@ Hush needs **Chrome 124 or newer**. It is built and tested on Chrome; other Chro
 
 1. Download the latest `hush-*-chrome.zip` from [Releases](https://github.com/daradudai/hush/releases) and unzip it.
 2. Open `chrome://extensions`, turn on **Developer mode** (top right), click **Load unpacked** and pick the unzipped folder (the one with `manifest.json`).
-3. A welcome tab opens. Pick a preset, then open any live stream. Chats that were already open start filtering too, without a reload.
+3. A welcome tab opens. Pick how much Hush should hide (Clean or Quiet), then open any live stream. Chats that were already open start filtering too, without a reload.
 
 Release builds include the model, so nothing is downloaded and Hush works offline from the first message.
 

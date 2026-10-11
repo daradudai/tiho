@@ -1,10 +1,10 @@
 // Fake live data for the UI showcase: a Store fed like the runtime would.
 
 import { batch } from '@preact/signals';
-import { createStore, type LogEntry, type Store, type WaveInfo } from '../../../src/core/store';
-import { DEFAULT_SETTINGS, PRESETS, type PresetId } from '../../../src/core/settings';
+import { createStore, zeroInChat, type InChat, type LogEntry, type Store, type WaveInfo } from '../../../src/core/store';
+import { DEFAULT_SETTINGS, PRESETS, levelPatch, type PresetId, type Settings } from '../../../src/core/settings';
 import type { BarActions } from '../../../src/core/bar-actions';
-import type { Action, Category } from '../../../src/core/types';
+import { CATEGORIES, type Action, type Category, type Platform } from '../../../src/core/types';
 
 let seed = 7;
 export function rnd(): number {
@@ -37,6 +37,7 @@ export const CHAT: FakeMsg[] = [
   { author: 'copypasta_king', color: '#daa520', text: 'POGGERS POGGERS POGGERS POGGERS POGGERS POGGERS', c: 'spam', r: 'spam · 97%' },
   { author: 'ana_rs', color: '#00bfff', text: 'jajaja el último round fue increíble', c: 'positive', r: 'positive · 84%' },
   { author: 'mod_rex', color: '#00ad03', text: 'Reminder: be nice in chat, no spoilers please', c: 'clean', badges: ['mod'] },
+  { author: 'mod_rex', color: '#00ad03', text: 'NO SPOILERS NO SPOILERS NO SPOILERS', c: 'spam', a: 'show', r: 'spam · 81% · always shown', badges: ['mod'] },
   { author: 'hypetrain', color: '#ff69b4', text: 'W', c: 'noise', r: 'noise · 97%' },
   { author: 'devonk', color: '#5f9ea0', text: 'is the tournament on saturday or sunday?', c: 'question', r: 'question · 95%' },
   { author: 'grr_gamer', color: '#cd5c5c', text: 'ok this patch honestly ruined the game', c: 'negative', r: 'negative · 81%' },
@@ -76,6 +77,40 @@ function entry(key: string, author: string, text: string, category: Category, ac
   };
 }
 
+/**
+ * What the runtime's "in chat now" counters would say about these rows
+ * (each row's category and the action written on it; opened rows count as
+ * shown). Nothing is counted while Hush is off on the site.
+ */
+export function inChatOf(rows: { c: Category; a: Action; wm?: boolean }[], on = true): InChat {
+  const n = zeroInChat();
+  if (!on) return n;
+  for (const r of rows) {
+    n.rows++;
+    if (r.wm) {
+      n.inWaves++;
+      continue;
+    }
+    n.byCat[r.c]++;
+    if (r.a === 'hide') n.hidden++;
+    else if (r.a === 'collapse') n.folded++;
+  }
+  return n;
+}
+
+/** Twitch keeps about 150 messages in its chat list: this mix of them (6 more are folded into waves). */
+const LIST_MIX: Record<Category, number> = { toxic: 2, scam: 1, spam: 6, noise: 41, negative: 9, question: 7, positive: 22, clean: 58 };
+const IN_WAVES = 6;
+
+function listRows(s: Settings): { c: Category; a: Action; wm?: boolean }[] {
+  const rows: { c: Category; a: Action; wm?: boolean }[] = CATEGORIES.flatMap((c) => Array.from({ length: LIST_MIX[c] }, () => ({ c, a: s.actions[c] })));
+  for (let i = 0; i < IN_WAVES; i++) rows.push({ c: 'noise', a: 'show', wm: true });
+  return rows;
+}
+
+/** Hush runs on this site (the runtime lets the list go otherwise). */
+export const hushOn = (s: Settings, platform: string) => s.enabled && s.sites[platform as Platform] !== false;
+
 export function makeStore(platform = 'twitch', theme: 'dark' | 'light' = 'dark', preset: PresetId = 'chill'): Store {
   const s = createStore({ ...DEFAULT_SETTINGS, preset, actions: preset === 'custom' ? DEFAULT_SETTINGS.actions : { ...PRESETS[preset] } });
   seed = 7;
@@ -85,9 +120,8 @@ export function makeStore(platform = 'twitch', theme: 'dark' | 'light' = 'dark',
     s.theme.value = theme;
     s.model.value = { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2-6L' };
     s.perf.value = { msgsPerSec: 86, inferPerSec: 41, cacheHitRate: 0.52, p50ms: 6, p95ms: 14, queue: 0 };
-    s.counts.value = { toxic: 214, scam: 96, spam: 488, noise: 2140, negative: 377, question: 163, positive: 1290, clean: 4932 };
-    const seen = Object.values(s.counts.value).reduce((a, b) => a + b, 0);
-    s.totals.value = { seen, filtered: 214 + 96 + 488 * 0.9 };
+    s.inChat.value = inChatOf(listRows(s.settings.peek()), hushOn(s.settings.peek(), platform));
+    s.seen.value = 9700;
     s.rate.value = Array.from({ length: 60 }, (_, i) => Math.max(8, 72 + 26 * Math.sin(i / 6) + 18 * Math.sin(i / 2.3) + rnd() * 22 + (i > 44 ? 30 : 0)));
     s.vibe.value = Array.from({ length: 60 }, (_, i) => Math.max(-1, Math.min(1, 0.25 * Math.sin(i / 7) + 0.2 + (i > 30 && i < 38 ? -0.55 : 0) + (rnd() - 0.5) * 0.18)));
     const now = Date.now();
@@ -107,7 +141,10 @@ export function makeStore(platform = 'twitch', theme: 'dark' | 'light' = 'dark',
   return s;
 }
 
-/** Simulate a busy chat: ~`mps` messages/s, store written once per frame. */
+/**
+ * Simulate a busy chat: ~`mps` messages/s, store written once per frame. The
+ * chat list keeps the last 150 messages, and the in-chat-now counters follow it.
+ */
 export function runLive(s: Store, mps = 90): () => void {
   let raf = 0;
   let last = performance.now();
@@ -115,6 +152,7 @@ export function runLive(s: Store, mps = 90): () => void {
   let secAcc = 0;
   let secCount = 0;
   const cats: Category[] = ['clean', 'clean', 'clean', 'noise', 'noise', 'positive', 'positive', 'spam', 'negative', 'question', 'toxic', 'scam'];
+  const list: Category[] = CATEGORIES.flatMap((c) => Array.from({ length: LIST_MIX[c] }, () => c));
   const tick = (t: number) => {
     const dt = (t - last) / 1000;
     last = t;
@@ -122,18 +160,15 @@ export function runLive(s: Store, mps = 90): () => void {
     const n = Math.floor(acc);
     acc -= n;
     if (n > 0) {
-      const counts = { ...s.counts.peek() };
-      let filtered = 0;
-      for (let i = 0; i < n; i++) {
-        const c = cats[Math.floor(rnd() * cats.length)];
-        counts[c]++;
-        const a = s.settings.peek().actions[c];
-        if (a === 'hide' || a === 'collapse') filtered++;
-      }
-      const tot = s.totals.peek();
+      for (let i = 0; i < n; i++) list.push(cats[Math.floor(rnd() * cats.length)]);
+      list.splice(0, list.length - 150);
+      const st = s.settings.peek();
       batch(() => {
-        s.counts.value = counts;
-        s.totals.value = { seen: tot.seen + n, filtered: tot.filtered + filtered };
+        s.inChat.value = inChatOf(
+          list.map((c) => ({ c, a: st.actions[c] })),
+          hushOn(st, s.platform.peek()),
+        );
+        s.seen.value += n;
       });
       secCount += n;
     }
@@ -156,16 +191,25 @@ export function runLive(s: Store, mps = 90): () => void {
   return () => cancelAnimationFrame(raf);
 }
 
+/** Bar actions on the fake store, with the runtime's rules for the tab's views (Show hidden, Solo). */
 export function fakeActions(s: Store, onReveal?: (key: string) => void): BarActions {
+  const on = () => hushOn(s.settings.value, s.platform.peek());
+  const save = (patch: Partial<Settings>) =>
+    batch(() => {
+      s.settings.value = { ...s.settings.value, ...patch };
+      // Hush or the site off ends both views; Basic ends Solo.
+      if (!on()) s.peek.value = false;
+      if (!on() || s.settings.value.uiMode !== 'advanced') s.solo.value = null;
+    });
   return {
     setPreset(p) {
-      s.settings.value = { ...s.settings.value, preset: p, actions: p === 'custom' ? s.settings.value.actions : { ...PRESETS[p] } };
+      save({ preset: p, actions: p === 'custom' ? s.settings.value.actions : { ...PRESETS[p] } });
     },
     setAction(c, a) {
-      s.settings.value = { ...s.settings.value, preset: 'custom', actions: { ...s.settings.value.actions, [c]: a } };
+      save({ preset: 'custom', actions: { ...s.settings.value.actions, [c]: a } });
     },
     toggleEnabled() {
-      s.settings.value = { ...s.settings.value, enabled: !s.settings.value.enabled };
+      save({ enabled: !s.settings.value.enabled });
     },
     openSidePanel() {
       console.log('[showcase] openSidePanel');
@@ -173,6 +217,26 @@ export function fakeActions(s: Store, onReveal?: (key: string) => void): BarActi
     revealMessage(key) {
       console.log('[showcase] reveal', key);
       onReveal?.(key);
+    },
+    setMode(mode) {
+      save({ uiMode: mode });
+    },
+    setLevel(level) {
+      save(levelPatch(s.settings.value, level, (s.platform.peek() || undefined) as Platform | undefined));
+    },
+    setPeek(peek) {
+      if (peek && !on()) return;
+      batch(() => {
+        s.peek.value = peek;
+        if (peek) s.solo.value = null;
+      });
+    },
+    setSolo(cat) {
+      if (cat && (!on() || s.settings.value.uiMode !== 'advanced')) return;
+      batch(() => {
+        s.solo.value = cat === s.solo.value ? null : cat;
+        if (s.solo.value) s.peek.value = false;
+      });
     },
   };
 }
