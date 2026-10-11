@@ -1,0 +1,16 @@
+// tiho.chat — static site served by a Cloudflare Worker with static assets.
+// Deploy: cd site && npx wrangler deploy   (first time: npx wrangler login)
+{
+  "name": "tiho-site",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    { "pattern": "tiho.chat", "custom_domain": true },
+    { "pattern": "www.tiho.chat", "custom_domain": true }
+  ],
+  "workers_dev": false
+}

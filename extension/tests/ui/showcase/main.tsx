@@ -20,9 +20,9 @@ document.documentElement.dataset.theme = theme;
 document.documentElement.dataset.view = view;
 
 const MODEL: Record<string, ModelStatus> = {
-  ready: { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2-6L' },
-  wasm: { state: 'ready', backend: 'wasm', modelId: 'hush-lite/uint8', version: 'v2-3L' },
-  downloading: { state: 'downloading', backend: 'none', progress: 0.42, modelId: 'hush-lite/q8' },
+  ready: { state: 'ready', backend: 'webgpu', modelId: 'tiho-lite/q8', version: 'v2-6L' },
+  wasm: { state: 'ready', backend: 'wasm', modelId: 'tiho-lite/uint8', version: 'v2-3L' },
+  downloading: { state: 'downloading', backend: 'none', progress: 0.42, modelId: 'tiho-lite/q8' },
   loading: { state: 'loading', backend: 'webgpu' },
   error: { state: 'error', backend: 'none', error: 'WebGPU adapter lost; falling back' },
 };
@@ -116,7 +116,7 @@ async function main() {
   frames.push({ title: 'onboarding · light', src: '?view=onboarding&theme=light&downloading', w: 1200, h: 900 });
   render(
     <div class="sc-overview">
-      <h1>Hush — UI showcase</h1>
+      <h1>Tiho — UI showcase</h1>
       <p>Real components, fake data. Click chips, presets and the mark; everything is live.</p>
       <div class="sc-grid">
         {frames.map((f) => (

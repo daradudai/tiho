@@ -1,4 +1,4 @@
-// CPU profile of the Hush runtime inside the mock chat (unminified bundle).
+// CPU profile of the Tiho runtime inside the mock chat (unminified bundle).
 //   node tests/stress/profile.mjs [--rate=100] [--secs=8] [--skin=twitch] [--q=bar=0]
 // Prints the top self-time functions; writes .runs/profile.cpuprofile (open in DevTools).
 import { chromium } from '@playwright/test';
@@ -40,18 +40,18 @@ await ctx.route('**/*', (r) => {
   return r.abort();
 });
 const page = await ctx.newPage();
-await page.goto(skin === 'twitch' ? `https://www.twitch.tv/stresschan?hush=1${q}` : `https://www.youtube.com/live_chat?v=x&hush=1${q}`);
+await page.goto(skin === 'twitch' ? `https://www.twitch.tv/stresschan?tiho=1${q}` : `https://www.youtube.com/live_chat?v=x&tiho=1${q}`);
 await page.evaluate(() => window.__mock.ready);
 const cdp = await ctx.newCDPSession(page);
 await page.evaluate((r) => window.__mock.start(r), rate);
 await page.waitForTimeout(2000);
-await page.evaluate(() => window.__hush.reset());
+await page.evaluate(() => window.__tiho.reset());
 await cdp.send('Profiler.enable');
 await cdp.send('Profiler.setSamplingInterval', { interval: 100 });
 await cdp.send('Profiler.start');
 await page.waitForTimeout(secs * 1000);
 const { profile } = await cdp.send('Profiler.stop');
-const st = await page.evaluate(() => window.__hush.stats());
+const st = await page.evaluate(() => window.__tiho.stats());
 await browser.close();
 
 fs.mkdirSync(path.join(here, '.runs'), { recursive: true });
@@ -68,5 +68,5 @@ for (let i = 0; i < profile.samples.length; i++) {
   self.set(k, (self.get(k) ?? 0) + (dt[i] ?? 0) / 1000);
 }
 const top = [...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
-console.log(`msgs ${st.msgs}, hush JS ${(st.msPerMsg * 1000).toFixed(1)} µs/msg`);
+console.log(`msgs ${st.msgs}, tiho JS ${(st.msPerMsg * 1000).toFixed(1)} µs/msg`);
 for (const [k, ms] of top) console.log(`${ms.toFixed(1).padStart(8)} ms  ${(((ms / st.msgs) * 1000) || 0).toFixed(1).padStart(6)} µs/msg  ${k}`);

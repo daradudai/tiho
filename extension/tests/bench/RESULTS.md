@@ -1,12 +1,19 @@
 # Hush Lite in-browser inference — benchmark results
 
+*Tiho was called Hush when these runs were made, so the sections below say `hush-lite`, `hush:classify` and `hush.thresholds` (now `tiho-lite`, `tiho:classify`, `tiho.thresholds`). The re-run commands at the end use the current names.*
+
 ## Current: shipped models on an idle GPU (2026-10-11)
 
-What the release bundles: **v2-6L** (`onnx/model_quantized.onnx`, 112.5 MB, int8 weight-only) for
+What the release bundled at the time: **v2-6L** (`onnx/model_quantized.onnx`, 112.5 MB, int8 weight-only) for
 WebGPU and **v2-3L** (`onnx/model_uint8_3L.onnx`, 105.3 MB, dynamic int8) for WASM, plus
 `model_q4f16.onnx` (61.9 MB) for comparison. Same machine and method as below (Ryzen 9 3950X,
 RTX 3090, Playwright Chromium 156, 4 000 real chat lines, score cache off), but this time the GPU
 was **idle** (2–5 % load, 25 W, no training or llama-server running).
+
+Since 2026-10-11 the release bundles **v3-6L + v3-3L** instead. They have the same architecture,
+graph and quantization as v2-6L / v2-3L (they were distilled starting from them), and the files have
+the same sizes (to the byte, except one byte on the 3-layer one), so the speeds below apply to them;
+only the weights and thresholds differ.
 
 msgs/s and p50/p95 latency per call in ms:
 
@@ -178,7 +185,7 @@ engine's idle disposal (10 min without requests) and respawns it on the next req
 ```bash
 cd extension
 node tests/bench/make-sample.mjs                       # once; sample is git-ignored (.data/)
-HUSH_OUT=.output-inference HUSH_BENCH=1 HUSH_MODEL_VARIANTS=all npx wxt build
+TIHO_OUT=.output-inference TIHO_BENCH=1 TIHO_MODEL_VARIANTS=all npx wxt build
 node tests/bench/bench.mjs            # full; --quick, --only webgpu|wasm, --variants q8,uint8, --pipeline-only
 node tests/bench/tokenizer-parity.mjs # JS vs Python tokenizer on the sample (expects 0 mismatches)
 ```

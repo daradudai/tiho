@@ -28,7 +28,7 @@ export async function buildHarness({ minify = true } = {}) {
       lib: {
         entry: path.join(here, 'harness.ts'),
         formats: ['iife'],
-        name: 'HushStress',
+        name: 'TihoStress',
         fileName: () => 'harness.js',
       },
     },

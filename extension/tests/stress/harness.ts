@@ -3,7 +3,7 @@
 // background/offscreen inference is replaced by a simulated Port with
 // realistic batch latency (so hold / late-verdict paths are exercised).
 //
-// window.__hush = { runtime, stats(), reset(), setEnabled(on), setBar(on) }
+// window.__tiho = { runtime, stats(), reset(), setEnabled(on), setBar(on) }
 
 import { createBarActions, type MountBar } from '../../src/core/bar-actions';
 import type { PortRequest, PortResponse } from '../../src/core/protocol';
@@ -12,7 +12,7 @@ import { createStore } from '../../src/core/store';
 import { twitch } from '../../src/platforms/twitch';
 import { youtube } from '../../src/platforms/youtube';
 import { ClassifierClient, type ClassifierTransport } from '../../src/runtime/classifier';
-import { HushRuntime } from '../../src/runtime/engine';
+import { TihoRuntime } from '../../src/runtime/engine';
 import { findMountBar } from '../../src/runtime/index';
 import { cleanForModel, normalize } from '../../src/core/normalize';
 
@@ -91,7 +91,7 @@ const lat = new Float64Array(LAT_N);
 let latN = 0;
 let pendingShown = 0;
 
-// The bar can be unmounted / remounted in place (bar A/B with Hush running in
+// The bar can be unmounted / remounted in place (bar A/B with Tiho running in
 // both halves): the runtime mounts it through this wrapper once, setBar()
 // toggles it afterwards with the same anchor, store and actions.
 const realMountBar = qs.get('bar') === '0' ? null : findMountBar();
@@ -108,14 +108,14 @@ const mountBar: MountBar | null =
     };
   });
 
-let rt: HushRuntime;
+let rt: TihoRuntime;
 const classifier = new ClassifierClient(() => transport, {
   onScores: (ids) => rt.onScores(ids),
   onFailed: (ids) => rt.onFailed(ids),
   onStatus: (s) => rt.setModelStatus(s),
 });
 
-rt = new HushRuntime({
+rt = new TihoRuntime({
   adapter,
   settings,
   store,
@@ -153,7 +153,7 @@ function pct(a: Float64Array, n: number, p: number) {
 }
 
 const w = window as unknown as Record<string, unknown>;
-w.__hush = {
+w.__tiho = {
   core: { normalize, cleanForModel },
   runtime: rt,
   stats() {
@@ -176,7 +176,7 @@ w.__hush = {
       seen: store.seen.peek(),
       inChat: store.inChat.peek(),
       waves: store.waves.peek().slice(0, 5).map((x) => ({ text: x.text.slice(0, 40), count: x.count, users: x.users })),
-      barMounted: !!document.querySelector('hush-bar'),
+      barMounted: !!document.querySelector('tiho-bar'),
     };
   },
   /** Pause / resume filtering in place (paired A/B in one page). */
@@ -191,7 +191,7 @@ w.__hush = {
       barOff();
       barOff = null;
     }
-    return !!document.querySelector('hush-bar');
+    return !!document.querySelector('tiho-bar');
   },
   reset() {
     const m = rt.metrics;
@@ -211,7 +211,7 @@ w.__hush = {
 // Diagnostics: ?css=none|nosib|nochild|nois — rewrite the injected row stylesheet.
 const cssMode = qs.get('css');
 if (cssMode) {
-  const el = document.getElementById('hush-row-style');
+  const el = document.getElementById('tiho-row-style');
   if (el) {
     let css = el.textContent ?? '';
     if (cssMode === 'none') css = '';

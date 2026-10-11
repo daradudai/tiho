@@ -1,6 +1,6 @@
 # Basic and Advanced modes, Show hidden, Solo: UX spec
 
-This is the implementation spec for splitting Hush's UI into **Basic** (the default: idiot-proof, for someone who sees chat for the first time) and **Advanced** (today's full power, organized, for streamers, mods and power users). It also adds **Show hidden** (a temporary view of what Hush hid) and **Solo** (show one category only, for checking the model). File paths are relative to `extension/src/` unless they say otherwise.
+This is the implementation spec for splitting Tiho's UI into **Basic** (the default: idiot-proof, for someone who sees chat for the first time) and **Advanced** (today's full power, organized, for streamers, mods and power users). It also adds **Show hidden** (a temporary view of what Tiho hid) and **Solo** (show one category only, for checking the model). File paths are relative to `extension/src/` unless they say otherwise.
 
 Three people build it in parallel:
 
@@ -12,7 +12,7 @@ Section 4 is the contract between them. Build against it, not against each other
 
 ## 1. Why
 
-The owner tested Hush on live Twitch in Edge and gave three pieces of feedback:
+The owner tested Tiho on live Twitch in Edge and gave three pieces of feedback:
 
 1. The classification looks good, but the UI feels heavy and cluttered.
 2. He wants to isolate one category with one click, to check that it caught the right messages.
@@ -124,7 +124,7 @@ export interface BarActions {
   setLevel(level: BasicLevel): void;
   /** Show hidden in this tab (not saved). */
   setPeek(on: boolean): void;
-  /** Show only this category in this tab (not saved); null shows everything. Ignored in Basic and while Hush is off. */
+  /** Show only this category in this tab (not saved); null shows everything. Ignored in Basic and while Tiho is off. */
   setSolo(cat: Category | null): void;
 }
 
@@ -200,7 +200,7 @@ Show hidden and Solo are **variants of the stylesheet `buildCss` produces**. The
   - The "same message re-added" branch of `process` (`live.add` + return) re-tallies from `st`.
 - Kick re-mounts rows as new nodes. The old node is un-tallied in `onRemoved`, and the new `RowState` starts with no contribution, so nothing is counted twice.
 - `flushStore` writes `inChat` (a fresh object) together with the other store fields, in the same `batch()`, at the existing ≤ 4×/s cadence. A settings change therefore moves the numbers in the first store flush after `reevaluateAll`: the store follows within 250 ms and the bar within about 750 ms.
-- After `detach` (Hush off, site off, navigation), schedule a store flush, so the numbers read 0 rather than freezing.
+- After `detach` (Tiho off, site off, navigation), schedule a store flush, so the numbers read 0 rather than freezing.
 
 **Remove:** `counts`, `filteredCount`, `st.counted`, `st.filtered` and `totals`. Keep the internal `seen++` (store `seen`) for the pulse.
 
@@ -208,27 +208,27 @@ Show hidden and Solo are **variants of the stylesheet `buildCss` produces**. The
 
 **Stylesheet variant `peek`** (in either mode, when Solo is off):
 
-- `[data-hush-a="hide"]` and folded rows are **not** `display:none`. They render in place:
+- `[data-tiho-a="hide"]` and folded rows are **not** `display:none`. They render in place:
   - at `opacity:.6`, and `1` on `:hover`;
   - with the dashed "opened" edge;
   - with a **tag** (see below).
 - The whole pill block (`RUN` rules, `RUN>*`) is not emitted. Pill rows render as plain rows.
-- Wave members stay folded into their head (`[data-hush-wm]:not([data-hush-open])` stays `display:none`).
-- `pending` rows, the `data-hush-list` birth rule, dim and highlight are unchanged.
+- Wave members stay folded into their head (`[data-tiho-wm]:not([data-tiho-open])` stays `display:none`).
+- `pending` rows, the `data-tiho-list` birth rule, dim and highlight are unchanged.
 
-**Tag** (`::before`, `float:right`; `float:left` on `:dir(rtl)`): it uses the wave badge's box (18 px pill, 11 px, `tabular-nums`) and is coloured with the row's `--hush-accent`. It never uses absolute positioning, so it cannot cover other rows.
+**Tag** (`::before`, `float:right`; `float:left` on `:dir(rtl)`): it uses the wave badge's box (18 px pill, 11 px, `tabular-nums`) and is coloured with the row's `--tiho-accent`. It never uses absolute positioning, so it cannot cover other rows.
 
 | Mode | Row | Tag text |
 |---|---|---|
 | Basic | hide or collapse | `Hidden · ` + plain word: toxic `insult`, scam `scam`, spam `spam`, noise `one-word reply`, negative `complaint`, question `question`. Positive and clean (only hidden by rules or filters): just `Hidden` |
-| Advanced | hide | `hidden · ` + `attr(data-hush-r)`. Without a reason: `hidden · ` + category |
+| Advanced | hide | `hidden · ` + `attr(data-tiho-r)`. Without a reason: `hidden · ` + category |
 | Advanced | collapse | `folded · ` + reason, same fallback |
 
 **Lifecycle:**
 
 - Peek is per tab, starts off and is never saved.
 - **On:** `setPeek(true)`, from Show hidden in the bar or side panel.
-- **Off:** `setPeek(false)`, Esc (bar, 6.5), Hush or this site turned off, a channel change or navigation (`detach`), entering Solo, `stop()`.
+- **Off:** `setPeek(false)`, Esc (bar, 6.5), Tiho or this site turned off, a channel change or navigation (`detach`), entering Solo, `stop()`.
 - Changing level, preset or mode keeps it on.
 
 **Clicks:** while peek or Solo is on, `onClick` and `onKeyDown` on the list return at once. Otherwise, a click on a username inside a peeked folded row would open the run and leave it opened after peek ends.
@@ -247,9 +247,9 @@ Show hidden and Solo are **variants of the stylesheet `buildCss` produces**. The
 
 **Stylesheet variant `solo` for category X:**
 
-- `[data-hush-c]:not([data-hush-c="X"])` is `display:none!important`. This covers every decided row of another category, including rows the viewer opened.
-- Rows with no `data-hush-c` keep their normal look:
-  - platform notices and other non-message rows (`data-hush-a=""`) stay visible;
+- `[data-tiho-c]:not([data-tiho-c="X"])` is `display:none!important`. This covers every decided row of another category, including rows the viewer opened.
+- Rows with no `data-tiho-c` keep their normal look:
+  - platform notices and other non-message rows (`data-tiho-a=""`) stay visible;
   - held rows stay invisible under the list rule.
 - **Rows of X show in full whatever their action.** They have no pill, `opacity:1` even when dimmed, and keep the highlight glow.
   - X rows whose action is `hide` or `collapse` get the dashed "opened" edge, which here means "normally not shown".
@@ -258,11 +258,11 @@ Show hidden and Solo are **variants of the stylesheet `buildCss` produces**. The
 
 **Tag** on every X row, always visible, in the same box as the peek tag:
 
-- Text: `attr(data-hush-r)` + ` · ` + the normal action word: `shown`, `highlighted`, `dimmed`, `folded` or `hidden`, from `data-hush-a`.
-- Opened rows (`[data-hush-open]`) end in `opened` instead.
-- A reason that ends in `always shown` (`[data-hush-r$="always shown"]`) gets no action word.
+- Text: `attr(data-tiho-r)` + ` · ` + the normal action word: `shown`, `highlighted`, `dimmed`, `folded` or `hidden`, from `data-tiho-a`.
+- Opened rows (`[data-tiho-open]`) end in `opened` instead.
+- A reason that ends in `always shown` (`[data-tiho-r$="always shown"]`) gets no action word.
 - No reason (clean rows): the category word stands in for it (`other · shown`).
-- On a wave head of X: `×` + `attr(data-hush-wh)` + `  ` + the text above.
+- On a wave head of X: `×` + `attr(data-tiho-wh)` + `  ` + the text above.
 - Examples: `spam · certain · folded`, `toxic · likely · hidden`, `blocked: giveaway · hidden`, `filter: backseating · hidden`, `repeat ×4 · folded`, `spam · very likely · always shown`, `×37  noise · certain · shown`.
 - On Kick (absolute rows): verify the float does not make rows overlap. If it does, put the tag `position:absolute` inside the row there; Kick rows are positioned already (`PLATFORM_DECO.kick.positioned`).
   - Verified live: no overlap. But Kick's list is virtualized, and when most mounted rows take no space it mounts and unmounts rows about 1,000 times a second, and the soloed rows flicker. So on Kick (`PLATFORM_DECO.kick.virtual`) the other categories are `visibility:hidden` and keep their place instead of `display:none`.
@@ -281,7 +281,7 @@ Show hidden and Solo are **variants of the stylesheet `buildCss` produces**. The
 | Hold and birth | While Solo is on, any new row may be hidden. So `holdAtBirth` is true, and `computeHold()` treats the model as able to hide (the `modelCanHide` term), while Solo is on. It still needs a holdable classifier and `holdMs > 0`. The list is marked (no flash of other categories), and rows that need the model are held for up to `holdMs` as usual. Both are recomputed on exit. Rows the model answers late (> `holdMs`) show with their rules-only verdict and may move when the score lands (accepted). |
 | "Show in chat" (`reveal(key)`) | If the row's category is not X, Solo ends first, then the row is revealed and scrolled into view. |
 
-**Ending Solo:** `setSolo(null)`, `uiMode` → `'basic'`, Hush or this site off, a channel change or navigation (`detach`), `stop()`. It is never saved, so a reload ends it too.
+**Ending Solo:** `setSolo(null)`, `uiMode` → `'basic'`, Tiho or this site off, a channel change or navigation (`detach`), `stop()`. It is never saved, so a reload ends it too.
 
 **Solo on Other (`clean`)** is how a streamer finds what the model missed. It is reachable from the panel's Other row and from the side panel (Other has no chip).
 
@@ -298,14 +298,14 @@ The `.hb` root gets `data-mode="basic|advanced"`, `data-peek` and `data-solo`. I
 ### 6.1 Basic, collapsed row (left to right)
 
 1. **Mark** (30 px button). It opens and closes the sheet; Basic has no chevron.
-   - aria-label `Hush options`; tooltip title is the status line (6.6), sub `Click for options`.
+   - aria-label `Tiho options`; tooltip title is the status line (6.6), sub `Click for options`.
    - The ring is gone. It comes back only as model progress:
      - a determinate ring while `downloading` with `progress`;
      - a slow rotating ring (CSS transform, compositor) while `loading`;
      - nothing when `ready` or `idle`.
    - On `error`, an amber dot badge sits on the mark.
 2. **Level control.**
-   - A `role=radiogroup` labelled `How much should Hush hide?`, with three radios: `Off`, `Clean`, `Quiet`.
+   - A `role=radiogroup` labelled `How much should Tiho hide?`, with three radios: `Off`, `Clean`, `Quiet`.
    - The selected one comes from `basicLevel(settings, platform)`. When it is `null`, nothing is selected and the thumb is hidden (`data-none`).
    - Each radio's tooltip is its description (6.6).
    - A click calls `actions.setLevel(...)`.
@@ -313,18 +313,18 @@ The `.hb` root gets `data-mode="basic|advanced"`, `data-peek` and `data-solo`. I
    - Off: eye icon + `Show hidden`. On: eye-off icon + `Hide again`.
    - A click calls `actions.setPeek(!peek)`.
    - When the container is narrower than 300 px, it shows the icon only; the aria-label stays.
-   - While the level is `off`, the button is replaced by muted, non-interactive text: `Hush is off`, or `Off on Twitch` when only the site is off.
+   - While the level is `off`, the button is replaced by muted, non-interactive text: `Tiho is off`, or `Off on Twitch` when only the site is off.
 
 ### 6.2 Basic sheet (the expanded panel)
 
 The sheet contains, top to bottom:
 
 1. The status line (6.6). On a model error it has a `Retry` button (`retryModel()`).
-2. `How much should Hush hide?` with three radio rows. Each shows a name, its description and, for Clean, a `Recommended` badge.
-3. When `basicLevel` is `null` and Hush is on: `You're using a custom setup from Advanced mode. Pick a level to replace it.`
-   When it is `off` and the preset is not Clean or Quiet: `Your custom setup from Advanced mode is kept while Hush is off. Turn it back on in Advanced mode, or pick a level to replace it.`
+2. `How much should Tiho hide?` with three radio rows. Each shows a name, its description and, for Clean, a `Recommended` badge.
+3. When `basicLevel` is `null` and Tiho is on: `You're using a custom setup from Advanced mode. Pick a level to replace it.`
+   When it is `off` and the preset is not Clean or Quiet: `Your custom setup from Advanced mode is kept while Tiho is off. Turn it back on in Advanced mode, or pick a level to replace it.`
 4. When `advancedExtras(settings)` is not empty: `Also on from Advanced mode: ` + the list joined with `, ` + `.`
-5. The hint `"Show hidden" brings back anything Hush hid.`
+5. The hint `"Show hidden" brings back anything Tiho hid.`
 6. An `Advanced mode` switch with the hint `For streamers and mods: categories, stats, rules and custom AI filters.` Turning it on calls `setMode('advanced')`. The bar re-renders as Advanced with the panel still open.
 7. Footer: a lock icon and `Runs on your computer. Nothing leaves it.`
 
@@ -332,12 +332,12 @@ It never shows a number.
 
 ### 6.3 Advanced, collapsed row
 
-1. **Mark.** Opens the panel; tooltip `Hush` / `Open live view`. The ring follows the same model-progress rule as Basic. The `% hushed` ring and the `CalmText` are removed.
+1. **Mark.** Opens the panel; tooltip `Tiho` / `Open live view`. The ring follows the same model-progress rule as Basic. The `% hushed` ring and the `CalmText` are removed.
 2. **Preset.**
    - Below 520 px it is a pill with a menu; at 520 px and wider, a segmented control (as today).
    - Labels: `Raw`, `Clean`, `Quiet`, `Q&A`, or `Custom`.
    - **During Solo, the Solo pill takes this place** (6.4).
-3. **Chips**: one per `CHIP_CATEGORIES` entry, with `compact(inChat.byCat[c])`, as many as fit. The soloed chip comes first, then the categories Hush changes (hide, fold, dim, highlight), then the ones it shows as they are, those with messages in chat now first. The rest wrap out of sight, and a `+N` button (tooltip: their names) opens the panel, which lists all of them. The Solo pill, eye, model dot and chevron never give way to chips (at 340 px: three chips and `+4`).
+3. **Chips**: one per `CHIP_CATEGORIES` entry, with `compact(inChat.byCat[c])`, as many as fit. The soloed chip comes first, then the categories Tiho changes (hide, fold, dim, highlight), then the ones it shows as they are, those with messages in chat now first. The rest wrap out of sight, and a `+N` button (tooltip: their names) opens the panel, which lists all of them. The Solo pill, eye, model dot and chevron never give way to chips (at 340 px: three chips and `+4`).
    - **Click:** `setSolo(c)` when `c` is not soloed, `setSolo(null)` when it is. `aria-pressed` while soloed. During Solo the other chips get `data-faded` and stay clickable (to switch).
    - **Right-click / long-press:** chip menu (6.4).
    - Tooltip title `${SHORT[c]} · ${verb}` (e.g. `Spam · folded`); sub `8 in chat now · Click: show only these · Right-click: change`. When soloed, the sub is `Showing only these · Click: show everything`.
@@ -347,7 +347,7 @@ It never shows a number.
 5. **Model dot**, as today.
 6. **Chevron**, as today.
 
-When Hush is off, the row is: mark, `Hush is off`, a `Turn on` button (was `Hush is paused` / `Resume`), model dot, chevron.
+When Tiho is off, the row is: mark, `Tiho is off`, a `Turn on` button (was `Tiho is paused` / `Resume`), model dot, chevron.
 
 ### 6.4 Advanced: Solo pill, chip menu, panel
 
@@ -407,21 +407,21 @@ Chips and panel rows stay buttons: Enter or Space toggles Solo, and the context-
 
 | Key | Text |
 |---|---|
-| Status / mark tooltip, on | `Hush is cleaning up this chat.` |
-| Status, off | `Hush is off. Chat shows every message.` |
-| Status, site off | `Hush is off on Twitch.` (YouTube, Kick) |
+| Status / mark tooltip, on | `Tiho is cleaning up this chat.` |
+| Status, off | `Tiho is off. Chat shows every message.` |
+| Status, site off | `Tiho is off on Twitch.` (YouTube, Kick) |
 | Status, model downloading or loading | `Getting ready… Simple filters already work.` |
-| Status, model error | `Hush's AI didn't start. Simple filters still work.` + `Retry` |
-| Level group label | `How much should Hush hide?` |
+| Status, model error | `Tiho's AI didn't start. Simple filters still work.` + `Retry` |
+| Level group label | `How much should Tiho hide?` |
 | Off | `Off`: `Shows every message.` |
 | Clean (`chill`) | `Clean`: `Hides insults, scams and spam. Questions stand out.` |
 | Quiet (`focus`) | `Quiet`: `Also hides one-word replies like "W" and "LOL". Complaints are dimmed.` |
 | Raw (Advanced) | `Raw`: `Hides nothing. Marks every message.` |
 | Questions (Advanced) | `Questions` (short `Q&A`): `Questions up front, the rest dimmed.` |
-| Peek | `Show hidden` / `Hide again`; tooltip sub `Brings back what Hush hid in this tab, faded.` / `Esc also works.` |
+| Peek | `Show hidden` / `Hide again`; tooltip sub `Brings back what Tiho hid in this tab, faded.` / `Esc also works.` |
 | Mode | `Advanced mode` (switch), hint `For streamers and mods: categories, stats, rules and custom AI filters.`; back: `Basic mode` |
-| Off row (Advanced) | `Hush is off` + `Turn on`; panel button `Turn off` |
-| Never | `hushed`, `Vibe`, `Vibe preset`, `click to cycle`, `Open dashboard`, `Hush is paused`, `Resume` |
+| Off row (Advanced) | `Tiho is off` + `Turn on`; panel button `Turn off` |
+| Never | `hushed`, `Vibe`, `Vibe preset`, `click to cycle`, `Open dashboard`, `Tiho is paused`, `Resume` |
 
 `PRESET_META` in `ui/tokens.ts` holds the preset labels and descriptions above (B owns the file; C reads it). Add a `LEVEL_META` with Off, Clean and Quiet (label, description) so the bar, popup, side panel and onboarding render the same words. `ACTION_META` is unchanged.
 
@@ -437,16 +437,16 @@ The mode toggle lives in:
 
 ### 7.1 Popup, Basic (360 px)
 
-1. **Header:** mark, `Hush` and the subtitle. There is no master toggle; Off is a level.
-   - Subtitle: `Cleaning up Twitch chat`, `Hush is off`, `Hush is off on Twitch`, or `Open a live stream to start` on other sites.
+1. **Header:** mark, `Tiho` and the subtitle. There is no master toggle; Off is a level.
+   - Subtitle: `Cleaning up Twitch chat`, `Tiho is off`, `Tiho is off on Twitch`, or `Open a live stream to start` on other sites.
 2. **Model line**, only when not `ready`:
    - downloading or loading: `Getting ready… Simple filters already work.`, with a thin progress bar (no number);
-   - error: `Hush's AI didn't start. Simple filters still work.` + `Retry`.
-3. **Level cards.** `How much should Hush hide?`, then three cards: `Off`, `Clean`, `Quiet` (`role=radiogroup`). Below them, the description of the selected (or hovered) level.
+   - error: `Tiho's AI didn't start. Simple filters still work.` + `Retry`.
+3. **Level cards.** `How much should Tiho hide?`, then three cards: `Off`, `Clean`, `Quiet` (`role=radiogroup`). Below them, the description of the selected (or hovered) level.
    - With a custom setup: no card selected, and the custom-setup note from 6.2.
    - When `advancedExtras` is not empty: the `Also on…` line.
    - Picking a level saves the same patch as `setLevel`, with the active tab's platform.
-4. **Peek hint**, only on a chat site: `To see what Hush hid, press "Show hidden" above the chat.`
+4. **Peek hint**, only on a chat site: `To see what Tiho hid, press "Show hidden" above the chat.`
 5. **Footer:** the `Advanced mode` switch with its hint, then the privacy line.
 
 No numbers, sparkline, strip, strictness, engine line or side panel button.
@@ -485,7 +485,7 @@ Today's popup, with these changes:
   - `Engine room` becomes `Performance`. Labels: `Latency p50 · recent`, `Latency p95 · recent`, `Inferences / s · now`, `Cache hits · since this chat opened`.
 - **Inbox:** `{n} asked · {m} open` becomes `{n} asked since you opened this panel · {m} open`.
 - **Log:**
-  - Title `Hidden messages`, sub `What Hush hid or folded since you opened this panel, newest first`.
+  - Title `Hidden messages`, sub `What Tiho hid or folded since you opened this panel, newest first`.
   - With a category filter selected, the toolbar shows `Show only these in chat` (sends `solo`).
 - **Rules:** unchanged.
 - **Settings:**
@@ -499,7 +499,7 @@ Today's popup, with these changes:
 
 ### 7.4 Onboarding
 
-- **Hero lead:** `Hush is an ad-blocker for live chat. It hides insults, scams and spam on YouTube, Twitch and Kick, and makes questions stand out. A small AI runs on your computer, in any language.`
+- **Hero lead:** `Tiho hides spam, scam links and abuse in YouTube, Twitch and Kick chat, and makes questions stand out. A small AI model runs on your own computer. It’s an early version and still makes mistakes: anything it hides is one click away.` Badges: `On-device AI`, `Checked on 13 languages`, `Free, no account`.
 - **Demo:**
   - The bar is the Basic bar: mark, `Off [Clean] Quiet` and `Show hidden`, decorative only.
   - `38% hushed` / `unfiltered` and the category chips are removed.
@@ -509,17 +509,17 @@ Today's popup, with these changes:
   - `Questions stand out`: `Real questions glow softly, so the one person asking something doesn't drown in emotes.`
   - `Folds repeats` (replaces `Reads the room`): `When 37 people type KEKW, you see one line: KEKW ×37.`
 - **Step 2:**
-  - Title `How much should Hush hide?`, sub `You can change this any time in the bar above chat.`
+  - Title `How much should Tiho hide?`, sub `You can change this any time in the bar above chat.`
   - Two cards, `Clean` (with `Recommended`) and `Quiet`, with the descriptions from 6.6 and no category dots.
   - Below them, a checkbox `I stream or moderate. Use Advanced mode (categories, stats, rules, custom AI filters).` It saves `uiMode` at once.
 - **Step 3:**
   - Title `Getting ready`.
-  - Ready: `Ready. Hush runs on this computer and works offline.`
+  - Ready: `Ready. Tiho runs on this computer and works offline.`
   - Downloading or loading: `Getting ready…` + progress bar + `About 125 MB, once. Simple filters already work.`
-  - Error: `Hush's AI didn't start.` + `Simple filters still work. Hush tries again by itself.` + `Retry`.
+  - Error: `Tiho's AI didn't start.` + `Simple filters still work. Tiho tries again by itself.` + `Retry`.
   - No layers, backends or WebGPU wording.
 - **Good to know:**
-  - `"Show hidden" above chat brings back anything Hush hid.`
+  - `"Show hidden" above chat brings back anything Tiho hid.`
   - `Click a "2 hidden · show" line to open it.`
   - `The streamer, mods and VIPs are never hidden.`
   - `Streamer or mod? Turn on Advanced mode in the toolbar popup.`
@@ -594,7 +594,7 @@ Peeked rows are faded until hovered. Wave members stay inside `×5`.
 
 ```text
 +----------------------------------------------+
-| (~)  [Off] Clean Quiet           Hush is off |
+| (~)  [Off] Clean Quiet           Tiho is off |
 +----------------------------------------------+
 
 +------------------------------------+
@@ -608,9 +608,9 @@ Peeked rows are faded until hovered. Wave members stay inside `×5`.
 +----------------------------------------------+
 | (~)  Off [Clean] Quiet       (o) Show hidden |
 +----------------------------------------------+
-| Hush is cleaning up this chat.               |
+| Tiho is cleaning up this chat.               |
 |                                              |
-| How much should Hush hide?                   |
+| How much should Tiho hide?                   |
 |  ( ) Off     Shows every message.            |
 |  (*) Clean   Hides insults, scams and spam.  |
 |              Questions stand out.            |
@@ -619,7 +619,7 @@ Peeked rows are faded until hovered. Wave members stay inside `×5`.
 |              like "W" and "LOL". Complaints  |
 |              are dimmed.                     |
 |                                              |
-| "Show hidden" brings back anything Hush hid. |
+| "Show hidden" brings back anything Tiho hid. |
 |                                              |
 | Advanced mode                          [o  ] |
 | For streamers and mods: categories, stats,   |
@@ -638,7 +638,7 @@ Peeked rows are faded until hovered. Wave members stay inside `×5`.
 +----------------------------------------------+
 | Getting ready… Simple filters already work.  |
 |                                              |
-| How much should Hush hide?                   |
+| How much should Tiho hide?                   |
 |  ( ) Off     Shows every message.            |
 |  ( ) Clean   Hides insults, scams and spam.  |
 |  ( ) Quiet   Also hides one-word replies ... |
@@ -731,17 +731,17 @@ Peeked rows are faded until hovered. Wave members stay inside `×5`.
 
 ```text
 +------------------------------------------+
-|  (~) Hush                                |
+|  (~) Tiho                                |
 |      Cleaning up Twitch chat             |
 |                                          |
-|  How much should Hush hide?              |
+|  How much should Tiho hide?              |
 |  +----------+ +----------+ +----------+  |
 |  |   Off    | | * Clean  | |  Quiet   |  |
 |  +----------+ +----------+ +----------+  |
 |  Hides insults, scams and spam.          |
 |  Questions stand out.                    |
 |                                          |
-|  To see what Hush hid, press "Show       |
+|  To see what Tiho hid, press "Show       |
 |  hidden" above the chat.                 |
 +------------------------------------------+
 |  Advanced mode                    [o  ]  |
@@ -753,13 +753,13 @@ Peeked rows are faded until hovered. Wave members stay inside `×5`.
 +------------------------------------------+
 ```
 
-When the model is not ready, `Getting ready… Simple filters already work.` and a thin bar sit under the subtitle. On error the line is `Hush's AI didn't start. Simple filters still work.` with `[Retry]`.
+When the model is not ready, `Getting ready… Simple filters already work.` and a thin bar sit under the subtitle. On error the line is `Tiho's AI didn't start. Simple filters still work.` with `[Retry]`.
 
 **G. Popup, Advanced**
 
 ```text
 +------------------------------------------+
-|  (~) Hush                         [  o]  |
+|  (~) Tiho                         [  o]  |
 |      Cleaning up Twitch chat             |
 |  +------------------------------------+  |
 |  | [tw] caedrel                [  o]  |  |
@@ -778,7 +778,7 @@ When the model is not ready, `Getting ready… Simple filters already work.` and
 |  Lenient ------------o----------- Strict |
 +------------------------------------------+
 |  * Ready · WebGPU        [Side panel ->] |
-|    Hush Lite · 6 layers · on-device      |
+|    Tiho Lite · 6 layers · on-device      |
 |  Advanced mode                    [  o]  |
 |  [lock] Runs on your computer. Nothing   |
 |         leaves it.                       |
@@ -789,9 +789,9 @@ When the model is not ready, `Getting ready… Simple filters already work.` and
 
 ```text
 +--------------------------------------+
-| (~) Hush            [tw] caedrel     |
+| (~) Tiho            [tw] caedrel     |
 +--------------------------------------+
-| How much should Hush hide?           |
+| How much should Tiho hide?           |
 |  ( ) Off    Shows every message.     |
 |  (*) Clean  Hides insults, scams     |
 |             and spam. Questions      |
@@ -814,7 +814,7 @@ When the model is not ready, `Getting ready… Simple filters already work.` and
 
 ```text
 +--------------------------------------+
-| (~) Hush   [tw] caedrel · Live [  o] |
+| (~) Tiho   [tw] caedrel · Live [  o] |
 | Live   Inbox   Log   Rules  Settings |
 +--------------------------------------+
 | IN CHAT NOW [(o) Show hidden in chat]|
@@ -840,7 +840,7 @@ The letters after `[Only]` are today's five action radios.
 **J. Onboarding, step 2**
 
 ```text
-2  How much should Hush hide?
+2  How much should Tiho hide?
    You can change this any time in the bar above chat.
 
    +-----------------------------+  +-----------------------------+
@@ -870,28 +870,28 @@ Each item is a statement a test or a manual check can confirm. "Live" means the 
 - [ ] **A4** `setLevel('focus')` makes one `save()` call with `enabled:true`, the current site on, `preset:'focus'` and `PRESETS.focus` actions. `setLevel('off')` saves only `{enabled:false}`.
 - [ ] **A5** After any sequence of row adds, verdict changes, reveals, removals, recycled nodes and Kick-style re-mounts (same key, new node), `inChat` equals a recount over the list:
   - `rows` = rows with a verdict;
-  - `hidden` = `data-hush-a="hide"`;
-  - `folded` = `collapse` without `data-hush-wm`;
-  - `inWaves` = `data-hush-wm`;
-  - `byCat[c]` = `data-hush-c=c` without `data-hush-wm`;
+  - `hidden` = `data-tiho-a="hide"`;
+  - `folded` = `collapse` without `data-tiho-wm`;
+  - `inWaves` = `data-tiho-wm`;
+  - `byCat[c]` = `data-tiho-c=c` without `data-tiho-wm`;
   - and `Σ byCat + inWaves === rows`. Fake adapter, runtime test.
 - [ ] **A6** With 100 decided rows on screen, setting every category to Hide gives `inChat.hidden === 100` in the next store flush (≤ 250 ms after the frame). Setting Spam back to Show lowers it by exactly the number of spam rows.
-- [ ] **A7** Turning Hush off zeroes `inChat`, and the store is flushed (not frozen).
+- [ ] **A7** Turning Tiho off zeroes `inChat`, and the store is flushed (not frozen).
 - [ ] **A8** `setPeek(true/false)` and `setSolo(x/null)` cause **zero attribute mutations on message rows** (MutationObserver on the list) and change only the stylesheet text.
 - [ ] **A9** Peek stylesheet:
-  - has no `display:none` for `[data-hush-a="hide"]` or folded rows;
-  - still has it for `[data-hush-wm]:not([data-hush-open])`;
-  - emits no `data-hush-run` rules;
+  - has no `display:none` for `[data-tiho-a="hide"]` or folded rows;
+  - still has it for `[data-tiho-wm]:not([data-tiho-open])`;
+  - emits no `data-tiho-run` rules;
   - every selector is attribute-only (decorations test).
-- [ ] **A10** Solo stylesheet for `spam` contains `[data-hush-c]:not([data-hush-c="spam"])` with `display:none!important`, and spam rows with `hide` or `collapse` are not `display:none`.
-- [ ] **A11** `setSolo('spam')` is a no-op while `uiMode === 'basic'` or Hush is off. Solo ends when:
+- [ ] **A10** Solo stylesheet for `spam` contains `[data-tiho-c]:not([data-tiho-c="spam"])` with `display:none!important`, and spam rows with `hide` or `collapse` are not `display:none`.
+- [ ] **A11** `setSolo('spam')` is a no-op while `uiMode === 'basic'` or Tiho is off. Solo ends when:
   - `uiMode` changes to basic;
-  - Hush is turned off;
+  - Tiho is turned off;
   - the site is turned off;
   - the channel changes.
-- [ ] **A12** Entering Solo turns peek off. Peek ends when Hush is off or the channel changes, and survives a level or mode change.
-- [ ] **A13** While peek or Solo is on, a click or Enter on a folded row does not set `data-hush-open`, and the platform's own click handler still receives the event.
-- [ ] **A14** While Solo is on, the list carries `data-hush-list` even with preset Raw, and rows that need the model are held up to `holdMs`. After exit both return to their usual values.
+- [ ] **A12** Entering Solo turns peek off. Peek ends when Tiho is off or the channel changes, and survives a level or mode change.
+- [ ] **A13** While peek or Solo is on, a click or Enter on a folded row does not set `data-tiho-open`, and the platform's own click handler still receives the event.
+- [ ] **A14** While Solo is on, the list carries `data-tiho-list` even with preset Raw, and rows that need the model are held up to `holdMs`. After exit both return to their usual values.
 - [ ] **A15** `reveal(key)` of a row outside the soloed category ends Solo and reveals the row.
 - [ ] **A16** A protected author's toxic message at 94% gets reason `toxic · certain · always shown` and action `show`.
 - [ ] **A17** The snapshot has `v: 2` with `inChat`, `peek` and `solo`, and no `counts` or `totals`. The `solo` command with `cat: 'nope'` is ignored. `peek` and `solo` commands reach the runtime.
@@ -899,17 +899,17 @@ Each item is a statement a test or a manual check can confirm. "Live" means the 
 
 ### In-chat bar (B)
 
-- [ ] **B1** Basic collapsed renders exactly: mark, a radiogroup labelled "How much should Hush hide?" with Off / Clean / Quiet, and the Show hidden button. It has no chevron, no chips and no model dot.
+- [ ] **B1** Basic collapsed renders exactly: mark, a radiogroup labelled "How much should Tiho hide?" with Off / Clean / Quiet, and the Show hidden button. It has no chevron, no chips and no model dot.
 - [ ] **B2** The Basic bar's and sheet's text content contains no digit and no `%` while chat flows at 50 msg/s. The Basic bar's Preact tree does not re-render on store `inChat`, `rate` or `vibe` updates (render counter in the test).
 - [ ] **B3** The Basic radio follows `basicLevel`. With preset custom, no radio is `aria-checked`, and the sheet shows the custom-setup note.
-- [ ] **B4** When Hush is off, the Basic row shows `Hush is off` instead of Show hidden.
+- [ ] **B4** When Tiho is off, the Basic row shows `Tiho is off` instead of Show hidden.
 - [ ] **B5** Show hidden toggles `aria-pressed` and its label (`Show hidden` / `Hide again`), and calls `setPeek`. Under a 300 px container it shows the icon only, with the aria-label kept.
 - [ ] **B6** The sheet's `Advanced mode` switch calls `setMode('advanced')`. The Advanced footer's `Basic mode` calls `setMode('basic')`.
 - [ ] **B7** In Advanced, a chip click calls `setSolo(cat)` and never `setAction`. A second click on the soloed chip calls `setSolo(null)`. A right-click opens the menu, whose first item is `Show only <Cat>`.
 - [ ] **B8** During Solo, the preset pill is replaced by `Only Spam · 8 ×`, with 8 = `inChat.byCat.spam`. With 0 it reads `Only Spam · none yet`. Clicking it calls `setSolo(null)`.
 - [ ] **B9** Esc during Solo calls `setSolo(null)`. With the chat input (`contenteditable`) focused, Esc does nothing. With a menu open, Esc closes the menu first.
 - [ ] **B10** Panel category rows: a click toggles Solo, `▾` opens the action menu, and `Other` is present. The head reads `152 messages · 9 hidden · 4 folded` from `inChat`.
-- [ ] **B11** No surface of the bar contains the strings `hushed`, `Vibe`, `click to cycle`, `Open dashboard` or `Hush is paused`. `nextAction` no longer exists.
+- [ ] **B11** No surface of the bar contains the strings `hushed`, `Vibe`, `click to cycle`, `Open dashboard` or `Tiho is paused`. `nextAction` no longer exists.
 - [ ] **B12** Advanced chip counters still update at most 2× per second (view cadence 500 ms), and Basic animation is transform or opacity only (CSS review).
 - [ ] **B13** Live: on Twitch at 340 px, the Basic row fits on one line in both themes, and Kick and YouTube look native.
 
@@ -927,11 +927,11 @@ Each item is a statement a test or a manual check can confirm. "Live" means the 
 
 ### End to end (live, Twitch in Edge)
 
-- [ ] **E1** A new profile installs, opens a Twitch channel and sees the Basic bar with Clean selected. Spam folds into pills and toxic messages disappear. There are no numbers in Hush's UI.
+- [ ] **E1** A new profile installs, opens a Twitch channel and sees the Basic bar with Clean selected. Spam folds into pills and toxic messages disappear. There are no numbers in Tiho's UI.
 - [ ] **E2** Show hidden brings back the hidden and folded messages faded, with `Hidden · spam` style tags. Hide again restores the view, and new messages follow the current view in both states.
 - [ ] **E3** Advanced → set all categories to Hide → the panel head reads about `150 hidden` (Twitch's list) within 1 s. Setting Noise to Show drops it within 1 s.
 - [ ] **E4** Advanced → click the Spam chip → only spam rows remain, each with a visible tag. The pill count equals the number of visible spam rows. Dragging strictness in the side panel moves rows in and out live. Esc restores everything.
-- [ ] **E5** Switching Basic ↔ Advanced never changes which messages are hidden (compare the `data-hush-a` values before and after).
+- [ ] **E5** Switching Basic ↔ Advanced never changes which messages are hidden (compare the `data-tiho-a` values before and after).
 
 ## 10. Out of scope / later
 

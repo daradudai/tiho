@@ -5,9 +5,9 @@ import time
 
 import pytest
 
-from hush_engine.backend import BackendUnavailable
-from hush_engine.cache import LRUCache
-from hush_engine.scheduler import Expired, Overloaded, Scheduler
+from tiho_engine.backend import BackendUnavailable
+from tiho_engine.cache import LRUCache
+from tiho_engine.scheduler import Expired, Overloaded, Scheduler
 
 pytestmark = pytest.mark.anyio
 

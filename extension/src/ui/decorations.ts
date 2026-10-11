@@ -4,22 +4,22 @@
 // showcase use it on their own (writing the same attributes, run marks included).
 //
 // Row attributes (contract with src/runtime/engine.ts):
-//   data-hush-a     show | highlight | dim | collapse | hide | pending
-//   data-hush-c     toxic | scam | spam | noise | negative | question | positive | clean
-//   data-hush-r     short reason ("toxic · 94%", "link")                    → hover chip
-//   data-hush-wh    wave head, live count ("37")                            → "×37" badge
-//   data-hush-wm    wave member (folds into its head, takes no space)
-//   data-hush-run   on the LAST collapsed row of a run: run length ("3")    → "3 hidden · show"
+//   data-tiho-a     show | highlight | dim | collapse | hide | pending
+//   data-tiho-c     toxic | scam | spam | noise | negative | question | positive | clean
+//   data-tiho-r     short reason ("toxic · 94%", "link")                    → hover chip
+//   data-tiho-wh    wave head, live count ("37")                            → "×37" badge
+//   data-tiho-wm    wave member (folds into its head, takes no space)
+//   data-tiho-run   on the LAST collapsed row of a run: run length ("3")    → "3 hidden · show"
 //                   (the runtime also makes that row a button: tabindex, role, aria-label)
-//   data-hush-open  user expanded a collapsed row
+//   data-tiho-open  user expanded a collapsed row
 //
 // Performance (measured in tests/stress): every selector is a compound of
 // plain attribute selectors on the row itself (plus :hover, :focus-visible,
 // and :dir(rtl) for the mirrored rules of right-to-left chats), so Blink only
-// ever matches rows that carry data-hush-* and never walks ancestors or
+// ever matches rows that carry data-tiho-* and never walks ancestors or
 // siblings: no row selector scoping (:is(<rows>)), no sibling (+) combinators,
 // no CSS counters, no transitions on rows. Collapsed rows take no space
-// (display:none) except the one the runtime marks with data-hush-run, which
+// (display:none) except the one the runtime marks with data-tiho-run, which
 // becomes the pill; the runtime keeps that mark in O(changed rows). The one
 // child (>) rule hides the pill row's own content, so that the row can stay
 // visible and take keyboard focus.
@@ -34,9 +34,9 @@
 // and what it normally gets ("spam · 97% · folded"). Wave members stay
 // folded in both.
 //
-// Everything visual is driven by --hush-* custom properties declared with
+// Everything visual is driven by --tiho-* custom properties declared with
 // zero specificity, so a theme can override them from anywhere, e.g.
-//   document.documentElement.style.setProperty('--hush-c-toxic', '#f00')
+//   document.documentElement.style.setProperty('--tiho-c-toxic', '#f00')
 
 import type { UiMode } from '../core/settings';
 import { ALWAYS_SHOWN, type Action, type Category, type Platform } from '../core/types';
@@ -56,8 +56,8 @@ interface PlatformDeco {
   /**
    * The list mounts only the rows near the viewport and places them from
    * their measured heights (Kick). It measures a row as it mounts, before
-   * Hush has written anything on it, and again whenever its size changes. A
-   * row born at full height that Hush then hides shrinks, which pulls more
+   * Tiho has written anything on it, and again whenever its size changes. A
+   * row born at full height that Tiho then hides shrinks, which pulls more
    * rows into the list, each born at full height again: with many rows
    * hidden or folded (Quiet, Solo, Clean in a spammy chat) Kick mounted and
    * unmounted 350 to 800 rows a second and fell below 20 fps (measured live).
@@ -133,7 +133,7 @@ const PLAIN_WORD: Partial<Record<Category, string>> = {
   question: 'question',
 };
 
-/** What a row normally gets, by data-hush-a, as Solo's tag says it. */
+/** What a row normally gets, by data-tiho-a, as Solo's tag says it. */
 const DID: Record<Action, string> = { show: 'shown', highlight: 'highlighted', dim: 'dimmed', collapse: 'folded', hide: 'hidden' };
 
 export interface DecorationOptions {
@@ -150,7 +150,7 @@ export interface DecorationOptions {
 }
 
 /**
- * data-hush-run values for a static list of rows, given each row's action (for
+ * data-tiho-run values for a static list of rows, given each row's action (for
  * pages that write the attributes themselves, like the onboarding demo): the
  * last collapsed row of each run gets the run's length, every other row
  * nothing. Hidden rows take no space and do not break a run, as in the runtime.
@@ -194,48 +194,48 @@ export function decorationCss(platform: Platform | string, theme: Theme, opts: D
   const vars = [
     ...ACCENTED.map((c) => {
       const color = CATEGORY_META[c].color[theme];
-      return `--hush-c-${c}:${color};--hush-e-${c}:${color}${EDGE_ALPHA[theme]};`;
+      return `--tiho-c-${c}:${color};--tiho-e-${c}:${color}${EDGE_ALPHA[theme]};`;
     }),
-    `--hush-c-highlight:${accent};--hush-link:${accent};--hush-wave-fg:${accent};`,
-    ...Object.entries(t).map(([k, v]) => `--hush-${k}:${v};`),
-    `--hush-indent:${p.indent};--hush-edge-w:2px;`,
+    `--tiho-c-highlight:${accent};--tiho-link:${accent};--tiho-wave-fg:${accent};`,
+    ...Object.entries(t).map(([k, v]) => `--tiho-${k}:${v};`),
+    `--tiho-indent:${p.indent};--tiho-edge-w:2px;`,
   ].join('');
 
   // A collapsed row that is not expanded; RUN is the one that draws the run's pill.
-  const COL = '[data-hush-a="collapse"]:not([data-hush-open])';
-  const RUN = '[data-hush-run][data-hush-a="collapse"]:not([data-hush-open])';
-  const HIDE = '[data-hush-a="hide"]';
-  const WM = '[data-hush-wm]:not([data-hush-open])';
-  const SHOWN = ['[data-hush-a="show"]', '[data-hush-a="dim"]', '[data-hush-a="highlight"]'];
+  const COL = '[data-tiho-a="collapse"]:not([data-tiho-open])';
+  const RUN = '[data-tiho-run][data-tiho-a="collapse"]:not([data-tiho-open])';
+  const HIDE = '[data-tiho-a="hide"]';
+  const WM = '[data-tiho-wm]:not([data-tiho-open])';
+  const SHOWN = ['[data-tiho-a="show"]', '[data-tiho-a="dim"]', '[data-tiho-a="highlight"]'];
   const RTL = ':dir(rtl)';
   const list = (sels: string[], suffix = '') => sels.map((s) => s + suffix).join(',');
   // The pill's outline: each half draws it on its three outer sides (its left or right, top, bottom).
   const ring = (side: 'left' | 'right', w: string, color: string) =>
     `box-shadow:inset ${side === 'left' ? w : `-${w}`} 0 0 ${color},inset 0 ${w} 0 ${color},inset 0 -${w} 0 ${color}`;
-  const LINE = 'var(--hush-pill-line)';
-  const FOCUS = 'var(--hush-link)';
+  const LINE = 'var(--tiho-pill-line)';
+  const FOCUS = 'var(--tiho-link)';
   // The dashed edge of a row the viewer opened; in the views it also marks "normally not shown".
   const DASHED = `box-shadow:none!important;
-  background-image:linear-gradient(var(--hush-accent,var(--hush-c-noise)) 50%,transparent 50%)!important;
+  background-image:linear-gradient(var(--tiho-accent,var(--tiho-c-noise)) 50%,transparent 50%)!important;
   background-size:2px 6px!important;background-repeat:repeat-y!important;background-position:0 0!important`;
 
   // Show hidden and Solo are variants of this sheet, not rules on top of it:
   // nothing could undo a display:none!important that is already there.
-  const X = solo ? `[data-hush-c="${solo}"]` : '';
-  const gone = plain ? [HIDE, WM, `${COL}:not([data-hush-run])`] : solo ? [WM, `[data-hush-c]:not(${X})`] : [WM];
+  const X = solo ? `[data-tiho-c="${solo}"]` : '';
+  const gone = plain ? [HIDE, WM, `${COL}:not([data-tiho-run])`] : solo ? [WM, `[data-tiho-c]:not(${X})`] : [WM];
   /** Rows that carry a view's tag (::before), and rows that get the dashed "normally not shown" edge. */
   const tagged = solo ? [X] : peek ? [HIDE, COL] : [];
   const marked = solo ? [X + HIDE, X + COL] : tagged;
   // Solo shows its category in full: nothing is dimmed
-  const dim = solo ? '' : '[data-hush-a="dim"]{opacity:var(--hush-dim)!important}\n[data-hush-a="dim"]:hover{opacity:1!important}\n';
+  const dim = solo ? '' : '[data-tiho-a="dim"]{opacity:var(--tiho-dim)!important}\n[data-tiho-a="dim"]:hover{opacity:1!important}\n';
 
   let css = `
 :where(:root,:host){${vars}}
-${ACCENTED.map((c) => `[data-hush-c="${c}"]{--hush-accent:var(--hush-c-${c});--hush-edge:var(--hush-e-${c})}`).join('\n')}
+${ACCENTED.map((c) => `[data-tiho-c="${c}"]{--tiho-accent:var(--tiho-c-${c});--tiho-edge:var(--tiho-e-${c})}`).join('\n')}
 
-[data-hush-a="pending"]{visibility:hidden!important}
+[data-tiho-a="pending"]{visibility:hidden!important}
 ${gone.join(',')}{display:none!important}
-${dim}[data-hush-a="highlight"]{background-color:color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) var(--hush-hl-mix),transparent)!important;box-shadow:inset 3px 0 0 var(--hush-accent,var(--hush-c-highlight))!important}
+${dim}[data-tiho-a="highlight"]{background-color:color-mix(in srgb,var(--tiho-accent,var(--tiho-c-highlight)) var(--tiho-hl-mix),transparent)!important;box-shadow:inset 3px 0 0 var(--tiho-accent,var(--tiho-c-highlight))!important}
 `;
 
   if (plain)
@@ -249,26 +249,26 @@ ${dim}[data-hush-a="highlight"]{background-color:color-mix(in srgb,var(--hush-ac
 ${RUN}{
   display:flex!important;flex-wrap:wrap!important;align-items:flex-start!important;align-content:flex-start!important;
   box-sizing:border-box!important;height:26px!important;min-height:0!important;max-height:26px!important;
-  margin:0!important;padding:3px 8px 3px var(--hush-indent)!important;border:0!important;border-radius:0!important;
+  margin:0!important;padding:3px 8px 3px var(--tiho-indent)!important;border:0!important;border-radius:0!important;
   overflow:hidden!important;visibility:visible!important;opacity:1!important;color:transparent!important;
   background:none!important;box-shadow:none!important;cursor:pointer!important}
 ${RUN}>*{visibility:hidden!important}
 ${RUN}::before,${RUN}::after{
   display:block;flex:none;align-self:flex-start;height:20px;box-sizing:border-box;margin:0;border:0;
   font-size:11px;font-style:normal;line-height:20px;letter-spacing:.01em;white-space:pre;text-transform:none;
-  background-color:var(--hush-pill-fill)}
+  background-color:var(--tiho-pill-fill)}
 ${RUN}::before{
-  order:-2;content:attr(data-hush-run) " hidden";
+  order:-2;content:attr(data-tiho-run) " hidden";
   padding:0 5px 0 18px;border-radius:999px 0 0 999px;
-  font-weight:500;font-variant-numeric:tabular-nums;color:var(--hush-pill-fg);
-  background-image:radial-gradient(circle at 9.5px 50%,var(--hush-accent,var(--hush-c-noise)) 0 3px,transparent 3.6px);
+  font-weight:500;font-variant-numeric:tabular-nums;color:var(--tiho-pill-fg);
+  background-image:radial-gradient(circle at 9.5px 50%,var(--tiho-accent,var(--tiho-c-noise)) 0 3px,transparent 3.6px);
   ${ring('left', '1px', LINE)}}
 ${RUN}::after{
   order:-1;content:"·  show";
   padding:0 10px 0 0;border-radius:0 999px 999px 0;
-  font-weight:600;color:var(--hush-link);
+  font-weight:600;color:var(--tiho-link);
   ${ring('right', '1px', LINE)}}
-${RUN}:hover::before,${RUN}:hover::after,${RUN}:focus-visible::before,${RUN}:focus-visible::after{background-color:var(--hush-pill-hover)}
+${RUN}:hover::before,${RUN}:hover::after,${RUN}:focus-visible::before,${RUN}:focus-visible::after{background-color:var(--tiho-pill-hover)}
 /* Keyboard focus: the pill's outline turns 2px, in the link color. The row's
    own outline stays transparent, so that forced-colors mode still shows one. */
 ${RUN}:focus-visible{outline:2px solid transparent!important;outline-offset:-2px!important}
@@ -280,11 +280,11 @@ ${RUN}:focus-visible::after{${ring('right', '2px', FOCUS)}}
     css += `
 /* Wave head: "×37" floated into the row's top-right corner, so the text wraps
    around it instead of under it (on flex rows: a trailing item, same place). */
-${list(SHOWN.map((s) => `[data-hush-wh]${s}`), '::before')}{
-  content:"×" attr(data-hush-wh);float:right;order:9;align-self:flex-start;position:static;
+${list(SHOWN.map((s) => `[data-tiho-wh]${s}`), '::before')}{
+  content:"×" attr(data-tiho-wh);float:right;order:9;align-self:flex-start;position:static;
   display:block;height:18px;margin:${p.wave};padding:0 7px;border-radius:999px;
   font-size:11px;font-weight:650;font-style:normal;line-height:18px;letter-spacing:.01em;font-variant-numeric:tabular-nums;white-space:nowrap;
-  color:var(--hush-wave-fg);background:var(--hush-wave-bg)}
+  color:var(--tiho-wave-fg);background:var(--tiho-wave-bg)}
 `;
 
   if (tagged.length) {
@@ -297,8 +297,8 @@ ${list(tagged, '::before')}{
   display:block;height:18px;max-width:72%;margin:${p.wave};padding:0 7px;border-radius:999px;box-sizing:border-box;overflow:hidden;
   font-size:11px;font-weight:600;font-style:normal;line-height:18px;letter-spacing:.01em;font-variant-numeric:tabular-nums;
   white-space:pre;text-overflow:ellipsis;text-transform:none;
-  color:color-mix(in srgb,var(--hush-accent,var(--hush-pill-fg)) var(--hush-tag-mix),var(--hush-tag-ink));
-  background:color-mix(in srgb,var(--hush-accent,var(--hush-pill-fg)) 15%,transparent)}
+  color:color-mix(in srgb,var(--tiho-accent,var(--tiho-pill-fg)) var(--tiho-tag-mix),var(--tiho-tag-ink));
+  background:color-mix(in srgb,var(--tiho-accent,var(--tiho-pill-fg)) 15%,transparent)}
 ${list(marked)}{
   ${DASHED}}
 ${solo ? soloTags(X, solo) : basic ? plainPeekTags(HIDE, COL) : peekTags(HIDE, COL)}`;
@@ -312,13 +312,13 @@ ${solo ? soloTags(X, solo) : basic ? plainPeekTags(HIDE, COL) : peekTags(HIDE, C
    itself (Blink keeps each element's directionality), so each selector is
    still one compound on the row. The labels are English and stay left-to-right
    inside their mirrored shapes: "show ·" then "3 hidden ●", read from the right. */
-[data-hush-a="highlight"]${RTL}{box-shadow:inset -3px 0 0 var(--hush-accent,var(--hush-c-highlight))!important}
+[data-tiho-a="highlight"]${RTL}{box-shadow:inset -3px 0 0 var(--tiho-accent,var(--tiho-c-highlight))!important}
 `;
   if (plain)
-    css += `${RUN}${RTL}{padding:3px var(--hush-indent) 3px 8px!important}
+    css += `${RUN}${RTL}{padding:3px var(--tiho-indent) 3px 8px!important}
 ${RUN}${RTL}::before{
   direction:ltr;padding:0 18px 0 5px;border-radius:0 999px 999px 0;
-  background-image:radial-gradient(circle at calc(100% - 9.5px) 50%,var(--hush-accent,var(--hush-c-noise)) 0 3px,transparent 3.6px);
+  background-image:radial-gradient(circle at calc(100% - 9.5px) 50%,var(--tiho-accent,var(--tiho-c-noise)) 0 3px,transparent 3.6px);
   ${ring('right', '1px', LINE)}}
 ${RUN}${RTL}::after{
   padding:0 0 0 10px;border-radius:999px 0 0 999px;
@@ -326,29 +326,29 @@ ${RUN}${RTL}::after{
 ${RUN}:focus-visible${RTL}::before{${ring('right', '2px', FOCUS)}}
 ${RUN}:focus-visible${RTL}::after{${ring('left', '2px', FOCUS)}}
 `;
-  if (!solo) css += `${list(SHOWN.map((s) => `[data-hush-wh]${s}${RTL}`), '::before')}{float:left;margin:${mirrored(p.wave)};direction:ltr}\n`;
+  if (!solo) css += `${list(SHOWN.map((s) => `[data-tiho-wh]${s}${RTL}`), '::before')}{float:left;margin:${mirrored(p.wave)};direction:ltr}\n`;
   if (tagged.length)
     css += `${list(tagged, `${RTL}::before`)}{float:left;margin:${mirrored(p.wave)};direction:ltr}
 ${list(marked, RTL)}{background-position:100% 0!important}
 `;
 
   if (decorate) {
-    const edged = EDGED.flatMap((c) => [`[data-hush-c="${c}"][data-hush-a="show"]`, `[data-hush-c="${c}"][data-hush-a="dim"]`]);
-    const tip = [...SHOWN, '[data-hush-open]'].map((s) => `[data-hush-r]${s}:hover`);
+    const edged = EDGED.flatMap((c) => [`[data-tiho-c="${c}"][data-tiho-a="show"]`, `[data-tiho-c="${c}"][data-tiho-a="dim"]`]);
+    const tip = [...SHOWN, '[data-tiho-open]'].map((s) => `[data-tiho-r]${s}:hover`);
     if (hints)
       css += `
 /* category edge (quiet) */
-${list(edged, ':not([data-hush-open])')}{box-shadow:inset var(--hush-edge-w) 0 0 var(--hush-edge)!important}
+${list(edged, ':not([data-tiho-open])')}{box-shadow:inset var(--tiho-edge-w) 0 0 var(--tiho-edge)!important}
 `;
     css += `
 /* highlight: the tint fades out from a glowing left edge */
-[data-hush-a="highlight"]{
+[data-tiho-a="highlight"]{
   background-color:transparent!important;
-  background-image:linear-gradient(90deg,color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) var(--hush-hl-mix),transparent),transparent 85%)!important;
-  box-shadow:inset 3px 0 0 var(--hush-accent,var(--hush-c-highlight)),inset 18px 0 18px -18px color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) 55%,transparent)!important}
+  background-image:linear-gradient(90deg,color-mix(in srgb,var(--tiho-accent,var(--tiho-c-highlight)) var(--tiho-hl-mix),transparent),transparent 85%)!important;
+  box-shadow:inset 3px 0 0 var(--tiho-accent,var(--tiho-c-highlight)),inset 18px 0 18px -18px color-mix(in srgb,var(--tiho-accent,var(--tiho-c-highlight)) 55%,transparent)!important}
 
 /* revealed by the user: a dashed edge, so it reads as "was hidden" */
-[data-hush-open]{
+[data-tiho-open]{
   ${DASHED}}
 `;
     if (hints)
@@ -361,31 +361,31 @@ ${list(edged, ':not([data-hush-open])')}{box-shadow:inset var(--hush-edge-w) 0 0
    over this message's text, and out of flow: neither this row nor any other moves. */
 ${p.positioned ? '' : `${tip.join(',')}{position:relative}`}
 ${list(tip, '::after')}{
-  content:attr(data-hush-r);
+  content:attr(data-tiho-r);
   position:absolute;top:auto;right:44px;bottom:calc(100% - 8px);left:auto;z-index:5;float:none;order:0;
   display:block;height:16px;max-width:calc(100% - 64px);margin:0;padding:0 7px 0 15px;border:0;border-radius:999px;box-sizing:border-box;overflow:hidden;
   font-size:10px;font-weight:600;font-style:normal;line-height:16px;letter-spacing:.015em;text-overflow:ellipsis;white-space:nowrap;text-transform:none;
-  color:var(--hush-tip-fg);
-  background:radial-gradient(circle at 8px 50%,var(--hush-accent,var(--hush-link)) 0 2.5px,transparent 3.1px),var(--hush-tip-bg);
-  box-shadow:var(--hush-tip-shadow),inset 0 0 0 1px var(--hush-tip-line);
+  color:var(--tiho-tip-fg);
+  background:radial-gradient(circle at 8px 50%,var(--tiho-accent,var(--tiho-link)) 0 2.5px,transparent 3.1px),var(--tiho-tip-bg);
+  box-shadow:var(--tiho-tip-shadow),inset 0 0 0 1px var(--tiho-tip-line);
   pointer-events:none;
-  animation:hush-tip-in 120ms cubic-bezier(.2,.8,.2,1) 180ms both}
-@keyframes hush-tip-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+  animation:tiho-tip-in 120ms cubic-bezier(.2,.8,.2,1) 180ms both}
+@keyframes tiho-tip-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){${list(tip, '::after')}{animation:none}}
 `;
     css += `
 /* RTL, mirrored (see above). A revealed row keeps its dashed edge, now on the right. */
 `;
-    if (hints) css += `${list(edged.map((s) => s + RTL), ':not([data-hush-open])')}{box-shadow:inset calc(-1 * var(--hush-edge-w)) 0 0 var(--hush-edge)!important}\n`;
-    css += `[data-hush-a="highlight"]${RTL}:not([data-hush-open]){
-  background-image:linear-gradient(270deg,color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) var(--hush-hl-mix),transparent),transparent 85%)!important;
-  box-shadow:inset -3px 0 0 var(--hush-accent,var(--hush-c-highlight)),inset -18px 0 18px -18px color-mix(in srgb,var(--hush-accent,var(--hush-c-highlight)) 55%,transparent)!important}
-[data-hush-open]${RTL}{box-shadow:none!important;background-position:100% 0!important}
+    if (hints) css += `${list(edged.map((s) => s + RTL), ':not([data-tiho-open])')}{box-shadow:inset calc(-1 * var(--tiho-edge-w)) 0 0 var(--tiho-edge)!important}\n`;
+    css += `[data-tiho-a="highlight"]${RTL}:not([data-tiho-open]){
+  background-image:linear-gradient(270deg,color-mix(in srgb,var(--tiho-accent,var(--tiho-c-highlight)) var(--tiho-hl-mix),transparent),transparent 85%)!important;
+  box-shadow:inset -3px 0 0 var(--tiho-accent,var(--tiho-c-highlight)),inset -18px 0 18px -18px color-mix(in srgb,var(--tiho-accent,var(--tiho-c-highlight)) 55%,transparent)!important}
+[data-tiho-open]${RTL}{box-shadow:none!important;background-position:100% 0!important}
 `;
     if (hints)
       css += `${list(tip.map((s) => s + RTL), '::after')}{
   right:auto;left:44px;padding:0 15px 0 7px;direction:ltr;
-  background:radial-gradient(circle at calc(100% - 8px) 50%,var(--hush-accent,var(--hush-link)) 0 2.5px,transparent 3.1px),var(--hush-tip-bg)}
+  background:radial-gradient(circle at calc(100% - 8px) 50%,var(--tiho-accent,var(--tiho-link)) 0 2.5px,transparent 3.1px),var(--tiho-tip-bg)}
 `;
   }
   return css;
@@ -395,7 +395,7 @@ ${list(tip, '::after')}{
 function plainPeekTags(hide: string, col: string): string {
   let css = `${hide}::before,${col}::before{content:"Hidden"}\n`;
   for (const [c, word] of Object.entries(PLAIN_WORD))
-    css += `[data-hush-c="${c}"]${hide}::before,[data-hush-c="${c}"]${col}::before{content:"Hidden · ${word}"}\n`;
+    css += `[data-tiho-c="${c}"]${hide}::before,[data-tiho-c="${c}"]${col}::before{content:"Hidden · ${word}"}\n`;
   return css;
 }
 
@@ -407,9 +407,9 @@ function peekTags(hide: string, col: string): string {
     [col, 'folded'],
   ])
     css +=
-      `${sel}::before{content:"${did} · " attr(data-hush-r)}\n` +
-      `${sel}:not([data-hush-r])::before{content:"${did} · " attr(data-hush-c)}\n` +
-      `[data-hush-c="clean"]${sel}:not([data-hush-r])::before{content:"${did} · other"}\n`;
+      `${sel}::before{content:"${did} · " attr(data-tiho-r)}\n` +
+      `${sel}:not([data-tiho-r])::before{content:"${did} · " attr(data-tiho-c)}\n` +
+      `[data-tiho-c="clean"]${sel}:not([data-tiho-r])::before{content:"${did} · other"}\n`;
   return css;
 }
 
@@ -420,15 +420,15 @@ function peekTags(hide: string, col: string): string {
  */
 function soloTags(x: string, solo: Category): string {
   const word = solo === 'clean' ? 'other' : solo;
-  const did = 'var(--hush-did,"")';
+  const did = 'var(--tiho-did,"")';
   let css = '';
-  for (const [a, w] of Object.entries(DID)) css += `${x}[data-hush-a="${a}"]{--hush-did:" · ${w}"}\n`;
-  return `${css}${x}[data-hush-open]{--hush-did:" · opened"}
-${x}[data-hush-r$="${ALWAYS_SHOWN}"]{--hush-did:""}
-${x}::before{content:attr(data-hush-r) ${did}}
-${x}:not([data-hush-r])::before{content:"${word}" ${did}}
-${x}[data-hush-wh]::before{content:"×" attr(data-hush-wh) "  " attr(data-hush-r) ${did}}
-${x}[data-hush-wh]:not([data-hush-r])::before{content:"×" attr(data-hush-wh) "  ${word}" ${did}}
+  for (const [a, w] of Object.entries(DID)) css += `${x}[data-tiho-a="${a}"]{--tiho-did:" · ${w}"}\n`;
+  return `${css}${x}[data-tiho-open]{--tiho-did:" · opened"}
+${x}[data-tiho-r$="${ALWAYS_SHOWN}"]{--tiho-did:""}
+${x}::before{content:attr(data-tiho-r) ${did}}
+${x}:not([data-tiho-r])::before{content:"${word}" ${did}}
+${x}[data-tiho-wh]::before{content:"×" attr(data-tiho-wh) "  " attr(data-tiho-r) ${did}}
+${x}[data-tiho-wh]:not([data-tiho-r])::before{content:"×" attr(data-tiho-wh) "  ${word}" ${did}}
 `;
 }
 

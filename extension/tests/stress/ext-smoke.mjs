@@ -1,7 +1,7 @@
 // End-to-end smoke with the REAL built extension (content script + background +
 // offscreen) on the mock chats served at real chat URLs.
 //
-//   HUSH_OUT=.output-runtime npx wxt build      # build first
+//   TIHO_OUT=.output-runtime npx wxt build      # build first
 //   node tests/stress/ext-smoke.mjs [--rate=50] [--secs=10] [--headed]
 //
 // Checks: the content script attaches, rows get verdict attributes, the list is
@@ -26,13 +26,13 @@ const RATE = Number(opt.rate ?? 50);
 const SECS = Number(opt.secs ?? 10);
 const ext = path.resolve(here, '../../.output-runtime/chrome-mv3');
 if (!fs.existsSync(path.join(ext, 'manifest.json'))) {
-  console.error('build the extension first: HUSH_OUT=.output-runtime npx wxt build');
+  console.error('build the extension first: TIHO_OUT=.output-runtime npx wxt build');
   process.exit(1);
 }
 const dist = await buildHarness();
 const GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 
-const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'hush-ext-')), {
+const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'tiho-ext-')), {
   channel: 'chromium',
   headless: !opt.headed,
   viewport: { width: 420, height: 900 },
@@ -76,13 +76,13 @@ for (const skin of ['twitch', 'youtube']) {
       const now = performance.now();
       for (const r of recs) {
         const el = r.target;
-        const v = el.getAttribute('data-hush-a');
+        const v = el.getAttribute('data-tiho-a');
         if (el.__t !== undefined && v && v !== 'pending') {
           lat.push(now - el.__t);
           el.__t = undefined;
         }
       }
-    }).observe(window.__mock.list, { attributes: true, subtree: true, attributeFilter: ['data-hush-a'] });
+    }).observe(window.__mock.list, { attributes: true, subtree: true, attributeFilter: ['data-tiho-a'] });
   });
   await page.evaluate((r) => window.__mock.start(r), RATE);
   await page.waitForTimeout(SECS * 1000);
@@ -93,16 +93,16 @@ for (const skin of ['twitch', 'youtube']) {
     const q = (p) => (lat.length ? lat[Math.min(lat.length - 1, Math.floor(lat.length * p))] : NaN);
     const byA = {};
     for (const r of rows) {
-      const a = r.getAttribute('data-hush-a');
+      const a = r.getAttribute('data-tiho-a');
       byA[a ?? '(none)'] = (byA[a ?? '(none)'] ?? 0) + 1;
     }
     return {
       rows: rows.length,
-      decided: rows.filter((r) => r.hasAttribute('data-hush-c')).length,
+      decided: rows.filter((r) => r.hasAttribute('data-tiho-c')).length,
       actions: byA,
-      listMarked: list.hasAttribute('data-hush-list'),
-      style: !!document.getElementById('hush-row-style'),
-      bar: !!document.querySelector('hush-bar'),
+      listMarked: list.hasAttribute('data-tiho-list'),
+      style: !!document.getElementById('tiho-row-style'),
+      bar: !!document.querySelector('tiho-bar'),
       latency: { n: lat.length, p50: q(0.5), p95: q(0.95) },
       mock: window.__mock.stats(),
     };
@@ -119,7 +119,7 @@ try {
   const id = new URL(sw.url()).host;
   const p = await ctx.newPage();
   await p.goto(`chrome-extension://${id}/sidepanel.html`).catch(() => {});
-  status = await p.evaluate(() => chrome.runtime.sendMessage({ type: 'hush:getStatus' })).catch((e) => String(e));
+  status = await p.evaluate(() => chrome.runtime.sendMessage({ type: 'tiho:getStatus' })).catch((e) => String(e));
   await p.close();
 } catch (e) {
   status = `unavailable: ${e}`;

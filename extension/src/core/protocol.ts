@@ -1,18 +1,18 @@
 // Messaging protocol.
 //
-//  content script ──Port "hush:classify"──▶ background ──▶ offscreen (inference worker)
-//                                                     └──▶ Hush Engine (optional, localhost)
+//  content script ──Port "tiho:classify"──▶ background ──▶ offscreen (inference worker)
+//                                                     └──▶ Tiho Engine (optional, localhost)
 //
 // Content scripts open one long-lived Port per frame and stream batches of
 // texts; the background relays to the offscreen document, which owns the one
 // model instance shared by every tab. Texts are deduplicated and cached
-// upstream, so only unseen normalized texts travel. When the Hush Engine is
+// upstream, so only unseen normalized texts travel. When the Tiho Engine is
 // on, the background also forwards the scored texts to it and sends its
 // answers later as an `engine` follow-up for the same ids.
 
 import type { ModelStatus, PerfStats } from './types';
 
-export const PORT_CLASSIFY = 'hush:classify';
+export const PORT_CLASSIFY = 'tiho:classify';
 
 export interface ClassifyItem {
   /** Cache key (normalized text). */
@@ -20,7 +20,7 @@ export interface ClassifyItem {
   text: string;
 }
 
-/** content → background (over Port). `hidden`: sent from a background tab (the Hush Engine skips it). */
+/** content → background (over Port). `hidden`: sent from a background tab (the Tiho Engine skips it). */
 export type PortRequest = { type: 'classify'; batchId: number; items: ClassifyItem[]; hidden?: boolean };
 
 /** background → content (over Port) */
@@ -31,7 +31,7 @@ export type PortResponse =
   | EngineFollowUp;
 
 /**
- * Hush Engine answers for ids that already got local scores. Arrays are
+ * Tiho Engine answers for ids that already got local scores. Arrays are
  * aligned with `ids`; ids the engine could not answer in time are left out.
  */
 export interface EngineFollowUp {
@@ -45,7 +45,7 @@ export interface EngineFollowUp {
   base?: (number[] | null)[];
 }
 
-/** Hush Engine connection, as the background sees it. */
+/** Tiho Engine connection, as the background sees it. */
 export interface EngineStatus {
   /**
    * off: disabled in settings · connecting: first check pending · ready ·
@@ -80,17 +80,17 @@ export type EngineTestResult = { ok: true; filters: Record<string, number>; ms: 
 
 /** One-shot runtime messages (chrome.runtime.sendMessage). */
 export type RuntimeMessage =
-  | { type: 'hush:getStatus' }
-  | { type: 'hush:status'; status: ModelStatus }
+  | { type: 'tiho:getStatus' }
+  | { type: 'tiho:status'; status: ModelStatus }
   // Retry in the popup / side panel: load a model that failed to load again now
-  | { type: 'hush:reloadModel' }
-  | { type: 'hush:perf'; tabId?: number; stats: PerfStats & { platform: string; channel: string } }
-  | { type: 'hush:getPerf' }
-  | { type: 'hush:openSidePanel' }
-  // Hush Engine (extension pages ↔ background)
-  | { type: 'hush:engine:getStatus'; fresh?: boolean }
-  | { type: 'hush:engine:status'; status: EngineStatus }
-  | ({ type: 'hush:engine:test' } & EngineTestRequest)
+  | { type: 'tiho:reloadModel' }
+  | { type: 'tiho:perf'; tabId?: number; stats: PerfStats & { platform: string; channel: string } }
+  | { type: 'tiho:getPerf' }
+  | { type: 'tiho:openSidePanel' }
+  // Tiho Engine (extension pages ↔ background)
+  | { type: 'tiho:engine:getStatus'; fresh?: boolean }
+  | { type: 'tiho:engine:status'; status: EngineStatus }
+  | ({ type: 'tiho:engine:test' } & EngineTestRequest)
   // background → offscreen
-  | { type: 'hush:offscreen:init'; preferGpu: boolean }
-  | { type: 'hush:offscreen:classify'; batchId: number; items: ClassifyItem[] };
+  | { type: 'tiho:offscreen:init'; preferGpu: boolean }
+  | { type: 'tiho:offscreen:classify'; batchId: number; items: ClassifyItem[] };

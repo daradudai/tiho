@@ -260,7 +260,7 @@ def noul_probability(answer: dict[str, Any]) -> float:
 
 
 def base_scores(answers: dict[str, Any]) -> dict[str, float]:
-    """Map cat/tone answers to the Hush label space (same mapping as the teacher)."""
+    """Map cat/tone answers to the Tiho label space (same mapping as the teacher)."""
     cat = answers["cat"]["probabilities"]
     tone = answers["tone"]["probabilities"]
     out = {k: round(float(cat.get(k, 0.0)), 4) for k in BASE_CAT_LABELS}

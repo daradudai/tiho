@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const which = process.argv[2];
 const ctx = await chromium.launchPersistentContext(
-  fs.mkdtempSync(path.join(process.env.TEMP ?? '/tmp', 'hush-find-')),
+  fs.mkdtempSync(path.join(process.env.TEMP ?? '/tmp', 'tiho-find-')),
   { channel: 'chrome', headless: !process.argv.includes('--headed'), locale: 'en-US', args: ['--disable-blink-features=AutomationControlled', '--mute-audio'] },
 );
 const page = ctx.pages()[0] ?? (await ctx.newPage());

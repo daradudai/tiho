@@ -1,11 +1,11 @@
-// Hush Lite model: tokenizer (transformers.js) + ONNX Runtime Web session.
+// Tiho Lite model: tokenizer (transformers.js) + ONNX Runtime Web session.
 //
 // Runs inside the inference worker. We use transformers.js for the tokenizer
 // and drive onnxruntime-web (the very module transformers.js bundles) directly
 // for the session: fixed I/O (input_ids, attention_mask → logits), so we get
 // full control over file choice, session options, caching and progress.
 //
-// Files come from the bundled copy or, in builds made with WXT_HUSH_MODEL_URL,
+// Files come from the bundled copy or, in builds made with WXT_TIHO_MODEL_URL,
 // a remote base URL. Remote files must match the hashes pinned in the build
 // (integrity.ts) and are kept in Cache Storage keyed by URL + hash.
 
@@ -16,7 +16,7 @@ import { MODEL_CACHE, ORT_MJS, ORT_WASM, VARIANT_PREFERENCE, type Device, type F
 import { webgpuInfo } from './gpu';
 import { pinFor, verifyPin } from './integrity';
 
-export interface HushModelConfig {
+export interface TihoModelConfig {
   labels: string[];
   thresholds?: Record<string, number> | number[];
   max_len?: number;
@@ -150,7 +150,7 @@ async function fetchBytes(
         }),
       );
     } catch (e) {
-      console.warn('[hush] model cache put failed', e);
+      console.warn('[tiho] model cache put failed', e);
     }
   }
   return bytes;
@@ -193,7 +193,7 @@ async function pruneCache(base: string, keep: Set<string>): Promise<void> {
 
 // ───────────────────────────── model ─────────────────────────────
 
-export class HushModel {
+export class TihoModel {
   /** Index into model outputs for each of LABELS (-1 = missing). */
   private readonly labelIndex: number[];
   readonly numOut: number;
@@ -207,7 +207,7 @@ export class HushModel {
   private constructor(
     private session: ort.InferenceSession,
     readonly tokenizer: PreTrainedTokenizer,
-    readonly cfg: HushModelConfig,
+    readonly cfg: TihoModelConfig,
     readonly backend: Device,
     readonly variant: string,
     readonly base: string,
@@ -298,14 +298,14 @@ export class HushModel {
 
   // ───────────────────────────── loading ─────────────────────────────
 
-  static async load(opts: LoadOptions): Promise<HushModel> {
+  static async load(opts: LoadOptions): Promise<TihoModel> {
     const t0 = performance.now();
     if (!ortConfigured) configureOrt(opts.ortBase, opts.threads);
     else ort.env.wasm.numThreads = opts.threads;
 
     // 1. locate the model (first base whose config.json loads)
     let base = '';
-    let config: { hush?: HushModelConfig } | null = null;
+    let config: { tiho?: TihoModelConfig } | null = null;
     let lastErr: unknown = opts.bases.length ? null : 'no bundled model and no remote source in this build';
     for (const b of opts.bases) {
       try {
@@ -317,8 +317,8 @@ export class HushModel {
       }
     }
     if (!config) throw new Error(`model not found (${String(lastErr)})`);
-    const cfg = config.hush;
-    if (!cfg?.files || !cfg.labels) throw new Error('config.json has no `hush` block (export with ml/export/export_onnx.py)');
+    const cfg = config.tiho;
+    if (!cfg?.files || !cfg.labels) throw new Error('config.json has no `tiho` block (export with ml/export/export_onnx.py)');
     const pinOf = (file: string) => pinFor(opts.pins, base, file);
     // remote files are cached by content: a key never outlives the build that pinned it
     const keyFor = (file: string, pin: FilePin | null) => (pin ? `${base}${file}?sha256=${pin.sha256}` : null);
@@ -395,7 +395,7 @@ export class HushModel {
           graphOptimizationLevel: 'all',
           logSeverityLevel: 3,
         });
-        const model = new HushModel(session, tokenizer, cfg, a.device, a.variant, base);
+        const model = new TihoModel(session, tokenizer, cfg, a.device, a.variant, base);
         await model.warmup();
         model.loadMs = performance.now() - t0;
         return model;

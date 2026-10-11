@@ -1,4 +1,4 @@
-// A scriptable stand-in for the Hush Engine HTTP API, used as `fetch`.
+// A scriptable stand-in for the Tiho Engine HTTP API, used as `fetch`.
 
 import type { ClassifyRequest, Health } from '../../../src/engine-client/api';
 

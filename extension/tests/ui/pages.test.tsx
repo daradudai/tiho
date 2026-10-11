@@ -9,7 +9,7 @@ import { filterDefaults } from '../../src/ui/sidepanel/SettingsTab';
 
 describe('model status', () => {
   it('words load errors plainly and always says rules still filter', () => {
-    const raw = 'model not found (TypeError: Failed to fetch chrome-extension://abcdefghijklmnop/models/hush-lite/config.json)';
+    const raw = 'model not found (TypeError: Failed to fetch chrome-extension://abcdefghijklmnop/models/tiho-lite/config.json)';
     const s = modelSummary({ state: 'error', backend: 'none', error: raw });
     expect(s).toEqual({ title: 'Model not included in this build', sub: 'Rules still filter chat', tone: 'err' });
     expect(modelProblem('GET https://example.org/model_q8.onnx: 503 Service Unavailable')).toBe('Model download failed');
@@ -20,7 +20,7 @@ describe('model status', () => {
 });
 
 describe('settings reset', () => {
-  it('"Reset filters to defaults" resets how chat is filtered, not where, whether or how Hush looks', () => {
+  it('"Reset filters to defaults" resets how chat is filtered, not where, whether or how Tiho looks', () => {
     const d = filterDefaults();
     expect(Object.keys(d).sort()).toEqual(['actions', 'collapseWaves', 'holdMs', 'preset', 'strictness', 'trustPrivileged']);
     expect(d.actions).toEqual(DEFAULT_SETTINGS.actions);
@@ -47,7 +47,7 @@ describe('onboarding demo', () => {
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
 
     await act(() => {
-      vi.advanceTimersByTime(1000); // flips to "With Hush" by itself
+      vi.advanceTimersByTime(1000); // flips to "With Tiho" by itself
     });
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
 

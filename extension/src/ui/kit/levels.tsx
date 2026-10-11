@@ -176,7 +176,7 @@ export function PeekHint() {
   return (
     <p class="k-peekhint">
       <Icon name="show" size={14} />
-      <span>To see what Hush hid, press "Show hidden" above the chat.</span>
+      <span>To see what Tiho hid, press "Show hidden" above the chat.</span>
     </p>
   );
 }

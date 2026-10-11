@@ -1,6 +1,6 @@
 export const meta = {
-  name: 'hush-gold-labels',
-  description: 'Two independent annotators per chunk + adjudicator build the multilingual gold eval set for Hush',
+  name: 'tiho-gold-labels',
+  description: 'Two independent annotators per chunk + adjudicator build the multilingual gold eval set for Tiho',
   phases: [
     { title: 'Annotate', detail: 'two blind annotators per chunk' },
     { title: 'Adjudicate', detail: 'resolve disagreements per chunk' },
@@ -9,7 +9,7 @@ export const meta = {
 
 const L = ['toxic', 'spam', 'scam', 'noise', 'question', 'positive', 'negative']
 
-const GUIDE = `You are annotating a GOLD evaluation set for Hush, an open-source browser extension that filters live-stream chat (YouTube, Twitch, Kick) so viewers can hide harassment, scams and spam. Accuracy matters more than speed. Messages are real, in many languages (read them in their language; translate mentally). Emote names (KEKW, LUL, Pog, OMEGALUL, Sadge, catJAM, :face-blue-smiling:, etc.) are images in the original chat.
+const GUIDE = `You are annotating a GOLD evaluation set for Tiho, an open-source browser extension that filters live-stream chat (YouTube, Twitch, Kick) so viewers can hide harassment, scams and spam. Accuracy matters more than speed. Messages are real, in many languages (read them in their language; translate mentally). Emote names (KEKW, LUL, Pog, OMEGALUL, Sadge, catJAM, :face-blue-smiling:, etc.) are images in the original chat.
 
 Labels (multi-label, 0/1 each):
 - toxic: insult, harassment, hate, slur, threat or sexual harassment aimed at someone (streamer, chatter, a group). Swearing at a game/situation, friendly banter, self-deprecation and gaming violence ("kill him") are NOT toxic.

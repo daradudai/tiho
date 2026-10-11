@@ -88,7 +88,7 @@ export function Bar({ v, actions, markRef }: BarProps) {
   const solo = v.solo.value;
   const advanced = settings.uiMode === 'advanced';
   const level = basicLevel(settings, site);
-  /** Hush runs on this site: on, and not turned off here. */
+  /** Tiho runs on this site: on, and not turned off here. */
   const on = level !== 'off';
   const surf = (PLATFORM_SURFACE[platform] ?? PLATFORM_SURFACE.default)[theme];
 
@@ -196,8 +196,8 @@ export function Bar({ v, actions, markRef }: BarProps) {
     setOpen(!open);
   };
   const togglePeek = () => actions.setPeek(!peek);
-  /** What the off row says: Hush is off everywhere, or only here. */
-  const offText = settings.enabled && site ? `Off on ${SITE_NAME[site]}` : 'Hush is off';
+  /** What the off row says: Tiho is off everywhere, or only here. */
+  const offText = settings.enabled && site ? `Off on ${SITE_NAME[site]}` : 'Tiho is off';
 
   return (
     <div
@@ -222,8 +222,8 @@ export function Bar({ v, actions, markRef }: BarProps) {
       onFocusOut={onFocusOut}
     >
       {advanced ? (
-        <div class="hb-row" role="toolbar" aria-label="Hush chat filter">
-          <MarkButton v={v} label="Hush: open live view" title={() => 'Hush'} sub="Open live view" open={open} onToggle={toggleOpen} markRef={markRef} />
+        <div class="hb-row" role="toolbar" aria-label="Tiho chat filter">
+          <MarkButton v={v} label="Tiho: open live view" title={() => 'Tiho'} sub="Open live view" open={open} onToggle={toggleOpen} markRef={markRef} />
           {on ? (
             <>
               {solo ? (
@@ -256,10 +256,10 @@ export function Bar({ v, actions, markRef }: BarProps) {
           </button>
         </div>
       ) : (
-        <div class="hb-row" role="toolbar" aria-label="Hush chat filter">
+        <div class="hb-row" role="toolbar" aria-label="Tiho chat filter">
           <MarkButton
             v={v}
-            label="Hush options"
+            label="Tiho options"
             title={(m) => statusOf(settings, site, m).text}
             sub="Click for options"
             open={open}
@@ -358,7 +358,7 @@ function useLive<T>(fn: () => T, deps: unknown[]): ReadonlySignal<T> {
 
 type Tone = 'ok' | 'off' | 'load' | 'err';
 
-/** What Hush is doing here, in words: no numbers and no model jargon (Basic's sheet and mark). */
+/** What Tiho is doing here, in words: no numbers and no model jargon (Basic's sheet and mark). */
 function statusOf(s: Settings, site: Platform | undefined, m: ModelStatus): { text: string; tone: Tone } {
   if (!s.enabled) return { text: PLAIN.off, tone: 'off' };
   if (site && s.sites[site] === false) return { text: PLAIN.siteOff(SITE_NAME[site]!), tone: 'off' };
@@ -387,7 +387,7 @@ function MarkButton({
 }: {
   v: View;
   label: string;
-  /** Tooltip title (Basic's says what Hush is doing, which depends on the model). */
+  /** Tooltip title (Basic's says what Tiho is doing, which depends on the model). */
   title: (m: ModelStatus) => string;
   sub: string;
   open: boolean;
@@ -422,7 +422,7 @@ function PeekButton({ peek, words, onToggle }: { peek: boolean; words?: boolean;
       aria-pressed={peek}
       aria-label={label}
       data-tip={label}
-      data-tip-sub={peek ? 'Esc also works.' : 'Brings back what Hush hid in this tab, faded.'}
+      data-tip-sub={peek ? 'Esc also works.' : 'Brings back what Tiho hid in this tab, faded.'}
       onClick={onToggle}
     >
       <Icon name={peek ? 'eyeOff' : 'show'} size={14} strokeWidth={1.7} />
@@ -488,7 +488,7 @@ function Sheet({ v, settings, site, level, actions }: { v: View; settings: Setti
   const note = level === null ? PLAIN.custom : level === 'off' && custom ? PLAIN.customOff : null;
   const extras = advancedExtras(settings);
   return (
-    <div class="hb-panel hb-sheet" role="dialog" aria-label="Hush options">
+    <div class="hb-panel hb-sheet" role="dialog" aria-label="Tiho options">
       <div class="hp-body">
         <SheetStatus v={v} settings={settings} site={site} />
 
@@ -513,7 +513,7 @@ function Sheet({ v, settings, site, level, actions }: { v: View; settings: Setti
         {extras.length > 0 && <p class="hs-note">{PLAIN.extras(extras)}</p>}
         <p class="hs-hint">
           <Icon name="show" size={13} strokeWidth={1.7} />
-          <span>"Show hidden" brings back anything Hush hid.</span>
+          <span>"Show hidden" brings back anything Tiho hid.</span>
         </p>
 
         <button class="hs-mode" role="switch" aria-checked={false} onClick={() => actions.setMode('advanced')}>
@@ -668,7 +668,7 @@ function SoloPill({ v, cat, onEnd }: { v: View; cat: Category; onEnd: () => void
 
 /**
  * Where a chip stands in a narrow bar (lower first): the one shown alone, then
- * the categories Hush changes (hidden first, then folded, dimmed,
+ * the categories Tiho changes (hidden first, then folded, dimmed,
  * highlighted), then the ones it shows as they are, those with messages in
  * chat now first. Ties keep CHIP_CATEGORIES order.
  */
@@ -953,7 +953,7 @@ function Panel({
     return tail.length ? tail.reduce((a, b) => a + b, 0) / tail.length : 0;
   });
   return (
-    <div class="hb-panel" role="dialog" aria-label="Hush live view">
+    <div class="hb-panel" role="dialog" aria-label="Tiho live view">
       <div class="hp-body">
         <InChatHead v={v} actions={actions} on={on} enabled={settings.enabled} site={site} solo={solo} peek={peek} />
 

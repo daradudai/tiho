@@ -1,8 +1,8 @@
 <#
-  Hush Engine launcher (Windows PowerShell 5.1+ / PowerShell 7).
+  Tiho Engine launcher (Windows PowerShell 5.1+ / PowerShell 7).
 
   First run creates engine\.venv and installs the engine (uv if available, else venv+pip).
-  All arguments are passed to `python -m hush_engine`:
+  All arguments are passed to `python -m tiho_engine`:
 
     .\start.ps1                                    # start llama-server + Clef-Flash (downloads if missing)
     .\start.ps1 --quant Q4_K_M                     # 8-12 GB cards
@@ -30,7 +30,7 @@ function Find-Python {
 
 if (-not (Test-Path $py)) {
     $sys = Find-Python
-    Write-Host "[hush-engine] creating $venv ..."
+    Write-Host "[tiho-engine] creating $venv ..."
     $ErrorActionPreference = 'Continue'
     & $sys -m uv --version 2>$null | Out-Null
     $haveUv = ($LASTEXITCODE -eq 0)
@@ -42,8 +42,8 @@ if (-not (Test-Path $py)) {
         & $py -m pip install --quiet --upgrade pip
         & $py -m pip install --quiet -e $here
     }
-    if ($LASTEXITCODE -ne 0) { throw 'installing hush-engine failed' }
+    if ($LASTEXITCODE -ne 0) { throw 'installing tiho-engine failed' }
 }
 
-& $py -m hush_engine @args
+& $py -m tiho_engine @args
 exit $LASTEXITCODE

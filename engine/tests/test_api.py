@@ -6,7 +6,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from hush_engine.app import Engine, EngineConfig, create_app
+from tiho_engine.app import Engine, EngineConfig, create_app
 
 EXT = "chrome-extension://abcdefghijklmnopabcdefghijklmnop"
 

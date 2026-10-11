@@ -111,7 +111,7 @@ class Engine:
         return self.status == "ready"
 
     async def start(self) -> None:
-        self._task = asyncio.create_task(self._run(), name="hush-engine-supervisor")
+        self._task = asyncio.create_task(self._run(), name="tiho-engine-supervisor")
 
     async def stop(self) -> None:
         if self._task:
@@ -124,7 +124,7 @@ class Engine:
             self.process.stop()
 
     def _log(self, msg: str) -> None:
-        print(f"[hush-engine] {msg}", file=sys.stderr, flush=True)
+        print(f"[tiho-engine] {msg}", file=sys.stderr, flush=True)
 
     async def _launch(self) -> None:
         assert self.process is not None
@@ -322,7 +322,7 @@ def create_app(engine: Engine) -> FastAPI:
             await engine.stop()
 
     # no /docs: Swagger UI would pull scripts from a CDN; the schema is at /openapi.json
-    app = FastAPI(title="Hush Engine", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
+    app = FastAPI(title="Tiho Engine", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None)
     app.state.engine = engine
     # added innermost first: OriginGuard -> CORS -> PNA -> TrustedHost (outermost)
     app.add_middleware(OriginGuard, allowed=allowed)
@@ -362,7 +362,7 @@ def create_app(engine: Engine) -> FastAPI:
 
     @app.get("/")
     async def root():
-        return {"name": "hush-engine", "version": __version__, "endpoints": ["/health", "/v1/classify", "/v1/systemone", "/openapi.json"]}
+        return {"name": "tiho-engine", "version": __version__, "endpoints": ["/health", "/v1/classify", "/v1/systemone", "/openapi.json"]}
 
     @app.post("/v1/classify")
     async def classify(req: ClassifyIn):

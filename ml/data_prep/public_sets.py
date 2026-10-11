@@ -1,4 +1,4 @@
-"""Download permissively-licensed public datasets and convert them to the Hush
+"""Download permissively-licensed public datasets and convert them to the Tiho
 label space with per-label masks (a source only supervises the labels it knows).
 
 Output: data/public.jsonl rows {"text", "lang", "src", "y": {label: float}}

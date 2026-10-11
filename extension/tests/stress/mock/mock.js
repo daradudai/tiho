@@ -5,7 +5,7 @@
 // layout, like the real chats). Also measures frames and long tasks.
 //
 //   window.__mock.start(rate) / stop() / stats() / resetStats()
-//   ?hush=1 → loads harness.js (the Hush runtime bundle) after the corpus.
+//   ?tiho=1 → loads harness.js (the Tiho runtime bundle) after the corpus.
 //   ?theme=light → the site's light theme (Twitch's default when logged out).
 (() => {
   'use strict';
@@ -330,7 +330,7 @@
     .then((r) => r.json())
     .then((j) => {
       S.corpus = j.messages;
-      if (qs.get('hush') === '1') {
+      if (qs.get('tiho') === '1') {
         return new Promise((res, rej) => {
           const s = document.createElement('script');
           s.src = 'harness.js';

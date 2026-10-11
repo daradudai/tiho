@@ -1,12 +1,12 @@
-"""Export a Hush Lite classifier (ModernBERT / mmBERT + 7-label multi-label head)
+"""Export a Tiho Lite classifier (ModernBERT / mmBERT + 7-label multi-label head)
 to ONNX for the browser (onnxruntime-web, loaded by the extension's inference
 worker; tokenizer via transformers.js).
 
-    python ml/export/export_onnx.py --model ml/runs/v0/best --out extension/public/models/hush-lite
+    python ml/export/export_onnx.py --model ml/runs/v0/best --out extension/public/models/tiho-lite
 
 Output layout (identical locally and in a HF repo):
 
-    <out>/config.json               HF config + `hush: {labels, thresholds, max_len, files, ...}`
+    <out>/config.json               HF config + `tiho: {labels, thresholds, max_len, files, ...}`
     <out>/tokenizer.json            compact fast-tokenizer JSON (transformers.js reads this)
     <out>/tokenizer_config.json
     <out>/onnx/model.onnx           fp32 (reference)
@@ -18,21 +18,21 @@ Output layout (identical locally and in a HF repo):
     <out>/onnx/model_q4.onnx        fp32 activations, 4-bit MatMulNBits (int8 compute), int8 per-row embeddings  [WASM]
     <out>/onnx/model_q4f16.onnx     fp16, 4-bit MatMulNBits + 4-bit GatherBlockQuantized embeddings (smallest;
                                     GatherBlockQuantized has no WASM kernel -> WebGPU only)
-    <out>/hush_export.json          sizes + parity vs PyTorch on real chat texts
+    <out>/tiho_export.json          sizes + parity vs PyTorch on real chat texts
 
 The standard transformers.js suffixes are kept where the meaning matches
 (`model.onnx`, `_fp16`, `_quantized`=q8, `_uint8`, `_q4`, `_q4f16`); `_q8f16` is
-Hush-specific (the worker picks files from `config.hush.files`).
+Tiho-specific (the worker picks files from `config.tiho.files`).
 
 Graph I/O: input_ids int64 [batch, seq], attention_mask int64 [batch, seq] ->
 logits float32 [batch, num_labels]. Sigmoid is applied in the client.
 
 If the source checkpoint has no N-label head (e.g. `jhu-clsp/mmBERT-small`), a
 seeded random head is attached -> a *placeholder* (plumbing/speed only), marked
-`hush.placeholder: true`.
+`tiho.placeholder: true`.
 
 Thresholds: `--thresholds path.json` ({"toxic": 0.62, ...} or a list aligned
-with labels). Otherwise an existing `hush.thresholds` in the source config is
+with labels). Otherwise an existing `tiho.thresholds` in the source config is
 kept, else 0.5 everywhere.
 
 Notes
@@ -135,6 +135,15 @@ def load_model(args):
     return tok, model, labels, has_head, src_cfg
 
 
+def src_block(src_cfg) -> dict:
+    """The model block of a checkpoint's config: `tiho`, or `hush` in checkpoints from before the rename."""
+    for key in ("tiho", "hush"):
+        b = getattr(src_cfg, key, None)
+        if isinstance(b, dict) and b:
+            return dict(b)
+    return {}
+
+
 def resolve_thresholds(args, labels, src_cfg) -> list[float]:
     if args.thresholds:
         raw = json.loads(Path(args.thresholds).read_text(encoding="utf-8"))
@@ -144,9 +153,9 @@ def resolve_thresholds(args, labels, src_cfg) -> list[float]:
             return [float(raw[l]) for l in labels]
         assert len(raw) == len(labels), "thresholds list must align with labels"
         return [float(x) for x in raw]
-    hush = getattr(src_cfg, "hush", None)
-    if isinstance(hush, dict) and hush.get("thresholds"):
-        t = hush["thresholds"]
+    tiho = src_block(src_cfg)
+    if tiho.get("thresholds"):
+        t = tiho["thresholds"]
         return [float(t[l]) for l in labels] if isinstance(t, dict) else [float(x) for x in t]
     return [0.5] * len(labels)
 
@@ -381,12 +390,12 @@ def load_eval_texts(path: str | None, n: int) -> list[str]:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", required=True, help="HF hub id or local dir (fine-tuned checkpoint or base model)")
-    ap.add_argument("--out", required=True, help="output dir (e.g. extension/public/models/hush-lite)")
+    ap.add_argument("--out", required=True, help="output dir (e.g. extension/public/models/tiho-lite)")
     ap.add_argument("--precisions", default=",".join(DEFAULT_PRECISIONS), help=f"comma list from {list(FILE_FOR)}")
     ap.add_argument("--labels", default=None, help="comma list; default = LABELS from types.ts")
     ap.add_argument("--thresholds", default=None, help='json file: {"toxic": 0.6, ...} or [..]')
     ap.add_argument("--max-len", type=int, default=None,
-                    help="default: source config hush.max_length / hush.max_len, else 64")
+                    help="default: source config tiho.max_length / tiho.max_len, else 64")
     ap.add_argument("--opset", type=int, default=17)
     ap.add_argument("--no-slim", action="store_true")
     ap.add_argument("--graph", default="fused", choices=["fused", "hf"],
@@ -400,7 +409,7 @@ def main():
     ap.add_argument("--eval-texts", default=None,
                     help=f"json list / jsonl with `text` for parity (default {DEFAULT_EVAL.relative_to(REPO)})")
     ap.add_argument("--eval-n", type=int, default=512)
-    ap.add_argument("--model-version", default=None, help="string stored in config.hush.version")
+    ap.add_argument("--model-version", default=None, help="string stored in config.tiho.version")
     ap.add_argument("--save-hf", default=None, help="also save the (possibly placeholder) PyTorch checkpoint here")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
@@ -414,12 +423,14 @@ def main():
 
     tok, model, labels, has_head, src_cfg = load_model(args)
     thresholds = resolve_thresholds(args, labels, src_cfg)
-    src_hush = dict(getattr(src_cfg, "hush", None) or {})
+    src_tiho = src_block(src_cfg)
     if args.max_len is None:
-        args.max_len = int(src_hush.get("max_length") or src_hush.get("max_len") or 64)
-    placeholder = (not has_head) or bool(src_hush.get("placeholder"))
+        args.max_len = int(src_tiho.get("max_length") or src_tiho.get("max_len") or 64)
+    placeholder = (not has_head) or bool(src_tiho.get("placeholder"))
     if args.save_hf:
-        model.config.hush = {"labels": labels, "thresholds": thresholds, "max_len": args.max_len,
+        if hasattr(model.config, "hush"):
+            del model.config.hush  # pre-rename key; the block below replaces it
+        model.config.tiho = {"labels": labels, "thresholds": thresholds, "max_len": args.max_len,
                              "placeholder": placeholder}
         model.save_pretrained(args.save_hf)
         tok.save_pretrained(args.save_hf)
@@ -472,9 +483,10 @@ def main():
     cfg = model.config.to_dict()
     cfg["architectures"] = [type(model).__name__]
     cfg["problem_type"] = "multi_label_classification"
+    cfg.pop("hush", None)  # pre-rename key, carried over into src_tiho
     files = {p: f"onnx/{FILE_FOR[p]}" for p in precisions}
-    cfg["hush"] = {
-        **src_hush,  # keep whatever training wrote (calibration info etc.)
+    cfg["tiho"] = {
+        **src_tiho,  # keep whatever training wrote (calibration info etc.)
         "labels": labels,
         "thresholds": dict(zip(labels, thresholds)),
         "max_len": args.max_len,
@@ -536,7 +548,7 @@ def main():
     report["tokenizer_and_config_bytes"] = tok_bytes
     report["build_times"] = built
     report["settings"] = {k: v for k, v in vars(args).items()}
-    (out / "hush_export.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    (out / "tiho_export.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     log(f"done -> {out}  (tokenizer+config {tok_bytes / 1e6:.1f} MB)")
     if not ok_all:
         sys.exit(2)

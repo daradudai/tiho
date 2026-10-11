@@ -1,6 +1,6 @@
-# Hush — specification (v1)
+# Tiho — specification (v1)
 
-> An ad-blocker for live chat. Hush reads YouTube / Twitch / Kick live chat as it
+> An ad-blocker for live chat. Tiho reads YouTube / Twitch / Kick live chat as it
 > streams, classifies every message on-device with a small multilingual model, and
 > hides, dims or highlights it according to the viewer's taste. Free, open source,
 > private: no message ever leaves the machine.
@@ -15,11 +15,12 @@ Goals
 - Works in the heaviest chats (Kai Cenat / xQc / Ibai scale, 50–150 msg/s) with
   no visible jank: the content script must never block the page main thread for
   more than ~2 ms per frame.
-- Multilingual: every language the base model saw (mmBERT: 1800+), tuned on real
-  chat in EN, ES, DE, PT, FR, RU, BG, PL, TR, IT, JA, KO, …
+- Multilingual: tuned on real chat in about 30 stream languages (EN, ES, DE, PT,
+  FR, RU, BG, PL, TR, IT, JA, KO, …) and measured on the 13 with enough test
+  messages; other languages rely on mmBERT's pre-training and are untested.
 - Zero setup: install → open a stream → it works. The release zip carries the
   model, so nothing is downloaded and it works offline.
-- Optional **Hush Engine**: a local GPU server (RTX-class) running an open
+- Optional **Tiho Engine**: a local GPU server (RTX-class) running an open
   Jev-style decision model (Cloudflare Clef-Flash) for custom natural-language
   filters ("hide backseating", "hide spoilers for Elden Ring") and a second
   opinion on uncertain messages.
@@ -39,12 +40,12 @@ hush/
       platforms/    youtube.ts, twitch.ts, kick.ts  (DOM adapters)
       runtime/      content-script engine: observer, per-frame passes, classifier Port
       inference/    offscreen host + worker running the ONNX model (WebGPU → WASM)
-      engine-client/  background client for the optional Hush Engine
+      engine-client/  background client for the optional Tiho Engine
       ui/           overlay (in-chat, shadow DOM), popup, sidepanel, onboarding
       entrypoints/  WXT entrypoints (content scripts, background, offscreen, pages)
     tests/          vitest unit + UI tests, Playwright stress harness and
                     inference benchmark on mock chats, live-site tools
-  engine/           Hush Engine: local server (Python, FastAPI) in front of
+  engine/           Tiho Engine: local server (Python, FastAPI) in front of
                     llama.cpp `llama-server` running Clef-Flash.
   ml/               data collection, labeling (gold + teacher), training,
                     distillation, ONNX export/quantization, evaluation.
@@ -89,8 +90,8 @@ Labels are independent (a message can be `toxic` + `negative`). A message's
 category is the first label at or above its threshold in priority order
 (toxic > scam > spam > noise > question > negative > positive), or `clean` when
 none is. Thresholds per label are calibrated on the gold set for each student
-and shipped in the model's `config.json`: `hush.thresholds`, overridden per
-model file by `hush.variant_thresholds`.
+and shipped in the model's `config.json`: `tiho.thresholds`, overridden per
+model file by `tiho.variant_thresholds`.
 
 ## 4. Pipeline (per message)
 
@@ -112,12 +113,12 @@ DOM node ─▶ adapter.extract() ─▶ Tier 0 rules (sync, <0.05 ms)
                                    │
                          optional: uncertain or custom-filter
                                    ▼
-                          Hush Engine (localhost) ─▶ refine
+                          Tiho Engine (localhost) ─▶ refine
 ```
 
 Actions: `show` | `highlight` | `dim` | `collapse` (thin "hidden" pill) | `hide`.
-Applied by setting ONE attribute (`data-hush-a="dim"` etc.) plus category
-attribute `data-hush-c`; all visuals live in one injected stylesheet so the
+Applied by setting ONE attribute (`data-tiho-a="dim"` etc.) plus category
+attribute `data-tiho-c`; all visuals live in one injected stylesheet so the
 browser does a single style recalc per frame.
 
 Hold policy: when a category the user hides is ML-dependent, new messages are
@@ -145,12 +146,13 @@ NFKC, lowercase, strip zero-width & combining abuse, map homoglyphs/leet
 (`fr33 r0bux` → `free robux`), collapse char repeats (`soooo` → `soo`), trim. The
 cache key is the normalized text; the model sees the original (lightly cleaned).
 
-## 5. In-browser model ("Hush Lite")
+## 5. In-browser model ("Tiho Lite")
 
 - Base: `jhu-clsp/mmBERT-small` (ModernBERT arch, 140 M params, 256k vocab, MIT),
   fine-tuned as a 22-layer model (v2), then distilled into two students: 6 layers
-  (v2-6L) for WebGPU and 3 layers (v2-3L) for WASM. One model folder holds both;
-  each browser loads only the one for its backend.
+  for WebGPU and 3 layers for WASM. The shipped v3 students (v3-6L, v3-3L) were
+  distilled again from the average of v2 and a fine-tuned mmBERT-base teacher.
+  One model folder holds both; each browser loads only the one for its backend.
 - Fine-tuned multi-label head (7 sigmoid outputs), max_len 64 tokens.
 - Training data: real chat (Twitch IRC, Kick Pusher, YouTube live chat) labeled by
   a teacher (Clef-Flash decision model on the RTX 3090) and by Claude agents
@@ -169,7 +171,7 @@ cache key is the normalized text; the model sees the original (lightly cleaned).
   on WASM (4 threads) on a mid laptop CPU. Cached by text, so effective throughput is
   much higher.
 
-## 6. Hush Engine (optional, local GPU)
+## 6. Tiho Engine (optional, local GPU)
 
 - `engine/`: FastAPI on `127.0.0.1:7377`, extension and localhost origins only.
   Endpoints:
@@ -196,7 +198,7 @@ cache key is the normalized text; the model sees the original (lightly cleaned).
   (default): one choice, Off · Clean · Quiet, and Show hidden; no numbers, categories
   or percentages. **Advanced** (streamers, mods): presets, per-category actions, live
   counts, rules, custom AI filters, Solo. Spec: [docs/ux-modes.md](docs/ux-modes.md).
-- **In-chat bar** (shadow DOM, docked at top of chat). Basic: Hush logo, the level
+- **In-chat bar** (shadow DOM, docked at top of chat). Basic: Tiho logo, the level
   switch, Show hidden. Advanced: one preset switch (Raw · Clean · Quiet · Questions),
   compact chips per category with what is in chat now; click a chip for Solo (only
   that category, each row tagged with its reason and normal action), right-click to

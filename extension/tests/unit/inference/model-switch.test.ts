@@ -9,7 +9,7 @@ import { DEFAULT_SETTINGS } from '../../../src/core/settings';
 import type { ChatMessage, ModelStatus } from '../../../src/core/types';
 import type { PlatformAdapter } from '../../../src/platforms/types';
 import { ClassifierClient, modelKey, type ClassifierTransport } from '../../../src/runtime/classifier';
-import { HushRuntime } from '../../../src/runtime/engine';
+import { TihoRuntime } from '../../../src/runtime/engine';
 
 class FakePort implements ClassifierTransport {
   sent: PortRequest[] = [];
@@ -36,8 +36,8 @@ class FakePort implements ClassifierTransport {
 // toxic, spam, scam, noise, question, positive, negative
 const THR_6L = [0.22, 0.53, 0.22, 0.44, 0.52, 0.26, 0.1];
 const THR_3L = [0.17, 0.34, 0.23, 0.45, 0.39, 0.28, 0.1];
-const SIX: ModelStatus = { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2-6L', thresholds: THR_6L };
-const THREE: ModelStatus = { state: 'ready', backend: 'wasm', modelId: 'hush-lite/uint8', version: 'v2-3L', thresholds: THR_3L };
+const SIX: ModelStatus = { state: 'ready', backend: 'webgpu', modelId: 'tiho-lite/q8', version: 'v2-6L', thresholds: THR_6L };
+const THREE: ModelStatus = { state: 'ready', backend: 'wasm', modelId: 'tiho-lite/uint8', version: 'v2-3L', thresholds: THR_3L };
 /** spam 0.45: clean for the 6-layer (0.53), spam for the 3-layer (0.34) */
 const BORDERLINE = [0.01, 0.45, 0.01, 0.02, 0.01, 0.05, 0.02];
 const CLEAN = [0.01, 0.05, 0.01, 0.02, 0.01, 0.05, 0.02];
@@ -70,7 +70,7 @@ describe('ClassifierClient across a model switch', () => {
   });
 
   it('modelKey names the loaded model only', () => {
-    expect(modelKey(SIX)).toBe('hush-lite/q8@v2-6L');
+    expect(modelKey(SIX)).toBe('tiho-lite/q8@v2-6L');
     expect(modelKey({ state: 'loading', backend: 'none' })).toBe('');
     expect(modelKey(null)).toBe('');
   });
@@ -106,7 +106,7 @@ function adapter(): PlatformAdapter {
   };
 }
 
-let rt: HushRuntime | null = null;
+let rt: TihoRuntime | null = null;
 afterEach(() => rt?.stop());
 
 describe('runtime across a model switch', () => {
@@ -114,7 +114,7 @@ describe('runtime across a model switch', () => {
     document.body.innerHTML = '<div id="chat"></div>';
     const list = document.getElementById('chat')!;
     const port = new FakePort();
-    let runtime: HushRuntime;
+    let runtime: TihoRuntime;
     const classifier = new ClassifierClient(() => port, {
       now: () => 0,
       hidden: () => false,
@@ -122,7 +122,7 @@ describe('runtime across a model switch', () => {
       onFailed: (ids) => runtime.onFailed(ids),
       onStatus: (s) => runtime.setModelStatus(s),
     });
-    runtime = rt = new HushRuntime({ adapter: adapter(), settings: DEFAULT_SETTINGS, classifier, now: () => 0, raf: () => 1, caf: () => {}, storeIntervalMs: 0, tickMs: 3_600_000 });
+    runtime = rt = new TihoRuntime({ adapter: adapter(), settings: DEFAULT_SETTINGS, classifier, now: () => 0, raf: () => 1, caf: () => {}, storeIntervalMs: 0, tickMs: 3_600_000 });
     runtime.start();
     classifier.connect();
     port.emit({ type: 'status', status: SIX });
@@ -145,29 +145,29 @@ describe('runtime across a model switch', () => {
     await frame();
     port.replyAll(BORDERLINE);
     await frame();
-    expect(a.getAttribute('data-hush-a')).toBe('show'); // 6-layer: 0.45 < 0.53
+    expect(a.getAttribute('data-tiho-a')).toBe('show'); // 6-layer: 0.45 < 0.53
 
     port.emit({ type: 'status', status: THREE }); // GPU lost: the worker now runs the 3-layer student
     await frame();
-    expect(a.getAttribute('data-hush-a')).toBe('show'); // not folded on the 6-layer's score
+    expect(a.getAttribute('data-tiho-a')).toBe('show'); // not folded on the 6-layer's score
     const [again] = port.sent;
     expect(again?.items.map((x) => x.text)).toEqual(['that was a crazy play honestly']);
 
     port.replyAll(CLEAN);
     await frame();
-    expect(a.getAttribute('data-hush-a')).toBe('show');
+    expect(a.getAttribute('data-tiho-a')).toBe('show');
 
     // a repeat is decided on the 3-layer's score from the cache
     const b = row('m2', 'that was a crazy play honestly');
     await frame();
     expect(port.sent).toHaveLength(0);
-    expect(b.getAttribute('data-hush-a')).toBe('show');
+    expect(b.getAttribute('data-tiho-a')).toBe('show');
 
     // and a 3-layer score above its own threshold folds as usual
     const c = row('m3', 'first time watching this channel');
     await frame();
     port.replyAll(BORDERLINE);
     await frame();
-    expect(c.getAttribute('data-hush-a')).toBe('collapse');
+    expect(c.getAttribute('data-tiho-a')).toBe('collapse');
   });
 });

@@ -33,7 +33,7 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
   const data = new Map<string, unknown>();
   const onChanged = evt();
   const onMessage = evt();
-  let model: ModelStatus = opts.model ?? { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2-6L' };
+  let model: ModelStatus = opts.model ?? { state: 'ready', backend: 'webgpu', modelId: 'tiho-lite/q8', version: 'v2-6L' };
   // The pages and the fake tab share one copy of the settings, as the extension's storage would.
   const keep = (v: unknown) => opts.store && (opts.store.settings.value = mergeSettings(v as Partial<Settings>));
   if (opts.store || opts.settings) {
@@ -107,12 +107,12 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
       onConnect: evt(),
       lastError: undefined,
       getURL: (p: string) => p,
-      getManifest: () => ({ version: '0.1.0', name: 'Hush' }),
+      getManifest: () => ({ version: '0.1.0', name: 'Tiho' }),
       async sendMessage(msg: any) {
-        if (msg?.type === 'hush:getStatus') return { type: 'hush:status', status: model };
-        if (msg?.type === 'hush:getPerf' && opts.store) {
+        if (msg?.type === 'tiho:getStatus') return { type: 'tiho:status', status: model };
+        if (msg?.type === 'tiho:getPerf' && opts.store) {
           const s = opts.store;
-          return { type: 'hush:perf', stats: { ...s.perf.peek(), platform: s.platform.peek(), channel: s.channel.peek() } };
+          return { type: 'tiho:perf', stats: { ...s.perf.peek(), platform: s.platform.peek(), channel: s.channel.peek() } };
         }
         return undefined;
       },
@@ -123,8 +123,8 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
         return [tab];
       },
       async sendMessage(_id: number, msg: any) {
-        if (msg?.type === 'hush:getSnapshot') return opts.store ? snapshotFromStore(opts.store) : undefined;
-        if (msg?.type === 'hush:command') {
+        if (msg?.type === 'tiho:getSnapshot') return opts.store ? snapshotFromStore(opts.store) : undefined;
+        if (msg?.type === 'tiho:command') {
           console.log('[mock] command', msg.cmd);
           command(msg.cmd);
         }
@@ -138,7 +138,7 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
     sidePanel: { async open() {} },
     commands: {
       async getAll() {
-        return [{ name: 'toggle-hush', description: 'Turn Hush on/off', shortcut: 'Alt+Shift+H' }];
+        return [{ name: 'toggle-tiho', description: 'Turn Tiho on/off', shortcut: 'Alt+Shift+H' }];
       },
     },
   };
@@ -159,11 +159,11 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
 
   if (opts.downloading) {
     let p = 0.08;
-    model = { state: 'downloading', backend: 'none', progress: p, modelId: 'hush-lite/q8' };
+    model = { state: 'downloading', backend: 'none', progress: p, modelId: 'tiho-lite/q8' };
     const id = setInterval(() => {
       p = Math.min(1, p + 0.035);
-      model = p >= 1 ? { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2-6L' } : { ...model, progress: p };
-      onMessage.emit({ type: 'hush:status', status: model }, {}, () => {});
+      model = p >= 1 ? { state: 'ready', backend: 'webgpu', modelId: 'tiho-lite/q8', version: 'v2-6L' } : { ...model, progress: p };
+      onMessage.emit({ type: 'tiho:status', status: model }, {}, () => {});
       if (p >= 1) clearInterval(id);
     }, 400);
   }
@@ -171,7 +171,7 @@ export function installChrome(opts: MockOptions): { setModel(m: ModelStatus): vo
   return {
     setModel(m) {
       model = m;
-      onMessage.emit({ type: 'hush:status', status: m }, {}, () => {});
+      onMessage.emit({ type: 'tiho:status', status: m }, {}, () => {});
     },
   };
 }

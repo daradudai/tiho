@@ -16,7 +16,7 @@ const headed = flags.includes('--headed');
 fs.mkdirSync(outDir, { recursive: true });
 
 const ctx = await chromium.launchPersistentContext(
-  fs.mkdtempSync(path.join(process.env.TEMP ?? '/tmp', 'hush-probe-')),
+  fs.mkdtempSync(path.join(process.env.TEMP ?? '/tmp', 'tiho-probe-')),
   {
     channel: 'chrome',
     headless: !headed,

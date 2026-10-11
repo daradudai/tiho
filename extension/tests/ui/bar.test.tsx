@@ -35,7 +35,7 @@ function setup({ settings, opts = { shadow: 'open', synthetic: true }, inChat }:
   };
   const list = document.getElementById('list')!;
   const dispose = mountBar({ el: list, where: 'before' }, store, actions, opts);
-  const host = document.querySelector('hush-bar') as HTMLElement;
+  const host = document.querySelector('tiho-bar') as HTMLElement;
   const root = host.shadowRoot!;
   const $ = <T extends HTMLElement = HTMLElement>(sel: string) => root.querySelector(sel) as T;
   const $$ = <T extends HTMLElement = HTMLElement>(sel: string) => [...root.querySelectorAll<T>(sel)];
@@ -74,17 +74,17 @@ describe('mountBar', () => {
     expect(root.querySelector('style')).not.toBeNull(); // (CSS ?inline is empty under vitest)
     expect(root.querySelector('.hb-row')).not.toBeNull();
     dispose();
-    expect(document.querySelector('hush-bar')).toBeNull();
+    expect(document.querySelector('tiho-bar')).toBeNull();
   });
 
   it('draws the mark and chip glyphs as images, not inline SVG (a paint chunk each, every frame)', async () => {
     const { root, dispose } = setup({ settings: advanced });
     await flush();
-    expect(root.querySelectorAll('.hb-chip svg, .hush-live svg').length).toBe(0);
+    expect(root.querySelectorAll('.hb-chip svg, .tiho-live svg').length).toBe(0);
     const ico = root.querySelector('.hb-chip[data-c="toxic"] .hb-chip-ico') as HTMLElement;
     expect(ico.style.backgroundImage).toContain('data:image/svg+xml');
     expect(decodeURIComponent(ico.style.backgroundImage)).toContain('color="#ff6470"'); // dark theme toxic
-    expect((root.querySelector('.hush-live') as HTMLElement).style.backgroundImage).toContain('data:image/svg+xml');
+    expect((root.querySelector('.tiho-live') as HTMLElement).style.backgroundImage).toContain('data:image/svg+xml');
     dispose();
   });
 
@@ -119,9 +119,9 @@ describe('Basic bar', () => {
     const { $, $$, dispose } = setup();
     await flush();
     expect($('.hb').dataset.mode).toBe('basic');
-    expect($('.hb-mark').getAttribute('aria-label')).toBe('Hush options');
+    expect($('.hb-mark').getAttribute('aria-label')).toBe('Tiho options');
     const group = $('.hb-row [role="radiogroup"]');
-    expect(group.getAttribute('aria-label')).toBe('How much should Hush hide?');
+    expect(group.getAttribute('aria-label')).toBe('How much should Tiho hide?');
     expect($$('.hb-row [role="radio"]').map((r) => r.textContent)).toEqual(['Off', 'Clean', 'Quiet']);
     expect($('.hb-peek').textContent).toBe('Show hidden');
     expect($$('.hb-expand, .hb-chip, .hb-status, .hb-preset-pill').length).toBe(0);
@@ -200,16 +200,16 @@ describe('Basic bar', () => {
     dispose();
   });
 
-  it('says Hush is off where Show hidden was, everywhere or on this site only (B4)', async () => {
+  it('says Tiho is off where Show hidden was, everywhere or on this site only (B4)', async () => {
     const { store, $, dispose } = setup({ settings: { enabled: false } });
     await flush();
     expect($('.hb-peek')).toBeNull();
-    expect($('.hb-offnote').textContent).toBe('Hush is off');
+    expect($('.hb-offnote').textContent).toBe('Tiho is off');
     expect($('.hb-row [aria-checked="true"]').textContent).toBe('Off');
     store.settings.value = { ...store.settings.value, enabled: true, sites: { ...store.settings.value.sites, twitch: false } };
     await flush();
     expect($('.hb-offnote').textContent).toBe('Off on Twitch');
-    expect($('.hb-mark').dataset.tip).toBe('Hush is off on Twitch.');
+    expect($('.hb-mark').dataset.tip).toBe('Tiho is off on Twitch.');
     dispose();
   });
 
@@ -237,11 +237,11 @@ describe('Basic bar', () => {
     $('.hb-mark').click();
     await flush();
     const sheet = $('.hb-sheet');
-    expect(sheet.textContent).toContain('Hush is cleaning up this chat.');
+    expect(sheet.textContent).toContain('Tiho is cleaning up this chat.');
     expect($$('.hb-sheet [role="radio"]').length).toBe(3);
     expect(sheet.textContent).toContain('Recommended');
     expect(sheet.textContent).toContain('Also on from Advanced mode: your rules.');
-    expect(sheet.textContent).toContain('"Show hidden" brings back anything Hush hid.');
+    expect(sheet.textContent).toContain('"Show hidden" brings back anything Tiho hid.');
     expect(sheet.textContent).toContain('Runs on your computer. Nothing leaves it.');
     const sw = $('.hb-sheet [role="switch"]');
     expect(sw.getAttribute('aria-checked')).toBe('false');
@@ -266,7 +266,7 @@ describe('Basic bar', () => {
     const { store, $, dispose } = setup();
     await flush();
     const model = () => new Promise((r) => setTimeout(r, 150)); // model status: ≤ 10×/s
-    expect($('.hb-mark').dataset.tip).toBe('Hush is cleaning up this chat.');
+    expect($('.hb-mark').dataset.tip).toBe('Tiho is cleaning up this chat.');
     expect($('.hb-ring, .hb-ring-spin, .hb-mark-err')).toBeNull();
     store.model.value = { state: 'downloading', backend: 'none', progress: 0.4 };
     await model();
@@ -278,7 +278,7 @@ describe('Basic bar', () => {
     store.model.value = { state: 'error', backend: 'none', error: 'x' };
     await model();
     expect($('.hb-mark-err')).not.toBeNull();
-    expect($('.hb-mark').dataset.tip).toBe("Hush's AI didn't start. Simple filters still work.");
+    expect($('.hb-mark').dataset.tip).toBe("Tiho's AI didn't start. Simple filters still work.");
     $('.hb-mark').click();
     await flush();
     expect($('.hs-status').textContent).toContain('Retry');
@@ -306,7 +306,7 @@ describe('Advanced bar', () => {
     dispose();
   });
 
-  it('orders chips by what they have to say: the one shown alone, what Hush changes, then the rest with messages in chat', async () => {
+  it('orders chips by what they have to say: the one shown alone, what Tiho changes, then the rest with messages in chat', async () => {
     const quiet = busyChat();
     quiet.byCat.noise = 0;
     const { store, root, $$, dispose } = setup({ settings: advanced, inChat: quiet });
@@ -429,7 +429,7 @@ describe('Advanced bar', () => {
     expect(actions.setPeek).toHaveBeenCalledWith(true);
     store.settings.value = { ...store.settings.value, enabled: false };
     await flush();
-    expect($('.hb-paused').textContent).toContain('Hush is off');
+    expect($('.hb-paused').textContent).toContain('Tiho is off');
     expect($('.hb-chip')).toBeNull();
     ($('.hb-paused button') as HTMLElement).click();
     expect(actions.toggleEnabled).toHaveBeenCalled();
@@ -558,8 +558,8 @@ describe('Escape (B9)', () => {
 });
 
 describe('words', () => {
-  it('no surface says hushed, Vibe, click to cycle, Open dashboard or Hush is paused (B11)', async () => {
-    const banned = /hushed|vibe|click to cycle|open dashboard|hush is paused|resume/i;
+  it('no surface says hushed, Vibe, click to cycle, Open dashboard or Tiho is paused (B11)', async () => {
+    const banned = /hushed|vibe|click to cycle|open dashboard|tiho is paused|resume/i;
     for (const mode of ['basic', 'advanced'] as const) {
       for (const enabled of [true, false]) {
         const { root, $, dispose } = setup({ settings: { uiMode: mode, enabled }, inChat: busyChat() });

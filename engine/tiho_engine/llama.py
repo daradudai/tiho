@@ -171,7 +171,7 @@ class LlamaProcess:
                 self._job = self._job or _WinJob()
                 self._job.assign(self.proc)
             except OSError as e:  # still killed by stop()/atexit on a normal exit
-                print(f"[hush-engine] warning: could not attach llama-server to a job object: {e}", file=sys.stderr)
+                print(f"[tiho-engine] warning: could not attach llama-server to a job object: {e}", file=sys.stderr)
 
     def log_tail(self, n: int = 25, max_bytes: int = 64 << 10) -> str:
         """The last `n` lines of the log, read from its last `max_bytes` only (it can be large)."""

@@ -1,4 +1,4 @@
-// Renders the Hush mark (src/assets/logo.svg geometry) into the extension's
+// Renders the Tiho mark (src/assets/logo.svg geometry) into the extension's
 // toolbar / store icons: public/icon/{16,32,48,96,128}.png
 //
 //   node tests/ui/render-icons.mjs

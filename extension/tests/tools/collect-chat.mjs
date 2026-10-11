@@ -16,7 +16,7 @@ const minutes = Number(minutesArg);
 fs.mkdirSync(outDir, { recursive: true });
 
 const ctx = await chromium.launchPersistentContext(
-  fs.mkdtempSync(path.join(process.env.TEMP ?? '/tmp', 'hush-collect-')),
+  fs.mkdtempSync(path.join(process.env.TEMP ?? '/tmp', 'tiho-collect-')),
   {
     channel: 'chrome',
     headless: !flags.includes('--headed'),

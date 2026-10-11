@@ -1,5 +1,5 @@
-// Screenshots and a demo clip of Hush on a real live chat, for the README
-// (docs/img/live-*.png, docs/img/hush-demo.gif / .mp4).
+// Screenshots and a demo clip of Tiho on a real live chat, for the README
+// (docs/img/live-*.png, docs/img/tiho-demo.gif / .mp4).
 //
 //   node tests/tools/media-shoot.mjs <channel url> <shot>[,<shot>…] [options]
 //
@@ -8,13 +8,13 @@
 //   dashboard  the chat column with the bar expanded
 //   live, inbox, log   side panel tabs               popup  the toolbar popup
 //   engine     side panel → Rules → Custom AI filters, turned on with the
-//              Backseating filter (Hush Engine must answer on 127.0.0.1:7377)
+//              Backseating filter (Tiho Engine must answer on 127.0.0.1:7377)
 //   clip       --clip-secs of the chat column, frame by frame → NAME-clip.mp4 and .gif (needs ffmpeg)
 // options:
 //   --secs N        let the chat run N s before the first shot (60)
 //   --light         light theme (Twitch and YouTube; dark otherwise)
 //   --name NAME     file prefix (platform name): NAME-<shot>.png
-//   --out DIR       output folder (<tmp>/hush-media)
+//   --out DIR       output folder (<tmp>/tiho-media)
 //   --viewport WxH  CSS px of the chat page (1600x950); screenshots are 2× device pixels
 //   --context TEXT  stream context for the engine shot; --test TEXT asks the filters about a sample message
 //   --gap N         wait N s between shots (0); a shot listed twice is saved as NAME-<shot>-2.png
@@ -23,10 +23,10 @@
 //
 // Every frame of every page first gets tests/tools/anonymize.js: chatter names
 // and @mentions become stable fake handles and avatars are hidden, without
-// touching the text Hush reads. The side panel and the popup open as extension
+// touching the text Tiho reads. The side panel and the popup open as extension
 // pages in their own windows (so the chat tab stays visible and keeps sending
 // to the engine); a small shim makes their "active tab" the chat tab.
-// Build first: HUSH_OUT=.output-media npx wxt build.
+// Build first: TIHO_OUT=.output-media npx wxt build.
 import { chromium } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -48,9 +48,9 @@ const shots = shotList.split(',');
 const secs = Number(opt('secs', 60));
 const light = !!opts.light;
 const name = opt('name', new URL(url).hostname.replace(/^www\./, '').split('.')[0]);
-const out = path.resolve(opt('out', path.join(os.tmpdir(), 'hush-media')));
+const out = path.resolve(opt('out', path.join(os.tmpdir(), 'tiho-media')));
 const [vw, vh] = opt('viewport', '1600x950').split('x').map(Number);
-const ext = path.resolve(process.env.HUSH_EXT_DIR ?? '.output-media/chrome-mv3');
+const ext = path.resolve(process.env.TIHO_EXT_DIR ?? '.output-media/chrome-mv3');
 const here = path.dirname(fileURLToPath(import.meta.url));
 fs.mkdirSync(out, { recursive: true });
 /** Device scale: screenshots and clip frames are 2× the CSS size. */
@@ -61,7 +61,7 @@ const COSMETIC_CSS = `
   /* Twitch: drops / hype train cards over the chat, callouts above the input, the sign-up footer */
   [class*="community-highlight-stack"], [class*="hypeTrainBanner"], [data-test-selector^="chat-private-callout-queue"], footer:has(.tw-callout-message) { display: none !important; }`;
 
-const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'hush-media-')), {
+const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'tiho-media-')), {
   headless: false,
   viewport: { width: vw, height: vh },
   deviceScaleFactor: DPR,
@@ -114,7 +114,7 @@ await new Promise((r) => setTimeout(r, 1500));
 await sw.evaluate(() => {
   globalThis.__settingsLog = [];
   chrome.storage.onChanged.addListener((c) => {
-    const s = c['hush.settings.v1']?.newValue;
+    const s = c['tiho.settings.v1']?.newValue;
     if (s) globalThis.__settingsLog.push(`${new Date().toISOString().slice(11, 19)} actions=${JSON.stringify(s.actions)} engine=${s.engine?.enabled}`);
   });
 });
@@ -190,14 +190,14 @@ async function anonymizeBar(p) {
   const { root } = await cdp.send('DOM.getDocument', { depth: -1, pierce: true });
   const roots = [];
   (function walk(n) {
-    if (n.nodeName === 'HUSH-BAR') roots.push(...(n.shadowRoots ?? []));
+    if (n.nodeName === 'TIHO-BAR') roots.push(...(n.shadowRoots ?? []));
     for (const c of [...(n.children ?? []), ...(n.shadowRoots ?? []), ...(n.contentDocument ? [n.contentDocument] : [])]) walk(c);
   })(root);
   for (const r of roots) {
     const { object } = await cdp.send('DOM.resolveNode', { backendNodeId: r.backendNodeId });
     await cdp.send('Runtime.callFunctionOn', {
       objectId: object.objectId,
-      functionDeclaration: 'function () { window.__hushBarRoot = this; window.__hushAnon?.watch(this); }',
+      functionDeclaration: 'function () { window.__tihoBarRoot = this; window.__tihoAnon?.watch(this); }',
     });
   }
   await cdp.detach();
@@ -206,7 +206,7 @@ async function anonymizeBar(p) {
 
 /** The frame that hosts the chat (YouTube: the live_chat iframe). */
 async function chatFrame(p) {
-  for (const f of p.frames()) if (await f.evaluate(() => !!document.querySelector('[data-hush-a]')).catch(() => false)) return f;
+  for (const f of p.frames()) if (await f.evaluate(() => !!document.querySelector('[data-tiho-a]')).catch(() => false)) return f;
   return p.mainFrame();
 }
 
@@ -221,7 +221,7 @@ async function frameOffset(f) {
 
 async function barOpen(p) {
   await anonymizeBar(p);
-  return (await chatFrame(p)).evaluate(() => window.__hushBarRoot?.querySelector('.hb-expand')?.getAttribute('aria-expanded') === 'true');
+  return (await chatFrame(p)).evaluate(() => window.__tihoBarRoot?.querySelector('.hb-expand')?.getAttribute('aria-expanded') === 'true');
 }
 
 /** Bar → live stats, with real (trusted) clicks: the bar drops synthetic input. */
@@ -229,7 +229,7 @@ async function toggleBar(p) {
   await anonymizeBar(p);
   const f = await chatFrame(p);
   const r = await f.evaluate(() => {
-    const b = window.__hushBarRoot?.querySelector('.hb-expand')?.getBoundingClientRect();
+    const b = window.__tihoBarRoot?.querySelector('.hb-expand')?.getBoundingClientRect();
     return b && { x: b.x + b.width / 2, y: b.y + b.height / 2 };
   });
   if (!r) throw new Error('bar not found');
@@ -244,7 +244,7 @@ async function toggleBar(p) {
  * height is its scroll content, and wrappers may have none).
  */
 function columnOf(sel) {
-  const start = sel === 'list' ? document.querySelector('[data-hush-a]').parentElement : document.querySelector(sel);
+  const start = sel === 'list' ? document.querySelector('[data-tiho-a]').parentElement : document.querySelector(sel);
   const w = start.getBoundingClientRect().width;
   const seen = (r) => Math.min(innerHeight, r.bottom) - Math.max(0, r.top);
   let best = start;
@@ -290,7 +290,7 @@ async function openWindow(file, width, height) {
 /** Rules → Custom AI filters: engine on, Backseating filter, stream context; then let it answer. */
 async function engineShot(p, file) {
   await p.getByRole('tab', { name: /^rules/i }).click();
-  const toggle = p.getByRole('switch', { name: 'Use Hush Engine' });
+  const toggle = p.getByRole('switch', { name: 'Use Tiho Engine' });
   if ((await toggle.getAttribute('aria-checked')) !== 'true') await toggle.click();
   await p.locator('.sp-suggest button', { hasText: 'Backseating' }).click();
   const context = opt('context', '');
@@ -361,7 +361,7 @@ function encode(dir, base) {
 /** Pills, highlighted rows and wave badges in view: to pick the shot that shows them all. */
 async function onScreen(p) {
   return (await chatFrame(p)).evaluate(() => {
-    const list = document.querySelector('[data-hush-a]').parentElement;
+    const list = document.querySelector('[data-tiho-a]').parentElement;
     let scroller = list.parentElement;
     while (scroller.parentElement && !/auto|scroll/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
     const { top, bottom } = scroller.getBoundingClientRect();
@@ -369,17 +369,17 @@ async function onScreen(p) {
       const b = r.getBoundingClientRect();
       return b.height > 0 && b.top >= top && b.bottom <= bottom;
     }).length;
-    return { pills: seen('[data-hush-run]'), highlighted: seen('[data-hush-a="highlight"]'), waves: seen('[data-hush-wh]'), dimmed: seen('[data-hush-a="dim"]') };
+    return { pills: seen('[data-tiho-run]'), highlighted: seen('[data-tiho-a="highlight"]'), waves: seen('[data-tiho-wh]'), dimmed: seen('[data-tiho-a="dim"]') };
   });
 }
 
-/** What Hush decided on the chat page, and the anonymizer's verdict check. */
+/** What Tiho decided on the chat page, and the anonymizer's verdict check. */
 async function report(p) {
   const f = await chatFrame(p);
   return f.evaluate(() => {
-    const rows = [...document.querySelectorAll('[data-hush-c]')];
+    const rows = [...document.querySelectorAll('[data-tiho-c]')];
     const act = {};
-    for (const r of rows) act[r.dataset.hushA] = (act[r.dataset.hushA] || 0) + 1;
-    return { rows: rows.length, actions: act, anonymized: document.querySelectorAll('[data-anon]').length, anon: window.__hushAnon?.check() };
+    for (const r of rows) act[r.dataset.tihoA] = (act[r.dataset.tihoA] || 0) + 1;
+    return { rows: rows.length, actions: act, anonymized: document.querySelectorAll('[data-anon]').length, anon: window.__tihoAnon?.check() };
   });
 }

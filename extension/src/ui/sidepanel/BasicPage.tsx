@@ -1,4 +1,4 @@
-// The side panel in Basic mode: one page, no tabs, no numbers. How much Hush
+// The side panel in Basic mode: one page, no tabs, no numbers. How much Tiho
 // hides, what Advanced mode would add, and the privacy line. Basic surfaces
 // never link here; whoever opens it still lands somewhere useful.
 

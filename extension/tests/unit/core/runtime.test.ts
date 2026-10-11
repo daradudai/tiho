@@ -5,7 +5,7 @@ import { zeroInChat, type InChat } from '../../../src/core/store';
 import { CATEGORIES, Role, type Action, type Category, type ChatMessage } from '../../../src/core/types';
 import type { PlatformAdapter } from '../../../src/platforms/types';
 import { ClassifierClient, type ClassifierTransport } from '../../../src/runtime/classifier';
-import { HushRuntime } from '../../../src/runtime/engine';
+import { TihoRuntime } from '../../../src/runtime/engine';
 
 // ───────────────────────── fakes ─────────────────────────
 
@@ -96,7 +96,7 @@ let clock = 0;
 let seq = 0;
 let list: HTMLElement;
 let port: FakePort;
-let rt: HushRuntime;
+let rt: TihoRuntime;
 let classifier: ClassifierClient;
 
 function setup(o: { settings?: Partial<Settings>; adapter?: PlatformAdapter; model?: boolean | 'none' } = {}) {
@@ -111,7 +111,7 @@ function setup(o: { settings?: Partial<Settings>; adapter?: PlatformAdapter; mod
     onRescored: (ids) => rt.onRescored(ids),
     onStatus: (s) => rt.setModelStatus(s),
   });
-  rt = new HushRuntime({
+  rt = new TihoRuntime({
     adapter: o.adapter ?? fakeAdapter(),
     settings,
     classifier: o.model === 'none' ? null : classifier,
@@ -147,11 +147,11 @@ async function frame() {
   await settle();
   rt.flushNow();
 }
-const A = (el: Element) => el.getAttribute('data-hush-a');
-const C = (el: Element) => el.getAttribute('data-hush-c');
+const A = (el: Element) => el.getAttribute('data-tiho-a');
+const C = (el: Element) => el.getAttribute('data-tiho-c');
 /** Invisible while waiting for the model: no verdict attribute under a marked list (or explicit pending). */
 const held = (el: Element) =>
-  A(el) === 'pending' || (!el.hasAttribute('data-hush-a') && !!el.parentElement?.hasAttribute('data-hush-list'));
+  A(el) === 'pending' || (!el.hasAttribute('data-tiho-a') && !!el.parentElement?.hasAttribute('data-tiho-list'));
 
 beforeEach(() => {
   clock = 1000;
@@ -178,10 +178,10 @@ describe('runtime: rules path', () => {
 
   it('works rules-only without a classifier', async () => {
     setup({ model: 'none' });
-    expect(list.hasAttribute('data-hush-list')).toBe(true); // rows hidden until their first verdict
+    expect(list.hasAttribute('data-tiho-list')).toBe(true); // rows hidden until their first verdict
     const r = row('you are an idiot');
     await settle();
-    expect(r.hasAttribute('data-hush-a')).toBe(false); // nothing written in the observer callback
+    expect(r.hasAttribute('data-tiho-a')).toBe(false); // nothing written in the observer callback
     rt.flushNow();
     expect(A(r)).toBe('show');
     expect(C(r)).toBe('clean');
@@ -194,7 +194,7 @@ describe('runtime: rules path', () => {
     sys.textContent = 'Welcome to the chat room!';
     list.appendChild(sys);
     await frame();
-    expect(sys.hasAttribute('data-hush-a')).toBe(false); // maybe not hydrated yet: retried for 2 frames
+    expect(sys.hasAttribute('data-tiho-a')).toBe(false); // maybe not hydrated yet: retried for 2 frames
     rt.flushNow();
     rt.flushNow();
     expect(A(sys)).toBe(''); // seen, never hidden
@@ -205,23 +205,23 @@ describe('runtime: rules path', () => {
     const other = document.createElement('section');
     list.appendChild(other);
     await settle();
-    expect(other.getAttribute('data-hush-a')).toBe('');
+    expect(other.getAttribute('data-tiho-a')).toBe('');
   });
 
   it('removes the list mark when disabled or when the preset hides nothing', async () => {
     setup();
-    expect(list.hasAttribute('data-hush-list')).toBe(true);
+    expect(list.hasAttribute('data-tiho-list')).toBe(true);
     rt.setSettings({ ...DEFAULT_SETTINGS, preset: 'raw', actions: PRESETS.raw });
-    expect(list.hasAttribute('data-hush-list')).toBe(false);
+    expect(list.hasAttribute('data-tiho-list')).toBe(false);
     const other = document.createElement('section'); // added while unmarked
     list.appendChild(other);
     await settle();
-    expect(other.hasAttribute('data-hush-a')).toBe(false);
+    expect(other.hasAttribute('data-tiho-a')).toBe(false);
     rt.setSettings({ ...DEFAULT_SETTINGS });
-    expect(list.hasAttribute('data-hush-list')).toBe(true);
-    expect(other.getAttribute('data-hush-a')).toBe(''); // never hidden by the list rule
+    expect(list.hasAttribute('data-tiho-list')).toBe(true);
+    expect(other.getAttribute('data-tiho-a')).toBe(''); // never hidden by the list rule
     rt.stop();
-    expect(list.hasAttribute('data-hush-list')).toBe(false);
+    expect(list.hasAttribute('data-tiho-list')).toBe(false);
   });
 
   it('picks up rows hydrated after insertion', async () => {
@@ -250,7 +250,7 @@ describe('runtime: model path + hold', () => {
     rt.flushNow();
     expect(A(bad)).toBe('hide');
     expect(C(bad)).toBe('toxic');
-    expect(bad.getAttribute('data-hush-r')).toBe('toxic · certain');
+    expect(bad.getAttribute('data-tiho-r')).toBe('toxic · certain');
     expect(A(ok)).toBe('show');
     expect(C(ok)).toBe('clean');
   });
@@ -307,7 +307,7 @@ describe('runtime: model path + hold', () => {
     rt.flushNow();
     expect(C(mod)).toBe('toxic');
     expect(A(mod)).toBe('show');
-    expect(mod.getAttribute('data-hush-r')).toBe('toxic · certain · always shown');
+    expect(mod.getAttribute('data-tiho-r')).toBe('toxic · certain · always shown');
     expect(A(paid)).toBe('show');
   });
 
@@ -334,7 +334,7 @@ describe('runtime: model path + hold', () => {
   });
 });
 
-describe('runtime: Hush Engine follow-ups', () => {
+describe('runtime: Tiho Engine follow-ups', () => {
   const BACKSEAT: EngineFilter = { id: 'b', question: 'Is this message backseating?', label: 'Backseating', action: 'hide', enabled: true };
 
   it('a late custom-filter answer re-decides rows already on screen', async () => {
@@ -354,7 +354,7 @@ describe('runtime: Hush Engine follow-ups', () => {
     rt.flushNow();
     for (const r of [a, b]) {
       expect(A(r)).toBe('hide');
-      expect(r.getAttribute('data-hush-r')).toBe('filter: backseating');
+      expect(r.getAttribute('data-tiho-r')).toBe('filter: backseating');
     }
     expect(rt.store.inChat.value.hidden).toBe(2);
     expect(rt.store.filtered.value[0]?.verdict).toMatchObject({ action: 'hide', source: 'engine' });
@@ -380,12 +380,12 @@ describe('runtime: waves', () => {
     const rows = ['a', 'b', 'c', 'd', 'e'].map((u) => row('KEKW', { user: u, emotes: 1 }));
     await frame();
     const [head, ...members] = rows;
-    expect(head!.getAttribute('data-hush-wh')).toBe('5');
+    expect(head!.getAttribute('data-tiho-wh')).toBe('5');
     expect(A(head!)).toBe('show');
     // members after the head collapse (b, c retroactively once the 4th user arrives)
     for (const m of members) {
       expect(A(m)).toBe('collapse');
-      expect(m.hasAttribute('data-hush-wm')).toBe(true);
+      expect(m.hasAttribute('data-tiho-wm')).toBe(true);
     }
     expect(rt.store.waves.value[0]?.count).toBe(5);
   });
@@ -434,7 +434,7 @@ describe('runtime: DOM churn', () => {
     rt.flushNow();
     expect(A(bad)).toBe('show');
     rt.setSettings({ ...DEFAULT_SETTINGS, enabled: false });
-    expect(bad.hasAttribute('data-hush-a')).toBe(false);
+    expect(bad.hasAttribute('data-tiho-a')).toBe(false);
   });
 
   it('user rules apply immediately and override presets', async () => {
@@ -442,7 +442,7 @@ describe('runtime: DOM churn', () => {
     const r = row('SPOILER he dies at the end');
     await frame();
     expect(A(r)).toBe('hide');
-    expect(r.getAttribute('data-hush-r')).toBe('blocked: spoiler');
+    expect(r.getAttribute('data-tiho-r')).toBe('blocked: spoiler');
     expect(port.items.length).toBe(0);
   });
 
@@ -453,14 +453,14 @@ describe('runtime: DOM churn', () => {
     await frame();
     expect(A(a)).toBe('collapse');
     // consecutive pills read as one: the run's last row carries its length
-    expect(a.hasAttribute('data-hush-run')).toBe(false);
-    expect(b.getAttribute('data-hush-run')).toBe('2');
+    expect(a.hasAttribute('data-tiho-run')).toBe(false);
+    expect(b.getAttribute('data-tiho-run')).toBe('2');
     expect(rt.reveal('x1')).toBe(true);
     expect(A(a)).toBe('show');
-    expect(a.hasAttribute('data-hush-open')).toBe(true);
-    expect(b.getAttribute('data-hush-run')).toBe('1');
+    expect(a.hasAttribute('data-tiho-open')).toBe(true);
+    expect(b.getAttribute('data-tiho-run')).toBe('1');
     b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(b.hasAttribute('data-hush-open')).toBe(true);
+    expect(b.hasAttribute('data-tiho-open')).toBe(true);
   });
 
   it('the row that draws a pill is a button named after its run; the attributes follow the mark', async () => {
@@ -518,14 +518,14 @@ describe('runtime: DOM churn', () => {
     await frame();
     expect(key(a, 'Enter')).toBe(true); // not the pill: left to the page
     expect(key(b, 'x')).toBe(true);
-    expect(a.hasAttribute('data-hush-open')).toBe(false);
+    expect(a.hasAttribute('data-tiho-open')).toBe(false);
     expect(key(b, 'Enter')).toBe(false); // handled
-    expect(a.hasAttribute('data-hush-open')).toBe(true);
-    expect(b.hasAttribute('data-hush-open')).toBe(true);
+    expect(a.hasAttribute('data-tiho-open')).toBe(true);
+    expect(b.hasAttribute('data-tiho-open')).toBe(true);
     expect(b.hasAttribute('tabindex')).toBe(false); // no longer a button, at once
-    expect(c.hasAttribute('data-hush-open')).toBe(false); // another run
+    expect(c.hasAttribute('data-tiho-open')).toBe(false); // another run
     expect(key(c, ' ')).toBe(false);
-    expect(c.hasAttribute('data-hush-open')).toBe(true);
+    expect(c.hasAttribute('data-tiho-open')).toBe(true);
     await frame();
     for (const r of [a, b, c]) expect(A(r)).toBe('show');
   });
@@ -537,7 +537,7 @@ describe('runtime: DOM churn', () => {
     port.replyAll(scorer);
     rt.flushNow();
     for (const el of Array.from(list.children)) expect(el.getAttribute('style')).toBeNull();
-    expect(document.getElementById('hush-row-style')).not.toBeNull();
+    expect(document.getElementById('tiho-row-style')).not.toBeNull();
   });
 });
 
@@ -546,7 +546,7 @@ describe('runtime: a message seen again', () => {
   function copyOf(el: HTMLElement): HTMLElement {
     const fresh = document.createElement('div');
     fresh.className = 'msg';
-    for (const [k, v] of Object.entries(el.dataset)) if (!k.startsWith('hush')) fresh.dataset[k] = v;
+    for (const [k, v] of Object.entries(el.dataset)) if (!k.startsWith('tiho')) fresh.dataset[k] = v;
     fresh.textContent = el.textContent;
     return fresh;
   }
@@ -582,7 +582,7 @@ describe('runtime: a message seen again', () => {
 
   it('after a model switch keeps its verdict while the new model scores it again', async () => {
     setup();
-    const ready = (version: string) => port.emit({ type: 'status', status: { state: 'ready', backend: 'wasm', modelId: 'hush-lite', version } });
+    const ready = (version: string) => port.emit({ type: 'status', status: { state: 'ready', backend: 'wasm', modelId: 'tiho-lite', version } });
     ready('6l');
     const back = await scrolledAway('you are trash');
     ready('3l'); // the other student
@@ -627,7 +627,7 @@ describe('runtime: a message seen again', () => {
     expect(s.questions.value).toHaveLength(1);
   });
 
-  it('Hush turned off and on: rows on screen keep their verdicts', async () => {
+  it('Tiho turned off and on: rows on screen keep their verdicts', async () => {
     setup();
     const ok = row('see you all tomorrow', { user: 'bob' });
     const bad = row('you are trash', { user: 'eve' });
@@ -635,11 +635,11 @@ describe('runtime: a message seen again', () => {
     port.replyAll(scorer);
     rt.flushNow();
     rt.setSettings({ ...DEFAULT_SETTINGS, enabled: false });
-    expect(ok.hasAttribute('data-hush-a')).toBe(false);
+    expect(ok.hasAttribute('data-tiho-a')).toBe(false);
     rt.setSettings({ ...DEFAULT_SETTINGS });
     rt.flushNow();
     expect(A(ok)).toBe('show');
-    expect(ok.hasAttribute('data-hush-r')).toBe(false);
+    expect(ok.hasAttribute('data-tiho-r')).toBe(false);
     expect(A(bad)).toBe('hide');
     expect(rt.store.seen.value).toBe(2);
     expect(rt.store.inChat.value).toMatchObject({ rows: 2, hidden: 1 });
@@ -654,7 +654,7 @@ describe('runtime: a message seen again', () => {
     const again = row('see you all tomorrow', { user: 'bob' });
     await frame();
     expect(A(again)).toBe('collapse');
-    expect(again.getAttribute('data-hush-r')).toBe('repeat');
+    expect(again.getAttribute('data-tiho-r')).toBe('repeat');
   });
 
   it('a wave head keeps its counter, a row the viewer opened stays open', async () => {
@@ -668,11 +668,11 @@ describe('runtime: a message seen again', () => {
     const opened = remount(list.querySelector<HTMLElement>('[data-key="p1"]')!);
     await frame();
     expect(A(head)).toBe('show');
-    expect(head.getAttribute('data-hush-wh')).toBe('5');
-    expect(head.hasAttribute('data-hush-wm')).toBe(false);
-    expect(member.hasAttribute('data-hush-wm')).toBe(true);
+    expect(head.getAttribute('data-tiho-wh')).toBe('5');
+    expect(head.hasAttribute('data-tiho-wm')).toBe(false);
+    expect(member.hasAttribute('data-tiho-wm')).toBe(true);
     expect(A(opened)).toBe('show');
-    expect(opened.hasAttribute('data-hush-open')).toBe(true);
+    expect(opened.hasAttribute('data-tiho-open')).toBe(true);
     expect(rt.store.seen.value).toBe(6);
   });
 });
@@ -686,7 +686,7 @@ function recount(): InChat {
     const c = C(el) as Category | null;
     if (!c) continue;
     n.rows++;
-    if (el.hasAttribute('data-hush-wm')) {
+    if (el.hasAttribute('data-tiho-wm')) {
       n.inWaves++;
       continue;
     }
@@ -703,7 +703,7 @@ const inChat = () => rt.store.inChat.value;
 function remountRow(el: HTMLElement): HTMLElement {
   const fresh = document.createElement('div');
   fresh.className = 'msg';
-  for (const [k, v] of Object.entries(el.dataset)) if (!k.startsWith('hush')) fresh.dataset[k] = v;
+  for (const [k, v] of Object.entries(el.dataset)) if (!k.startsWith('tiho')) fresh.dataset[k] = v;
   fresh.textContent = el.textContent;
   el.replaceWith(fresh);
   return fresh;
@@ -748,7 +748,7 @@ describe('runtime: in chat now', () => {
           rt.setSettings({ ...DEFAULT_SETTINGS, preset: p, actions: { ...PRESETS[p] } });
           break;
         }
-        case 8: // Hush off and on again
+        case 8: // Tiho off and on again
           enabled = !enabled;
           rt.setSettings({ ...DEFAULT_SETTINGS, enabled });
           break;
@@ -761,7 +761,7 @@ describe('runtime: in chat now', () => {
         case 11: // a new node for the same message while the old one is still there (YouTube re-renders)
           if (pick?.dataset.key) {
             const copy = pick.cloneNode(true) as HTMLElement;
-            for (const k of Object.keys(copy.dataset)) if (k.startsWith('hush')) delete copy.dataset[k];
+            for (const k of Object.keys(copy.dataset)) if (k.startsWith('tiho')) delete copy.dataset[k];
             for (const n of ['tabindex', 'role', 'aria-label']) copy.removeAttribute(n);
             pick.after(copy);
             await frame();
@@ -799,7 +799,7 @@ describe('runtime: in chat now', () => {
     expect(inChat().hidden).toBe(95);
   });
 
-  it('reads 0 once Hush or the site is off (the store is flushed, not frozen), and counts again when back', async () => {
+  it('reads 0 once Tiho or the site is off (the store is flushed, not frozen), and counts again when back', async () => {
     setup();
     row('you are trash');
     row('nice play');
@@ -834,7 +834,7 @@ describe('runtime: in chat now', () => {
 
 describe('runtime: Show hidden and Solo', () => {
   const advanced = { uiMode: 'advanced' } as const;
-  const css = () => document.getElementById('hush-row-style')!.textContent!;
+  const css = () => document.getElementById('tiho-row-style')!.textContent!;
 
   /** A toxic message (hidden), two spam floods (one pill), a question (highlighted), a clean one. */
   async function chat(): Promise<HTMLElement[]> {
@@ -852,9 +852,9 @@ describe('runtime: Show hidden and Solo', () => {
     mo.observe(list, { subtree: true, attributes: true });
     const before = css();
     rt.setPeek(true);
-    expect(css()).toContain('content:"hidden · " attr(data-hush-r)');
+    expect(css()).toContain('content:"hidden · " attr(data-tiho-r)');
     rt.setSolo('spam');
-    expect(css()).toContain('[data-hush-c]:not([data-hush-c="spam"]){display:none!important}');
+    expect(css()).toContain('[data-tiho-c]:not([data-tiho-c="spam"]){display:none!important}');
     rt.setSolo(null);
     expect(css()).toBe(before);
     rt.flushNow();
@@ -868,10 +868,10 @@ describe('runtime: Show hidden and Solo', () => {
     rt.setPeek(true);
     expect(rt.store.peek.value).toBe(true);
     expect(css()).toContain('content:"Hidden · insult"');
-    expect(css()).not.toContain('attr(data-hush-r)'); // no reasons, no chips
+    expect(css()).not.toContain('attr(data-tiho-r)'); // no reasons, no chips
   });
 
-  it('Solo: Advanced only, while Hush is on; ends with Basic, Hush or the site off, another channel', async () => {
+  it('Solo: Advanced only, while Tiho is on; ends with Basic, Tiho or the site off, another channel', async () => {
     setup();
     await chat();
     rt.setSolo('spam'); // Basic: ignored
@@ -906,7 +906,7 @@ describe('runtime: Show hidden and Solo', () => {
     expect(rt.store.solo.value).toBeNull();
   });
 
-  it('Show hidden: Solo turns it off; it ends with Hush off or another channel and survives a level or mode change', async () => {
+  it('Show hidden: Solo turns it off; it ends with Tiho off or another channel and survives a level or mode change', async () => {
     setup({ settings: advanced });
     await chat();
     rt.setPeek(true);
@@ -935,7 +935,7 @@ describe('runtime: Show hidden and Solo', () => {
   it('leave clicks and Enter on a folded row to the page', async () => {
     setup({ settings: advanced });
     const [, a, b] = await chat();
-    expect(b!.getAttribute('data-hush-run')).toBe('2');
+    expect(b!.getAttribute('data-tiho-run')).toBe('2');
     const page = vi.fn();
     document.addEventListener('click', page);
     const enter = () => b!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
@@ -947,21 +947,21 @@ describe('runtime: Show hidden and Solo', () => {
       b!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       expect(enter()).toBe(true); // not handled
       await frame();
-      expect([a, b].some((r) => r!.hasAttribute('data-hush-open'))).toBe(false);
+      expect([a, b].some((r) => r!.hasAttribute('data-tiho-open'))).toBe(false);
       off!();
     }
     expect(page).toHaveBeenCalledTimes(2);
     b!.dispatchEvent(new MouseEvent('click', { bubbles: true })); // no view: the pill opens its run
     expect(page).toHaveBeenCalledTimes(2);
-    expect(b!.hasAttribute('data-hush-open')).toBe(true);
+    expect(b!.hasAttribute('data-tiho-open')).toBe(true);
     document.removeEventListener('click', page);
   });
 
   it('Solo hides new rows from birth and holds them for the model, even under Raw; both stop on exit', async () => {
     setup({ settings: { ...advanced, preset: 'raw', actions: { ...PRESETS.raw } } });
-    expect(list.hasAttribute('data-hush-list')).toBe(false);
+    expect(list.hasAttribute('data-tiho-list')).toBe(false);
     rt.setSolo('toxic');
-    expect(list.hasAttribute('data-hush-list')).toBe(true);
+    expect(list.hasAttribute('data-tiho-list')).toBe(true);
     const r = row('such an idiot streamer');
     await frame();
     expect(held(r)).toBe(true);
@@ -969,7 +969,7 @@ describe('runtime: Show hidden and Solo', () => {
     rt.flushNow();
     expect([A(r), C(r)]).toEqual(['show', 'toxic']); // Raw's verdict, untouched by Solo
     rt.setSolo(null);
-    expect(list.hasAttribute('data-hush-list')).toBe(false);
+    expect(list.hasAttribute('data-tiho-list')).toBe(false);
     const r2 = row('what a lovely evening');
     await frame();
     expect(A(r2)).toBe('show'); // not held
@@ -984,14 +984,14 @@ describe('runtime: Show hidden and Solo', () => {
     expect(rt.reveal(bad!.dataset.key!)).toBe(true);
     expect(rt.store.solo.value).toBeNull();
     expect(A(bad!)).toBe('show');
-    expect(bad!.hasAttribute('data-hush-open')).toBe(true);
+    expect(bad!.hasAttribute('data-tiho-open')).toBe(true);
   });
 
   it('change no verdict and no count', async () => {
     setup({ settings: advanced });
     await chat();
     const before = { ...inChat() };
-    const attrs = () => Array.from(list.children).map((el) => [A(el), C(el), el.getAttribute('data-hush-r')].join('|'));
+    const attrs = () => Array.from(list.children).map((el) => [A(el), C(el), el.getAttribute('data-tiho-r')].join('|'));
     const was = attrs();
     rt.setSolo('question');
     rt.flushNow();

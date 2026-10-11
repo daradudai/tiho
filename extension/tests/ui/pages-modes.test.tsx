@@ -49,11 +49,11 @@ const set = vi.fn(async (o: Record<string, unknown>) => {
 
 beforeAll(() => {
   vi.stubGlobal('chrome', {
-    runtime: { id: 'hush-test', lastError: undefined, onMessage: event(), onConnect: event(), sendMessage: async () => undefined, getManifest: () => ({ version: '0.1.0' }) },
+    runtime: { id: 'tiho-test', lastError: undefined, onMessage: event(), onConnect: event(), sendMessage: async () => undefined, getManifest: () => ({ version: '0.1.0' }) },
     storage: { local: { get: async (k: string) => (k in storage ? { [k]: structuredClone(storage[k]) } : {}), set }, onChanged },
     tabs: {
       query: async () => [{ id: 7, url: 'https://www.twitch.tv/somechannel' }],
-      sendMessage: async (_id: number, m: { type: string }) => (m.type === 'hush:getSnapshot' ? snapshot : undefined),
+      sendMessage: async (_id: number, m: { type: string }) => (m.type === 'tiho:getSnapshot' ? snapshot : undefined),
       connect: (_id: number, { name }: { name: string }) => (lastPort = port(name)),
       onActivated: event(),
       onUpdated: event(),
@@ -78,7 +78,7 @@ function snap(over: Partial<LiveSnapshot> = {}): LiveSnapshot {
     channel: 'somechannel',
     theme: 'dark',
     enabled: true,
-    model: { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2-6L' },
+    model: { state: 'ready', backend: 'webgpu', modelId: 'tiho-lite/q8', version: 'v2-6L' },
     perf: { msgsPerSec: 3, inferPerSec: 2, cacheHitRate: 0.5, p50ms: 6, p95ms: 14, queue: 0 },
     inChat: IN_CHAT,
     peek: false,
@@ -145,7 +145,7 @@ describe('popup, Basic', () => {
     stored({ uiMode: 'basic', preset: 'focus', actions: { ...PRESETS.focus }, sites: { youtube: true, twitch: false, kick: true } });
     await act(() => render(<PopupApp />, el));
     await tick();
-    expect(el.textContent).toContain('Hush is off on Twitch');
+    expect(el.textContent).toContain('Tiho is off on Twitch');
     expect(el.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('Off');
     await act(() => byText('[role="radio"]', 'Clean')!.click());
     await tick();
@@ -241,7 +241,7 @@ describe('side panel', () => {
     expect(spam().textContent).toBe('Only');
   });
 
-  it('Live: Show hidden sends peek, and the buttons wait while Hush is off', async () => {
+  it('Live: Show hidden sends peek, and the buttons wait while Tiho is off', async () => {
     stored({ uiMode: 'advanced' });
     await act(() => render(<SidePanelApp initialTab="live" />, el));
     await tick();
@@ -265,7 +265,7 @@ describe('side panel', () => {
     expect(el.querySelector('.sp-h2-sub')?.textContent).toMatch(/^\d+ asked since you opened this panel · \d+ open$/);
     await act(() => byText('[role="tab"]', 'Log')!.click());
     expect(el.querySelector('.sp-h2')?.textContent).toBe('Hidden messages');
-    expect(el.querySelector('.sp-h2-sub')?.textContent).toBe('What Hush hid or folded since you opened this panel, newest first');
+    expect(el.querySelector('.sp-h2-sub')?.textContent).toBe('What Tiho hid or folded since you opened this panel, newest first');
   });
 
   it('Mood is a word in its tone (the score only in a tooltip); Log and Inbox say how sure in words, the raw score in a tooltip', async () => {
@@ -310,7 +310,7 @@ describe('side panel', () => {
 
 describe('onboarding', () => {
   it('asks how much to hide (Clean, recommended, or Quiet), offers Advanced mode, and its demo bar has no percentage (C8)', async () => {
-    // reduced motion: the demo shows "With Hush" and stays
+    // reduced motion: the demo shows "With Tiho" and stays
     const g = globalThis as { matchMedia: unknown };
     const mm = g.matchMedia;
     g.matchMedia = (q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {} });
@@ -345,7 +345,7 @@ describe('model status in plain words', () => {
     });
     expect(plainModelStatus({ state: 'loading', backend: 'webgpu' })?.progress).toBeUndefined();
     expect(plainModelStatus({ state: 'error', backend: 'none', error: 'WebGPU adapter lost' })).toEqual({
-      text: "Hush's AI didn't start. Simple filters still work.",
+      text: "Tiho's AI didn't start. Simple filters still work.",
       tone: 'err',
     });
     expect(plainModelStatus({ state: 'ready', backend: 'webgpu' })).toBeNull();

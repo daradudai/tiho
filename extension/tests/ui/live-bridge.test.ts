@@ -1,5 +1,5 @@
-// The live bridge between extension pages and the chat tab: startHush serves
-// hush:live / hush:getSnapshot once it shows a chat, connectLive follows the
+// The live bridge between extension pages and the chat tab: startTiho serves
+// tiho:live / tiho:getSnapshot once it shows a chat, connectLive follows the
 // active tab, markNotFiltered ("Not spam") edits the user's rules.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RuleEngine } from '../../src/core/rules';
@@ -8,7 +8,7 @@ import { SETTINGS_KEY, mergeSettings, type Settings, type UserRule } from '../..
 import type { LogEntry } from '../../src/core/store';
 import type { ChatMessage } from '../../src/core/types';
 import type { PlatformAdapter } from '../../src/platforms/types';
-import { startHush } from '../../src/runtime';
+import { startTiho } from '../../src/runtime';
 import { PORT_LIVE, allowPhrase, connectLive, markNotFiltered, type ActiveTab, type LiveSnapshot } from '../../src/ui/bridge';
 
 // ───────────────────────── a small chrome.* fake ─────────────────────────
@@ -45,7 +45,7 @@ let fake: ReturnType<typeof fakeChrome>;
 function fakeChrome() {
   return {
     runtime: {
-      id: 'hush-test',
+      id: 'tiho-test',
       lastError: undefined,
       onConnect: event(),
       onMessage: event(),
@@ -80,7 +80,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// ───────────────────────── startHush serves the pages ─────────────────────────
+// ───────────────────────── startTiho serves the pages ─────────────────────────
 
 const adapter: PlatformAdapter = {
   platform: 'twitch',
@@ -110,18 +110,18 @@ const adapter: PlatformAdapter = {
   viewer: () => [],
 };
 
-describe('startHush ↔ side panel / popup', () => {
+describe('startTiho ↔ side panel / popup', () => {
   it('answers nothing in a frame without a chat', async () => {
     document.body.innerHTML = '<div id="elsewhere"></div>';
-    const hush = await startHush({ adapter });
+    const tiho = await startTiho({ adapter });
     expect(fake.runtime.onConnect.size).toBe(0); // the panel's Port would disconnect: "no chat here"
-    hush.stop();
+    tiho.stop();
   });
 
-  it('streams snapshots over hush:live and takes reveal commands once it shows a chat', async () => {
+  it('streams snapshots over tiho:live and takes reveal commands once it shows a chat', async () => {
     document.body.innerHTML = '<div id="chat"></div>';
-    const hush = await startHush({ adapter });
-    const reveal = vi.spyOn(hush.runtime, 'reveal');
+    const tiho = await startTiho({ adapter });
+    const reveal = vi.spyOn(tiho.runtime, 'reveal');
 
     const p = port(PORT_LIVE);
     fake.runtime.onConnect.emit(p);
@@ -138,10 +138,10 @@ describe('startHush ↔ side panel / popup', () => {
 
     // the popup's one-shot request
     const sendResponse = vi.fn();
-    fake.runtime.onMessage.emit({ type: 'hush:getSnapshot' }, {}, sendResponse);
+    fake.runtime.onMessage.emit({ type: 'tiho:getSnapshot' }, {}, sendResponse);
     expect(sendResponse.mock.calls[0]![0]).toMatchObject({ v: 2, channel: 'somechannel' });
 
-    hush.stop();
+    tiho.stop();
     expect(fake.runtime.onConnect.size).toBe(0);
     expect(p.disconnect).toHaveBeenCalled();
   });
@@ -149,14 +149,14 @@ describe('startHush ↔ side panel / popup', () => {
   it('takes Show hidden and Solo commands from the side panel; the next snapshot says so', async () => {
     storage[SETTINGS_KEY] = { uiMode: 'advanced' };
     document.body.innerHTML = '<div id="chat"></div>';
-    const hush = await startHush({ adapter });
-    const peek = vi.spyOn(hush.runtime, 'setPeek');
-    const solo = vi.spyOn(hush.runtime, 'setSolo');
+    const tiho = await startTiho({ adapter });
+    const peek = vi.spyOn(tiho.runtime, 'setPeek');
+    const solo = vi.spyOn(tiho.runtime, 'setSolo');
     const p = port(PORT_LIVE);
     fake.runtime.onConnect.emit(p);
     const latest = () => {
       const sendResponse = vi.fn();
-      fake.runtime.onMessage.emit({ type: 'hush:getSnapshot' }, {}, sendResponse);
+      fake.runtime.onMessage.emit({ type: 'tiho:getSnapshot' }, {}, sendResponse);
       return sendResponse.mock.calls[0]![0] as LiveSnapshot;
     };
 
@@ -165,11 +165,11 @@ describe('startHush ↔ side panel / popup', () => {
     p.onMessage.emit({ type: 'solo', cat: 'nope' }); // not a category: dropped
     p.onMessage.emit({ type: 'solo', cat: 'spam' });
     expect(latest()).toMatchObject({ peek: false, solo: 'spam' });
-    fake.runtime.onMessage.emit({ type: 'hush:command', cmd: { type: 'solo', cat: null } }, {}, vi.fn()); // the one-shot path
+    fake.runtime.onMessage.emit({ type: 'tiho:command', cmd: { type: 'solo', cat: null } }, {}, vi.fn()); // the one-shot path
     expect(latest()).toMatchObject({ peek: false, solo: null });
     expect(peek.mock.calls).toEqual([[true]]);
     expect(solo.mock.calls).toEqual([['spam'], [null]]);
-    hush.stop();
+    tiho.stop();
   });
 });
 

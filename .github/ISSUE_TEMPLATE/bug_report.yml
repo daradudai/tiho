@@ -1,5 +1,5 @@
 name: Bug report
-description: Something is broken in the extension or in Hush Engine.
+description: Something is broken in the extension or in Tiho Engine.
 title: "[bug] "
 labels: ["bug"]
 body:
@@ -17,7 +17,7 @@ body:
         - Popup
         - Side panel
         - Welcome page / model download
-        - Hush Engine
+        - Tiho Engine
         - Building from source
     validations:
       required: true
@@ -52,9 +52,9 @@ body:
   - type: input
     id: version
     attributes:
-      label: Hush version, model status
+      label: Tiho version, model status
       description: The popup's footer shows the model status (for example "Ready · WebGPU"). Side panel → Settings shows versions.
-      placeholder: Hush 0.1.0, Ready · CPU (WASM)
+      placeholder: Tiho 0.1.0, Ready · CPU (WASM)
   - type: textarea
     id: extensions
     attributes:
@@ -66,6 +66,6 @@ body:
     attributes:
       label: Console errors
       description: |
-        Errors that mention Hush, from the page's DevTools console, or from chrome://extensions → Hush → "service worker" / "offscreen.html" (Inspect views).
-        For Hush Engine, the console output and `engine/logs/llama-server.log`.
+        Errors that mention Tiho, from the page's DevTools console, or from chrome://extensions → Tiho → "service worker" / "offscreen.html" (Inspect views).
+        For Tiho Engine, the console output and `engine/logs/llama-server.log`.
       render: text

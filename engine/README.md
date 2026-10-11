@@ -1,6 +1,6 @@
-# Hush Engine
+# Tiho Engine
 
-Optional local GPU server for the [Hush](../README.md) extension. It runs the
+Optional local GPU server for the [Tiho](../README.md) extension. It runs the
 [Clef-Flash](https://huggingface.co/Cloudflare/clef-flash) decision model (9B, Apache-2.0)
 through llama.cpp's `llama-server` and answers two kinds of questions about chat messages:
 
@@ -43,10 +43,10 @@ macOS.
 On first start the engine downloads anything that is missing:
 - **Model.** The GGUF from `huggingface.co/ggml-org/Clef-Flash-GGUF`. The download resumes if
   interrupted and is SHA-256 verified. It goes to `vendor/models/clef-flash/`, or to
-  `--models-dir` / `HUSH_MODELS_DIR`.
+  `--models-dir` / `TIHO_MODELS_DIR`.
 - **llama.cpp.** Release **b11541** from GitHub, the first release with the Clef decision
   endpoint (PR #29831). It goes to `vendor/llama.cpp/`, or to `--llama-dir` /
-  `HUSH_LLAMA_DIR`. On Windows with NVIDIA, the engine fetches
+  `TIHO_LLAMA_DIR`. On Windows with NVIDIA, the engine fetches
   `llama-b11541-bin-win-cuda-12.4-x64.zip` plus `cudart-llama-bin-win-cuda-12.4-x64.zip`. Every
   archive is checked against its pinned size and SHA-256 before it is unpacked. A replaced
   archive fails just like a corrupt model file.
@@ -71,7 +71,7 @@ cd engine
 ./start.sh                                    # Linux / macOS / Git Bash
 ```
 
-You can also run `python -m hush_engine --help` or `hush-engine --help` inside `.venv`.
+You can also run `python -m tiho_engine --help` or `tiho-engine --help` inside `.venv`.
 Startup takes about 5 to 30 seconds while the model loads. During that time `/health` reports
 `"status": "loading"`.
 
@@ -282,7 +282,7 @@ directly:
 - llama-server itself checks neither `Origin` nor `Host`. In managed mode it therefore gets a
   random API key on every run (`--api-key`, kept out of its log), and only `/health` answers
   without it. Otherwise any web page could read `/props` (its model path can show your user
-  name), keep its slots busy so Hush's answers miss their deadlines, or use your GPU. In attach
+  name), keep its slots busy so Tiho's answers miss their deadlines, or use your GPU. In attach
   mode, give your server a key and pass it with `--attach-key`.
 
 ## Performance
@@ -321,7 +321,7 @@ To benchmark a running engine:
 ```sh
 python -m uv venv .venv && python -m uv pip install --python .venv/Scripts/python.exe -e ".[dev]"
 .venv/Scripts/python -m pytest -q -m "not integration"
-HUSH_TEST_BACKEND=http://127.0.0.1:7378 .venv/Scripts/python -m pytest -q tests/test_integration.py
+TIHO_TEST_BACKEND=http://127.0.0.1:7378 .venv/Scripts/python -m pytest -q tests/test_integration.py
 ```
 
 Without uv, `python -m venv .venv` and `.venv/Scripts/python -m pip install -e ".[dev]"` work too
@@ -333,7 +333,7 @@ Without uv, `python -m venv .venv` and `.venv/Scripts/python -m pip install -e "
 - Process-management tests use `tests/fake_llama_server.py`, so they need no GPU.
 - CI runs the unit tests on Linux (Python 3.10 and 3.12) and Windows (Python 3.12).
 
-Code layout (`hush_engine/`):
+Code layout (`tiho_engine/`):
 
 | File | Contents |
 |---|---|

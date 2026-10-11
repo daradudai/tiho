@@ -1,4 +1,4 @@
-// Ready-made custom filters for the Hush Engine. Each question was tuned
+// Ready-made custom filters for the Tiho Engine. Each question was tuned
 // against Clef-Flash on real chat lines: a definition inside the question
 // ("backseating: telling the streamer how to play") keeps the model from
 // matching everything that merely mentions the topic.

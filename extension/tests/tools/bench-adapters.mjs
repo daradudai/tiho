@@ -9,7 +9,7 @@ import path from 'node:path';
 
 const out = await build({
   input: path.resolve('src/platforms/index.ts'),
-  output: { format: 'iife', name: 'HushPlatforms' },
+  output: { format: 'iife', name: 'TihoPlatforms' },
   write: false,
   logLevel: 'silent',
 });
@@ -39,7 +39,7 @@ for (const [file, url] of FIX) {
   await page.goto(url);
   await page.addScriptTag({ content: bundle });
   const res = await page.evaluate(() => {
-    const P = window.HushPlatforms;
+    const P = window.TihoPlatforms;
     const a = P.detectAdapter(location);
     const list = a.findChatList(document);
     const base = [...list.children].filter((r) => r.matches(a.rowSelector));

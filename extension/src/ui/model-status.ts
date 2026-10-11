@@ -7,15 +7,15 @@ import { PLAIN } from './tokens';
 
 export type StatusTone = 'ok' | 'gpu' | 'cpu' | 'engine' | 'load' | 'err' | 'idle';
 
-export const BACKEND_LABEL: Record<string, string> = { webgpu: 'WebGPU', wasm: 'CPU (WASM)', engine: 'Hush Engine', none: 'Rules only' };
+export const BACKEND_LABEL: Record<string, string> = { webgpu: 'WebGPU', wasm: 'CPU (WASM)', engine: 'Tiho Engine', none: 'Rules only' };
 
-/** "hush-lite/q8" (the worker's model id: name/variant) → "Hush Lite" */
+/** "tiho-lite/q8" (the worker's model id: name/variant) → "Tiho Lite" */
 export function prettyModel(id?: string): string {
-  if (!id || /hush[-_ ]?lite/i.test(id)) return 'Hush Lite';
+  if (!id || /tiho[-_ ]?lite/i.test(id)) return 'Tiho Lite';
   return id.split('/').pop()!;
 }
 
-/** Layers of the running model, from its version ("v2-6L" → 6); null until it is ready. */
+/** Layers of the running model, from its version ("v3-6L-ens" → 6); null until it is ready. */
 export function modelLayers(m: ModelStatus | null | undefined): number | null {
   const x = m?.state === 'ready' ? /(\d+)L\b/.exec(m.version ?? '') : null;
   return x ? Number(x[1]) : null;
@@ -36,7 +36,7 @@ export function modelProblem(error?: string): string {
 /** Retry: the background loads a model that failed to load again now (it also retries by itself, with backoff, while a chat is open). */
 export function retryModel(): void {
   try {
-    chrome.runtime.sendMessage({ type: 'hush:reloadModel' } satisfies RuntimeMessage).catch(() => {});
+    chrome.runtime.sendMessage({ type: 'tiho:reloadModel' } satisfies RuntimeMessage).catch(() => {});
   } catch {
     /* no extension context (showcase) */
   }

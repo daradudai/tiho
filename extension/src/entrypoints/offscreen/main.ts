@@ -26,7 +26,7 @@ let crashes = 0;
 let wasReady = false;
 
 function spawn(): Worker {
-  const w = new Worker(new URL('../../inference/worker.ts', import.meta.url), { type: 'module', name: 'hush-inference' });
+  const w = new Worker(new URL('../../inference/worker.ts', import.meta.url), { type: 'module', name: 'tiho-inference' });
   w.onmessage = (e: MessageEvent<WorkerOut>) => {
     const m = e.data;
     if (m?.type === 'status') {

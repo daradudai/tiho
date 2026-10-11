@@ -76,7 +76,7 @@ export interface ModelStatus {
   error?: string;
   modelId?: string;
   version?: string;
-  /** Calibrated per-label thresholds aligned with LABELS (model config `hush.thresholds`). Default 0.5. */
+  /** Calibrated per-label thresholds aligned with LABELS (model config `tiho.thresholds`). Default 0.5. */
   thresholds?: number[];
 }
 

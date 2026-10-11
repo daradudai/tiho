@@ -1,4 +1,4 @@
-// Background-side client for the optional Hush Engine (local GPU server).
+// Background-side client for the optional Tiho Engine (local GPU server).
 //
 //   ask(query) ──▶ group by (filters, base, context) ──≤ 50 ms or 32 texts──▶ POST /v1/classify
 //              ◀── answer, or null = no opinion (expired, overloaded, engine down)
@@ -238,7 +238,7 @@ export class EngineClient {
       if (!r || 'error' in r) return { ok: false, error: r && 'error' in r ? `Engine: ${r.error}` : 'No answer' };
       return { ok: true, filters: r.filters, ms: Math.round(this.now() - t0) };
     } catch (e) {
-      return { ok: false, error: isTimeout(e) ? 'The engine did not answer in time' : 'Hush Engine is not running' };
+      return { ok: false, error: isTimeout(e) ? 'The engine did not answer in time' : 'Tiho Engine is not running' };
     }
   }
 

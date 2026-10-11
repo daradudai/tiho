@@ -1,6 +1,6 @@
-// Toolbar popup (360 px). Basic: how much Hush hides (Off · Clean · Quiet),
+// Toolbar popup (360 px). Basic: how much Tiho hides (Off · Clean · Quiet),
 // the Advanced mode switch, nothing else. Advanced: master switch, this
-// site, what its chat holds now, preset, strictness, model (and Hush
+// site, what its chat holds now, preset, strictness, model (and Tiho
 // Engine) status, side panel.
 
 import { signal, useComputed } from '@preact/signals';
@@ -58,12 +58,12 @@ async function openSidePanel() {
   window.close?.();
 }
 
-/** What Hush is doing for the active tab, in both modes. */
+/** What Tiho is doing for the active tab, in both modes. */
 export function popupSubtitle(s: Settings, t: ActiveTab | null): string {
-  if (!s.enabled) return 'Hush is off';
+  if (!s.enabled) return 'Tiho is off';
   if (!t?.platform) return 'Open a live stream to start';
   const site = SITE_NAME[t.platform];
-  return s.sites[t.platform] ? `Cleaning up ${site} chat` : `Hush is off on ${site}`;
+  return s.sites[t.platform] ? `Cleaning up ${site} chat` : `Tiho is off on ${site}`;
 }
 
 export function PopupApp() {
@@ -99,7 +99,7 @@ function BasicPopup() {
         <div class="pp-brand">
           <Mark size={30} />
           <div>
-            <h1>Hush</h1>
+            <h1>Tiho</h1>
             <p class="pp-sub">{popupSubtitle(s, t)}</p>
           </div>
         </div>
@@ -135,11 +135,11 @@ function AdvancedPopup() {
         <div class="pp-brand">
           <Mark size={30} />
           <div>
-            <h1>Hush</h1>
+            <h1>Tiho</h1>
             <p class="pp-sub">{popupSubtitle(s, tab.value)}</p>
           </div>
         </div>
-        <Toggle size="lg" checked={s.enabled} label="Hush on/off" onChange={(v) => updateSettings({ enabled: v })} />
+        <Toggle size="lg" checked={s.enabled} label="Tiho on/off" onChange={(v) => updateSettings({ enabled: v })} />
       </header>
 
       <main class="pp-main">
@@ -193,7 +193,7 @@ function SiteCard() {
     return (
       <div class="pp-site pp-site-empty">
         <div class="pp-empty-title">Open a live stream</div>
-        <p>Hush quietly filters live chat on</p>
+        <p>Tiho quietly filters live chat on</p>
         <div class="pp-sites">
           {(['youtube', 'twitch', 'kick'] as const).map((p) => (
             <a
@@ -232,11 +232,11 @@ function SiteCard() {
             ) : on ? (
               `${SITE_NAME[p]} · waiting for chat`
             ) : (
-              `Hush is off on ${SITE_NAME[p]}`
+              `Tiho is off on ${SITE_NAME[p]}`
             )}
           </div>
         </div>
-        <Toggle size="sm" checked={on} label={`Hush on ${SITE_NAME[p]}`} onChange={(v) => updateSettings({ sites: { ...s.sites, [p]: v } })} />
+        <Toggle size="sm" checked={on} label={`Tiho on ${SITE_NAME[p]}`} onChange={(v) => updateSettings({ sites: { ...s.sites, [p]: v } })} />
       </div>
       {live && on && s.enabled && (
         <>
@@ -339,7 +339,7 @@ function EngineLine() {
     <span class="pp-model pp-engine" data-tone={sum.tone}>
       <span class="pp-model-dot" />
       <span class="pp-model-text">
-        <b>Hush Engine · {sum.title}</b>
+        <b>Tiho Engine · {sum.title}</b>
         {sum.sub && <em>{sum.sub}</em>}
       </span>
     </span>
@@ -353,7 +353,7 @@ function ModelLine() {
       <span class="pp-model" data-tone="idle">
         <span class="pp-model-dot" />
         <span class="pp-model-text">
-          <b>Hush Lite</b>
+          <b>Tiho Lite</b>
           <em>Connecting…</em>
         </span>
       </span>

@@ -1,4 +1,4 @@
-// Hush Engine HTTP API (engine/README.md) and its mapping to extension types.
+// Tiho Engine HTTP API (engine/README.md) and its mapping to extension types.
 //
 //   GET  /health        → Health
 //   POST /v1/classify   ClassifyRequest → ClassifyResponse, or with `stream`

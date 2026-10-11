@@ -1,11 +1,11 @@
 // Pill runs: the runtime marks the LAST collapsed row of every run with its
-// length (data-hush-run) so the stylesheet draws one "N hidden · show" pill
+// length (data-tiho-run) so the stylesheet draws one "N hidden · show" pill
 // per run with plain attribute selectors. Rules-only runtime (no model).
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, PRESETS, type Settings } from '../../src/core/settings';
 import type { ChatMessage } from '../../src/core/types';
 import type { PlatformAdapter } from '../../src/platforms/types';
-import { HushRuntime } from '../../src/runtime/engine';
+import { TihoRuntime } from '../../src/runtime/engine';
 import { STYLE_ID } from '../../src/runtime/styles';
 
 const adapter: PlatformAdapter = {
@@ -37,13 +37,13 @@ const adapter: PlatformAdapter = {
 };
 
 let list: HTMLElement;
-let rt: HushRuntime;
+let rt: TihoRuntime;
 let seq = 0;
 
 function setup(settings: Partial<Settings> = {}) {
   document.body.innerHTML = '<div id="chat"></div>';
   list = document.getElementById('chat')!;
-  rt = new HushRuntime({
+  rt = new TihoRuntime({
     adapter,
     settings: { ...DEFAULT_SETTINGS, ...settings },
     classifier: null,
@@ -76,7 +76,7 @@ const frame = async () => {
   await new Promise((r) => setTimeout(r, 0)); // deliver MutationObserver records
   rt.flushNow();
 };
-const runs = () => Array.from(list.children, (el) => el.getAttribute('data-hush-run') ?? (el.getAttribute('data-hush-a') === 'collapse' ? '·' : '-')).join(' ');
+const runs = () => Array.from(list.children, (el) => el.getAttribute('data-tiho-run') ?? (el.getAttribute('data-tiho-a') === 'collapse' ? '·' : '-')).join(' ');
 
 afterEach(() => rt?.stop());
 
@@ -152,7 +152,7 @@ describe('pill runs', () => {
     expect(runs()).toBe('· · 3');
     expect(rt.reveal(b.dataset.key!)).toBe(true);
     expect(runs()).toBe('1 - 1');
-    expect(b.hasAttribute('data-hush-open')).toBe(true);
+    expect(b.hasAttribute('data-tiho-open')).toBe(true);
   });
 
   it('clicking the pill reveals its whole run at once', async () => {
@@ -166,12 +166,12 @@ describe('pill runs', () => {
     await frame();
     expect(runs()).toBe('- · · 3 - 1');
     c.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    for (const el of [a, b, c]) expect(el.hasAttribute('data-hush-open')).toBe(true);
-    expect(after.hasAttribute('data-hush-open')).toBe(false);
-    expect(next.hasAttribute('data-hush-open')).toBe(false);
+    for (const el of [a, b, c]) expect(el.hasAttribute('data-tiho-open')).toBe(true);
+    expect(after.hasAttribute('data-tiho-open')).toBe(false);
+    expect(next.hasAttribute('data-tiho-open')).toBe(false);
     await frame();
     expect(runs()).toBe('- - - - - 1');
-    expect(a.getAttribute('data-hush-a')).toBe('show');
+    expect(a.getAttribute('data-tiho-a')).toBe('show');
   });
 
   it('re-marks every run when settings change, and clears marks when nothing collapses', async () => {
@@ -185,7 +185,7 @@ describe('pill runs', () => {
     rt.setSettings({ ...DEFAULT_SETTINGS, preset: 'raw', actions: { ...PRESETS.raw } });
     rt.flushNow();
     expect(runs()).toBe('- - - -');
-    expect(list.querySelector('[data-hush-run]')).toBeNull();
+    expect(list.querySelector('[data-tiho-run]')).toBeNull();
     rt.setSettings({ ...DEFAULT_SETTINGS });
     rt.flushNow();
     expect(runs()).toBe('· 2 - 1');
@@ -195,13 +195,13 @@ describe('pill runs', () => {
     setup();
     await frame();
     const css = document.getElementById(STYLE_ID)?.textContent ?? '';
-    expect(css).toContain('[data-hush-list]>:not([data-hush-a])');
-    expect(css).toContain('content:attr(data-hush-run) " hidden"');
-    expect(css).toContain('--hush-indent:20px'); // twitch skin
-    expect(css).toContain('--hush-c-toxic:#d42f42'); // light theme
+    expect(css).toContain('[data-tiho-list]>:not([data-tiho-a])');
+    expect(css).toContain('content:attr(data-tiho-run) " hidden"');
+    expect(css).toContain('--tiho-indent:20px'); // twitch skin
+    expect(css).toContain('--tiho-c-toxic:#d42f42'); // light theme
     rt.setSettings({ ...DEFAULT_SETTINGS, decorate: false });
     const plain = document.getElementById(STYLE_ID)?.textContent ?? '';
-    expect(plain).not.toContain('content:attr(data-hush-r)');
-    expect(plain).toContain('content:attr(data-hush-run) " hidden"');
+    expect(plain).not.toContain('content:attr(data-tiho-r)');
+    expect(plain).toContain('content:attr(data-tiho-run) " hidden"');
   });
 });

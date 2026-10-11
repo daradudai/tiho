@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS, filterKey, type EngineFilter, type Settings } from '.
 import type { ChatMessage } from '../../../src/core/types';
 import type { PlatformAdapter } from '../../../src/platforms/types';
 import { ClassifierClient, type ClassifierTransport } from '../../../src/runtime/classifier';
-import { HushRuntime } from '../../../src/runtime/engine';
+import { TihoRuntime } from '../../../src/runtime/engine';
 
 class FakePort implements ClassifierTransport {
   sent: PortRequest[] = [];
@@ -94,7 +94,7 @@ function adapter(): PlatformAdapter {
   };
 }
 
-let rt: HushRuntime | null = null;
+let rt: TihoRuntime | null = null;
 afterEach(() => rt?.stop());
 
 describe('runtime with engine answers', () => {
@@ -103,7 +103,7 @@ describe('runtime with engine answers', () => {
     const list = document.getElementById('chat')!;
     const settings: Settings = { ...DEFAULT_SETTINGS, engine: { ...DEFAULT_SETTINGS.engine, enabled: true, filters: [BACKSEAT] } };
     const port = new FakePort();
-    let runtime: HushRuntime;
+    let runtime: TihoRuntime;
     const classifier = new ClassifierClient(() => port, {
       now: () => 0,
       onScores: (ids) => runtime.onScores(ids),
@@ -111,7 +111,7 @@ describe('runtime with engine answers', () => {
       onRescored: (ids) => runtime.onRescored(ids),
       onStatus: (s) => runtime.setModelStatus(s),
     });
-    runtime = rt = new HushRuntime({ adapter: adapter(), settings, classifier, now: () => 0, raf: () => 1, caf: () => {}, storeIntervalMs: 0, tickMs: 3_600_000 });
+    runtime = rt = new TihoRuntime({ adapter: adapter(), settings, classifier, now: () => 0, raf: () => 1, caf: () => {}, storeIntervalMs: 0, tickMs: 3_600_000 });
     runtime.start();
     classifier.connect();
     port.emit({ type: 'status', status: { state: 'ready', backend: 'wasm' } });
@@ -134,12 +134,12 @@ describe('runtime with engine answers', () => {
     await frame();
     const [req] = port.replyAll(CLEAN);
     await frame();
-    expect(a.getAttribute('data-hush-a')).toBe('show'); // local model: clean
+    expect(a.getAttribute('data-tiho-a')).toBe('show'); // local model: clean
 
     port.emit({ type: 'engine', batchId: req!.batchId, ids: req!.items.map((x) => x.id), filters: { [KEY]: [0.94] } });
     await frame();
-    expect(a.getAttribute('data-hush-a')).toBe('hide');
-    expect(a.getAttribute('data-hush-r')).toBe('filter: backseating');
+    expect(a.getAttribute('data-tiho-a')).toBe('hide');
+    expect(a.getAttribute('data-tiho-r')).toBe('filter: backseating');
     const v = runtime.store.filtered.value[0]?.verdict;
     expect(v).toMatchObject({ action: 'hide', reason: 'filter: backseating', source: 'engine' });
 
@@ -147,7 +147,7 @@ describe('runtime with engine answers', () => {
     const b = row('m2', 'bro jump on the left ledge');
     await frame();
     expect(port.sent).toHaveLength(0);
-    expect(b.getAttribute('data-hush-a')).toBe('hide');
+    expect(b.getAttribute('data-tiho-a')).toBe('hide');
     expect((classifier.lookup(req!.items[0]!.id) as ScoreVector).engine?.filters?.[KEY]).toBe(0.94);
   });
 });

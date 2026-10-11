@@ -5,7 +5,7 @@
 // student after a lost GPU, say) it starts empty, since the new thresholds
 // would misread the old scores.
 //
-// Hush Engine answers arrive later as an `engine` follow-up for ids that
+// Tiho Engine answers arrive later as an `engine` follow-up for ids that
 // already have scores; they are attached to the cached score vectors in place
 // (ScoreVector.engine), so every row holding that vector sees them the next
 // time policy runs, and `onRescored` asks the runtime to run it now.
@@ -51,7 +51,7 @@ export interface ClassifierOptions {
   now?: () => number;
   onScores?(ids: string[]): void;
   onFailed?(ids: string[]): void;
-  /** Hush Engine answers were attached to the cached scores of these ids (verdicts may change). */
+  /** Tiho Engine answers were attached to the cached scores of these ids (verdicts may change). */
   onRescored?(ids: string[]): void;
   onStatus?(s: ModelStatus): void;
   /** The page is in a background tab (default: document.visibilityState). */
@@ -79,7 +79,7 @@ export class ClassifierClient {
   sent = 0;
   received = 0;
   failed = 0;
-  /** Texts the Hush Engine answered. */
+  /** Texts the Tiho Engine answered. */
   refined = 0;
   private lat = new Float64Array(LAT_RING);
   private latN = 0;

@@ -3,7 +3,7 @@
 // (whitespace collapse + truncation to max_len keeping EOS).
 //
 //   node tests/bench/make-sample.mjs        # once
-//   node tests/bench/tokenizer-parity.mjs [modelDir=public/models/hush-lite]
+//   node tests/bench/tokenizer-parity.mjs [modelDir=public/models/tiho-lite]
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -13,15 +13,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
-const modelDir = path.resolve(root, process.argv[2] ?? 'public/models/hush-lite');
+const modelDir = path.resolve(root, process.argv[2] ?? 'public/models/tiho-lite');
 const py = path.resolve(root, '../ml/.venv/Scripts/python.exe');
 const sample = JSON.parse(fs.readFileSync(path.join(here, '.data/chat_sample.json'), 'utf8')).map((r) => r.text);
 const texts = [...sample, 'x '.repeat(200), 'ab'.repeat(100), '🔥'.repeat(90), 'KEKW '.repeat(70), 'a  b\t\tc'];
 const clean = (t) => (t.length > 1024 ? t.slice(0, 1024) : t).replace(/\s+/g, ' ').trim();
 const cfg = JSON.parse(fs.readFileSync(path.join(modelDir, 'config.json'), 'utf8'));
-const maxLen = cfg.hush?.max_len ?? cfg.hush?.max_length ?? 64;
+const maxLen = cfg.tiho?.max_len ?? cfg.tiho?.max_length ?? 64;
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hush-tok-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tiho-tok-'));
 fs.writeFileSync(path.join(tmp, 'in.json'), JSON.stringify(texts.map(clean)));
 execFileSync(py, [
   '-c',

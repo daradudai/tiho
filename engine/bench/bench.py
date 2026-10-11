@@ -1,4 +1,4 @@
-"""Light benchmark of a running Hush Engine.
+"""Light benchmark of a running Tiho Engine.
 
     python bench/bench.py --url http://127.0.0.1:7377 [--backend http://127.0.0.1:7378]
 

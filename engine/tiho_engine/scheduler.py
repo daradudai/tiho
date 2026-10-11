@@ -103,7 +103,7 @@ class Scheduler:
             self.limit = self._initial_limit()
         if self._workers:
             return
-        self._workers = [asyncio.create_task(self._worker(), name=f"hush-worker-{i}") for i in range(self.max_inflight)]
+        self._workers = [asyncio.create_task(self._worker(), name=f"tiho-worker-{i}") for i in range(self.max_inflight)]
 
     async def stop(self) -> None:
         for w in self._workers:

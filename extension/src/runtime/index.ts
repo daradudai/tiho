@@ -11,9 +11,9 @@ import type { RuntimeMessage } from '../core/protocol';
 import type { PlatformAdapter } from '../platforms/types';
 import { serveLive } from '../ui/bridge';
 import { ClassifierClient, chromePortTransport } from './classifier';
-import { HushRuntime } from './engine';
+import { TihoRuntime } from './engine';
 
-export { HushRuntime } from './engine';
+export { TihoRuntime } from './engine';
 export { ClassifierClient } from './classifier';
 
 // The in-chat bar is optional: bundle it when src/ui/bar exists, run without it otherwise.
@@ -40,7 +40,7 @@ function asStatus(x: unknown): ModelStatus | null {
 }
 
 /**
- * False once Hush was updated, disabled or removed: Chrome leaves this script
+ * False once Tiho was updated, disabled or removed: Chrome leaves this script
  * running in the page, cut off from the extension.
  */
 function contextAlive(): boolean {
@@ -57,16 +57,16 @@ export interface StartOptions {
   adapter: PlatformAdapter;
 }
 
-export interface HushHandle {
-  runtime: HushRuntime;
+export interface TihoHandle {
+  runtime: TihoRuntime;
   stop(): void;
 }
 
-export async function startHush({ adapter }: StartOptions): Promise<HushHandle> {
+export async function startTiho({ adapter }: StartOptions): Promise<TihoHandle> {
   const settings = await loadSettings().catch(() => mergeSettings(undefined));
   const store = createStore(settings);
 
-  let rt: HushRuntime | null = null;
+  let rt: TihoRuntime | null = null;
   let statusAsked = false;
   let offLive: (() => void) | null = null;
   const classifier = new ClassifierClient(chromePortTransport, {
@@ -78,27 +78,27 @@ export async function startHush({ adapter }: StartOptions): Promise<HushHandle> 
 
   const barActions = createBarActions({
     getSettings: () => store.settings.peek(),
-    save: (patch) => saveSettings(patch).catch((e) => console.warn('[hush] save settings failed', e)),
-    openSidePanel: () => void send({ type: 'hush:openSidePanel' }),
+    save: (patch) => saveSettings(patch).catch((e) => console.warn('[tiho] save settings failed', e)),
+    openSidePanel: () => void send({ type: 'tiho:openSidePanel' }),
     reveal: (key) => void rt?.reveal(key),
     platform: adapter.platform,
     setPeek: (on) => rt?.setPeek(on),
     setSolo: (cat) => rt?.setSolo(cat),
   });
 
-  rt = new HushRuntime({
+  rt = new TihoRuntime({
     adapter,
     settings,
     store,
     classifier,
     mountBar: findMountBar(),
     barActions,
-    onReport: (r) => void send({ type: 'hush:perf', stats: r.stats }),
+    onReport: (r) => void send({ type: 'tiho:perf', stats: r.stats }),
     // Open the Port (and wake the model) only once a chat is on screen:
     // SPA pages without a chat stay idle.
     onAttach: () => {
       classifier.connect();
-      // Popup and side panel (hush:live, hush:getSnapshot) are answered only
+      // Popup and side panel (tiho:live, tiho:getSnapshot) are answered only
       // by a frame that shows a chat, never by an empty SPA page or embed.
       if (!offLive) {
         try {
@@ -113,7 +113,7 @@ export async function startHush({ adapter }: StartOptions): Promise<HushHandle> 
       }
       if (!statusAsked) {
         statusAsked = true;
-        void send({ type: 'hush:getStatus' }).then((res) => {
+        void send({ type: 'tiho:getStatus' }).then((res) => {
           const s = asStatus(res);
           if (s && !classifier.status) classifier.setStatus(s);
         });
@@ -122,7 +122,7 @@ export async function startHush({ adapter }: StartOptions): Promise<HushHandle> 
   });
 
   const onMessage = (m: unknown) => {
-    if (m && typeof m === 'object' && (m as RuntimeMessage).type === 'hush:status') {
+    if (m && typeof m === 'object' && (m as RuntimeMessage).type === 'tiho:status') {
       const s = asStatus(m);
       if (s) classifier.setStatus(s);
     }

@@ -1,4 +1,4 @@
-"""`hush-engine` / `python -m hush_engine` command line."""
+"""`tiho-engine` / `python -m tiho_engine` command line."""
 
 from __future__ import annotations
 
@@ -19,11 +19,11 @@ def _parser() -> argparse.ArgumentParser:
     from .gpu import PROFILES
 
     ap = argparse.ArgumentParser(
-        prog="hush-engine",
-        description="Hush Engine: local server for custom natural-language chat filters (Clef-Flash on llama.cpp).",
+        prog="tiho-engine",
+        description="Tiho Engine: local server for custom natural-language chat filters (Clef-Flash on llama.cpp).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    ap.add_argument("--version", action="version", version=f"hush-engine {__version__}")
+    ap.add_argument("--version", action="version", version=f"tiho-engine {__version__}")
     ap.add_argument("--attach", metavar="URL", help="use an already running llama-server (e.g. http://127.0.0.1:7378) instead of starting one")
     ap.add_argument("--attach-key", metavar="KEY", help="API key of that llama-server (its --api-key); start it with one, "
                     "or any web page you visit can use it")
@@ -31,10 +31,10 @@ def _parser() -> argparse.ArgumentParser:
     ap.add_argument("--port", type=int, default=7377)
 
     g = ap.add_argument_group("managed llama-server (ignored with --attach)")
-    g.add_argument("--llama-dir", type=Path, default=Path(os.environ.get("HUSH_LLAMA_DIR", ENGINE_DIR / "vendor" / "llama.cpp")),
+    g.add_argument("--llama-dir", type=Path, default=Path(os.environ.get("TIHO_LLAMA_DIR", ENGINE_DIR / "vendor" / "llama.cpp")),
                    help="where llama.cpp binaries live (downloaded here if missing)")
     g.add_argument("--llama-server", type=Path, help="explicit path to llama-server(.exe)")
-    g.add_argument("--models-dir", type=Path, default=Path(os.environ.get("HUSH_MODELS_DIR", ENGINE_DIR / "vendor" / "models")),
+    g.add_argument("--models-dir", type=Path, default=Path(os.environ.get("TIHO_MODELS_DIR", ENGINE_DIR / "vendor" / "models")),
                    help="model cache; the GGUF goes to <dir>/clef-flash/")
     g.add_argument("--model", type=Path, help="explicit GGUF path")
     g.add_argument("--quant", default="auto", choices=["auto", "Q8_0", "Q4_K_M"], help="auto: Q8_0 on >=14 GB VRAM, else Q4_K_M")
@@ -72,12 +72,12 @@ def main(argv: list[str] | None = None) -> int:
     from .llama import LlamaProcess, build_argv, port_in_use
 
     def log(msg: str) -> None:
-        print(f"[hush-engine] {msg}", file=sys.stderr, flush=True)
+        print(f"[tiho-engine] {msg}", file=sys.stderr, flush=True)
 
     if a.host not in ("127.0.0.1", "localhost", "::1"):
         log(f"WARNING: binding to {a.host} exposes the engine beyond this machine")
     if not a.download_only and port_in_use(a.port):
-        log(f"port {a.port} is already in use (another Hush Engine running?). Use --port to pick another.")
+        log(f"port {a.port} is already in use (another Tiho Engine running?). Use --port to pick another.")
         return 2
 
     gpus = detect_gpus()

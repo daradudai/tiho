@@ -1,8 +1,8 @@
 // @vitest-environment node
 //
-// Against a real Hush Engine (Clef-Flash). Skipped when none answers:
-//   engine\.venv\Scripts\python.exe -m hush_engine --attach http://127.0.0.1:7378
-//   HUSH_ENGINE_URL=http://127.0.0.1:7377 npx vitest run tests/unit/engine/integration.test.ts
+// Against a real Tiho Engine (Clef-Flash). Skipped when none answers:
+//   engine\.venv\Scripts\python.exe -m tiho_engine --attach http://127.0.0.1:7378
+//   TIHO_ENGINE_URL=http://127.0.0.1:7377 npx vitest run tests/unit/engine/integration.test.ts
 
 import { describe, expect, it } from 'vitest';
 import type { EngineFollowUp } from '../../../src/core/protocol';
@@ -12,7 +12,7 @@ import { EngineRouter } from '../../../src/engine-client/router';
 import { InferenceHub, type PortLike } from '../../../src/inference/hub';
 import { FILTER_PRESETS } from '../../../src/ui/sidepanel/filter-presets';
 
-const URL = process.env.HUSH_ENGINE_URL ?? 'http://127.0.0.1:7377';
+const URL = process.env.TIHO_ENGINE_URL ?? 'http://127.0.0.1:7377';
 
 async function engineUp(): Promise<boolean> {
   try {
@@ -41,7 +41,7 @@ async function connected(o: EngineClientOptions = {}): Promise<EngineClient> {
   return c;
 }
 
-describe.skipIf(!up)('Hush Engine (live)', () => {
+describe.skipIf(!up)('Tiho Engine (live)', () => {
   it('reports model and device', async () => {
     const c = await connected();
     expect(c.status.model).toMatch(/clef/i);
@@ -124,8 +124,8 @@ describe.skipIf(!up)('Hush Engine (live)', () => {
         emit: (m) => l(m),
       };
     };
-    const content = port('hush:classify', (m) => m.type === 'engine' && got.push(m));
-    const off = port('hush:offscreen', (m) => sentOff.push(m));
+    const content = port('tiho:classify', (m) => m.type === 'engine' && got.push(m));
+    const off = port('tiho:offscreen', (m) => sentOff.push(m));
     offMsg = off.emit;
     hub.addClient(content);
     hub.attachOffscreen(off);

@@ -1,0 +1,99 @@
+<!doctype html>
+<!-- Chrome Web Store promo tiles. Rendered by extension/tests/tools/store-assets.mjs (promo):
+     #small → docs/store/img/promo-small.png (440×280), #marquee → promo-marquee.png (1400×560).
+     The chat on the marquee is made up, like the one on tiho.chat. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tiho promo tiles</title>
+<style>
+  :root {
+    --bg: #0b0c14; --bg-2: #11131e; --card: #151827; --line: #23273a;
+    --text: #e8e9f3; --muted: #9aa0b8; --dim: #6b7190;
+    --a1: #7c83ff; --a2: #a78bfa; --a3: #5ab2ff;
+    --grad: linear-gradient(120deg, var(--a1), var(--a2) 55%, var(--a3));
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #000; font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
+  .tile { position: relative; overflow: hidden; background: var(--bg); margin: 0 0 20px; }
+  .tile::before { content: ""; position: absolute; pointer-events: none; background: radial-gradient(closest-side, rgba(124, 131, 255, 0.26), transparent 72%); }
+  .brand { display: flex; align-items: center; font-weight: 700; letter-spacing: -0.02em; }
+  .brand b { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  /* 440×280 small tile: must still read at half size */
+  #small { width: 440px; height: 280px; display: flex; flex-direction: column; justify-content: center; padding: 0 40px; }
+  #small::before { width: 520px; height: 520px; right: -230px; top: -230px; }
+  #small .brand { gap: 16px; font-size: 60px; line-height: 1; }
+  #small .brand svg { width: 70px; height: 70px; }
+  #small p { margin: 22px 0 0; font-size: 25px; line-height: 1.25; font-weight: 600; color: var(--text); }
+  #small small { display: block; margin-top: 10px; font-size: 16px; color: var(--muted); }
+
+  /* 1400×560 marquee */
+  #marquee { width: 1400px; height: 560px; display: grid; grid-template-columns: 1fr 420px; gap: 70px; align-items: center; padding: 0 110px; }
+  #marquee::before { width: 900px; height: 900px; right: -180px; top: -300px; }
+  #marquee .brand { gap: 14px; font-size: 34px; }
+  #marquee .brand svg { width: 44px; height: 44px; }
+  #marquee h1 { margin: 26px 0 18px; font-size: 64px; line-height: 1.04; letter-spacing: -0.03em; }
+  #marquee .lede { margin: 0; font-size: 22px; line-height: 1.45; color: var(--muted); }
+  .status { display: inline-flex; align-items: center; gap: 9px; margin-top: 30px; font-size: 16px; color: var(--muted); border: 1px solid var(--line); background: var(--bg-2); padding: 6px 14px; border-radius: 999px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.15); }
+
+  .chat { position: relative; background: #18181b; border: 1px solid #2b2b33; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55); font-size: 16px; }
+  .chat-head { padding: 11px 16px; border-bottom: 1px solid #2b2b33; text-align: center; font-weight: 600; font-size: 14px; color: #efeff1; }
+  .msgs { list-style: none; margin: 0; padding: 8px 0 12px; height: 390px; display: flex; flex-direction: column; justify-content: flex-end; -webkit-mask-image: linear-gradient(transparent, #000 56px); mask-image: linear-gradient(transparent, #000 56px); }
+  .m { padding: 5px 16px; line-height: 1.45; color: #dedee3; }
+  .u { font-weight: 700; }
+  .c1 { color: #a78bfa; } .c2 { color: #34d399; } .c3 { color: #f87171; } .c4 { color: #60a5fa; } .c5 { color: #fbbf24; } .c6 { color: #f472b6; }
+  .q { background: rgba(90, 178, 255, 0.1); box-shadow: inset 3px 0 0 var(--a3); }
+  .badge { display: inline-block; font-size: 11px; font-weight: 800; color: #fff; background: #00ad03; border-radius: 4px; padding: 0 4px; margin-right: 5px; vertical-align: 1px; }
+  .count { display: inline-block; margin-left: 8px; font-size: 13px; font-weight: 700; color: #c7cbff; background: #2f3366; padding: 0 9px; border-radius: 999px; }
+  .pill { padding: 5px 16px; }
+  .pill-in { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; color: #adadb8; border: 1px solid #3a3a44; border-radius: 999px; padding: 2px 11px; }
+  .pill-in u { color: #bf94ff; text-decoration: none; font-weight: 600; }
+  .pdot { width: 7px; height: 7px; border-radius: 50%; background: #fbbf24; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="g" x1="4" y1="3" x2="29" y2="27" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7c83ff"/><stop offset="0.55" stop-color="#a78bfa"/><stop offset="1" stop-color="#5ab2ff"/>
+    </linearGradient>
+    <symbol id="mark" viewBox="0 0 32 32">
+      <path d="M16 3.5C22.9 3.5 28.5 8.2 28.5 14C28.5 19.8 22.9 24.5 16 24.5C14.5 24.5 13.1 24.3 11.8 23.9C10.2 25.4 7.9 26.6 5.2 27C6.4 25.6 7.1 24 7.3 22.4C4.9 20.5 3.5 17.4 3.5 14C3.5 8.2 9.1 3.5 16 3.5Z" fill="url(#g)"/>
+      <path d="M9 14 C9.75 9.47 11.25 9.47 12 14 C12.75 17.07 14.25 17.07 15 14 C15.75 12.53 17.25 12.53 18 14 C18.63 14.47 19.88 14.47 20.5 14 C21.13 14 22.38 14 23 14" fill="none" stroke="#fff" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+  </defs>
+</svg>
+
+<section class="tile" id="small">
+  <div class="brand"><svg><use href="#mark"/></svg>Tiho</div>
+  <p>Live chat without the junk.</p>
+  <small>For YouTube, Twitch and Kick chat</small>
+</section>
+
+<section class="tile" id="marquee">
+  <div>
+    <div class="brand"><svg><use href="#mark"/></svg>Tiho</div>
+    <h1>Live chat without<br>the junk.</h1>
+    <p class="lede">A free browser extension that hides spam, scam links and abuse in YouTube, Twitch and Kick chat. It runs on your own computer.</p>
+    <span class="status"><span class="dot"></span>Early version · testing now</span>
+  </div>
+  <div class="chat" aria-label="Example chat">
+    <div class="chat-head">Stream chat</div>
+    <ul class="msgs">
+      <li class="m"><b class="u c3">echo_hare</b>: this map is so good</li>
+      <li class="m"><b class="u c4">cobalt_lark</b>: who's winning rn?</li>
+      <li class="m"><b class="u c6">oakmoth</b>: they're up 2-1</li>
+      <li class="m"><b class="u c1">lumen_owl</b>: that clutch was insane</li>
+      <li class="m q"><b class="u c2">sk8rmoth</b>: what keyboard are you using?</li>
+      <li class="m"><b class="u c4">bluefinch</b>: KEKW<span class="count">×6</span></li>
+      <li class="pill"><span class="pill-in"><span class="pdot"></span>3 hidden · <u>show</u></span></li>
+      <li class="m"><b class="u c4"><span class="badge">MOD</span>modkat</b>: keep it friendly pls</li>
+      <li class="m q"><b class="u c1">nova_finch</b>: is the next match today or tomorrow?</li>
+      <li class="m"><b class="u c2">pearl_jay</b>: gg that was close</li>
+    </ul>
+  </div>
+</section>
+</body>
+</html>

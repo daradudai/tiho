@@ -25,7 +25,7 @@ test.afterAll(async () => {
   await browser?.close();
 });
 
-interface HushStats {
+interface TihoStats {
   msgs: number;
   msPerMsg: number;
   maxSliceMs: number;
@@ -49,17 +49,17 @@ for (const skin of ['twitch', 'youtube'] as const) {
       return r.abort();
     });
     const page = await ctx.newPage();
-    await page.goto(skin === 'twitch' ? 'https://www.twitch.tv/stresschan?hush=1' : 'https://www.youtube.com/live_chat?v=smoke&hush=1');
+    await page.goto(skin === 'twitch' ? 'https://www.twitch.tv/stresschan?tiho=1' : 'https://www.youtube.com/live_chat?v=smoke&tiho=1');
     await page.evaluate(() => (window as any).__mock.ready);
     await page.evaluate(() => (window as any).__mock.start(100));
     await page.waitForTimeout(3000);
-    await page.evaluate(() => (window as any).__hush.reset());
+    await page.evaluate(() => (window as any).__tiho.reset());
     await page.waitForTimeout(10_000);
-    const s: HushStats = await page.evaluate(() => (window as any).__hush.stats());
+    const s: TihoStats = await page.evaluate(() => (window as any).__tiho.stats());
     const rows = await page.evaluate(() => {
       const list: HTMLElement = (window as any).__mock.list;
       const all = Array.from(list.children);
-      const decided = all.filter((r) => r.hasAttribute('data-hush-a')).length;
+      const decided = all.filter((r) => r.hasAttribute('data-tiho-a')).length;
       return { total: all.length, decided };
     });
     await ctx.close();
@@ -68,8 +68,8 @@ for (const skin of ['twitch', 'youtube'] as const) {
     // every row on screen has been decided (only the newest frame's rows may be in flight)
     expect(rows.decided).toBeGreaterThanOrEqual(rows.total - 10);
     // budgets
-    expect(s.maxSliceMs).toBeLessThan(50); // no long task caused by Hush
-    expect(s.msPerMsg).toBeLessThan(0.3); // Hush JS per message
+    expect(s.maxSliceMs).toBeLessThan(50); // no long task caused by Tiho
+    expect(s.msPerMsg).toBeLessThan(0.3); // Tiho JS per message
     expect(s.latency.p95).toBeLessThan(300); // hold 250 ms + slack
     // bounded state
     expect(s.sizes.live).toBeLessThanOrEqual(rows.total);

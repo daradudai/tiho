@@ -1,16 +1,16 @@
 // Bridge between extension pages (popup, side panel, onboarding) and the
 // content-script runtime / background.
 //
-//   side panel ──chrome.tabs.connect(tabId, {name: 'hush:live'})──▶ content script
+//   side panel ──chrome.tabs.connect(tabId, {name: 'tiho:live'})──▶ content script
 //                ◀── { type: 'snapshot', snapshot } every ~1 s while connected
 //                ──▶ LiveCommand (reveal, feedback, peek, solo)
-//   popup ──chrome.tabs.sendMessage(tabId, {type:'hush:getSnapshot'})──▶ content (one-shot)
-//         ──chrome.runtime.sendMessage({type:'hush:getPerf'})──▶ background (fallback)
-//   any page ──{type:'hush:getStatus'}──▶ background → ModelStatus
-//   any page ──{type:'hush:engine:getStatus' | 'hush:engine:test'}──▶ background → Hush Engine
+//   popup ──chrome.tabs.sendMessage(tabId, {type:'tiho:getSnapshot'})──▶ content (one-shot)
+//         ──chrome.runtime.sendMessage({type:'tiho:getPerf'})──▶ background (fallback)
+//   any page ──{type:'tiho:getStatus'}──▶ background → ModelStatus
+//   any page ──{type:'tiho:engine:getStatus' | 'tiho:engine:test'}──▶ background → Tiho Engine
 //
 // The content side is one call: `serveLive(store, handlers)`, made by
-// startHush (src/runtime/index.ts) once the frame attaches to a chat list, so
+// startTiho (src/runtime/index.ts) once the frame attaches to a chat list, so
 // frames without a chat never answer. Nothing is pushed unless a page is listening.
 
 import type { EngineStatus, EngineTestRequest, EngineTestResult, RuntimeMessage } from '../core/protocol';
@@ -18,8 +18,8 @@ import type { InChat, Store, LogEntry, WaveInfo } from '../core/store';
 import { CATEGORIES, type Category, type ModelStatus, type PerfStats } from '../core/types';
 import { loadSettings, saveSettings, type UserRule } from '../core/settings';
 
-export const PORT_LIVE = 'hush:live';
-export const FEEDBACK_KEY = 'hush.feedback.v1';
+export const PORT_LIVE = 'tiho:live';
+export const FEEDBACK_KEY = 'tiho.feedback.v1';
 
 /** Version of LiveSnapshot: pages ignore snapshots of another one (an old content script still running in a tab). */
 export const SNAPSHOT_V = 2;
@@ -63,7 +63,7 @@ export type LiveCommand =
 export type LivePush = { type: 'snapshot'; snapshot: LiveSnapshot };
 
 /** One-shot messages page → content (chrome.tabs.sendMessage). */
-export type TabMessage = { type: 'hush:getSnapshot' } | { type: 'hush:command'; cmd: LiveCommand };
+export type TabMessage = { type: 'tiho:getSnapshot' } | { type: 'tiho:command'; cmd: LiveCommand };
 
 /* ───────────────────────── content-script side ───────────────────────── */
 
@@ -146,11 +146,11 @@ export function serveLive(store: Store, handlers: LiveHandlers, intervalMs = 100
 
   const onMessage = (msg: unknown, _sender: chrome.runtime.MessageSender, sendResponse: (r?: unknown) => void) => {
     const m = msg as TabMessage;
-    if (m?.type === 'hush:getSnapshot') {
+    if (m?.type === 'tiho:getSnapshot') {
       sendResponse(snapshotFromStore(store));
       return;
     }
-    if (m?.type === 'hush:command') {
+    if (m?.type === 'tiho:command') {
       handle(m.cmd);
       sendResponse({ ok: true });
     }
@@ -210,7 +210,7 @@ export async function getActiveTab(): Promise<ActiveTab | null> {
 export async function getSnapshot(tabId: number, timeoutMs = 800): Promise<LiveSnapshot | null> {
   try {
     const res = await Promise.race([
-      chrome.tabs.sendMessage(tabId, { type: 'hush:getSnapshot' } satisfies TabMessage),
+      chrome.tabs.sendMessage(tabId, { type: 'tiho:getSnapshot' } satisfies TabMessage),
       new Promise((r) => setTimeout(() => r(null), timeoutMs)),
     ]);
     return res && (res as LiveSnapshot).v === SNAPSHOT_V ? (res as LiveSnapshot) : null;
@@ -219,10 +219,10 @@ export async function getSnapshot(tabId: number, timeoutMs = 800): Promise<LiveS
   }
 }
 
-/** Fallback perf from the background (`hush:getPerf` in entrypoints/background.ts). */
+/** Fallback perf from the background (`tiho:getPerf` in entrypoints/background.ts). */
 export async function getPerf(): Promise<{ stats: PerfStats & { platform?: string; channel?: string } } | null> {
   try {
-    const r = (await chrome.runtime.sendMessage({ type: 'hush:getPerf' })) as any;
+    const r = (await chrome.runtime.sendMessage({ type: 'tiho:getPerf' })) as any;
     if (!r) return null;
     if (r.stats) return r;
     if (typeof r.msgsPerSec === 'number') return { stats: r };
@@ -234,7 +234,7 @@ export async function getPerf(): Promise<{ stats: PerfStats & { platform?: strin
 
 export async function sendCommand(tabId: number, cmd: LiveCommand): Promise<boolean> {
   try {
-    await chrome.tabs.sendMessage(tabId, { type: 'hush:command', cmd } satisfies TabMessage);
+    await chrome.tabs.sendMessage(tabId, { type: 'tiho:command', cmd } satisfies TabMessage);
     return true;
   } catch {
     return false;
@@ -365,16 +365,16 @@ function asStatus(r: any): ModelStatus | null {
 
 export async function getModelStatus(): Promise<ModelStatus | null> {
   try {
-    return asStatus(await chrome.runtime.sendMessage({ type: 'hush:getStatus' }));
+    return asStatus(await chrome.runtime.sendMessage({ type: 'tiho:getStatus' }));
   } catch {
     return null;
   }
 }
 
-/** Live model status broadcasts ({type:'hush:status'}). */
+/** Live model status broadcasts ({type:'tiho:status'}). */
 export function onModelStatus(cb: (s: ModelStatus) => void): () => void {
   const fn = (msg: any) => {
-    if (msg?.type === 'hush:status') {
+    if (msg?.type === 'tiho:status') {
       const s = asStatus(msg);
       if (s) cb(s);
     }
@@ -426,13 +426,13 @@ function asEngineStatus(r: unknown): EngineStatus | null {
 }
 
 /**
- * Hush Engine status from the background, which polls the engine while it is
+ * Tiho Engine status from the background, which polls the engine while it is
  * enabled; `fresh` re-checks now. Falls back to a direct health check of
  * `url` when the background does not answer.
  */
 export async function getEngineStatus(url: string, fresh = false): Promise<EngineStatus> {
   try {
-    const s = asEngineStatus(await chrome.runtime.sendMessage({ type: 'hush:engine:getStatus', fresh } satisfies RuntimeMessage));
+    const s = asEngineStatus(await chrome.runtime.sendMessage({ type: 'tiho:engine:getStatus', fresh } satisfies RuntimeMessage));
     if (s) return s;
   } catch {
     /* no background */
@@ -453,10 +453,10 @@ export async function getEngineStatus(url: string, fresh = false): Promise<Engin
   };
 }
 
-/** Live engine status broadcasts ({type:'hush:engine:status'}). */
+/** Live engine status broadcasts ({type:'tiho:engine:status'}). */
 export function onEngineStatus(cb: (s: EngineStatus) => void): () => void {
   const fn = (msg: any) => {
-    if (msg?.type === 'hush:engine:status') {
+    if (msg?.type === 'tiho:engine:status') {
       const s = asEngineStatus(msg);
       if (s) cb(s);
     }
@@ -500,7 +500,7 @@ export function engineSummary(s: EngineStatus | null): { title: string; sub: str
 /** Ask the engine about one sample message ("Test filter"); waits for the answer. */
 export async function testEngine(req: EngineTestRequest): Promise<EngineTestResult> {
   try {
-    const r = (await chrome.runtime.sendMessage({ type: 'hush:engine:test', ...req } satisfies RuntimeMessage)) as EngineTestResult | undefined;
+    const r = (await chrome.runtime.sendMessage({ type: 'tiho:engine:test', ...req } satisfies RuntimeMessage)) as EngineTestResult | undefined;
     return r && typeof r.ok === 'boolean' ? r : { ok: false, error: 'The extension background did not answer' };
   } catch (e) {
     return { ok: false, error: String((e as Error)?.message ?? e) };

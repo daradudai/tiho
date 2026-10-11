@@ -1,6 +1,6 @@
 """Evaluate a student checkpoint (and optionally the teacher) on the gold set,
 per label and per language, calibrate per-label thresholds, and write them into
-the checkpoint's config.json as `hush.thresholds`.
+the checkpoint's config.json as `tiho.thresholds`.
 
 The student sees each message the way the extension feeds it (`clean_for_model`).
 The shipped thresholds are fit on all of gold, so scoring them on gold would be
@@ -130,7 +130,8 @@ def main(a):
     if a.write:
         cfgp = Path(a.ckpt) / "config.json"
         cfg = json.loads(cfgp.read_text())
-        cfg["hush"] = {"labels": LABELS, "thresholds": thr_all, "max_length": 64}
+        cfg.pop("hush", None)  # pre-rename key
+        cfg["tiho"] = {"labels": LABELS, "thresholds": thr_all, "max_length": 64}
         cfgp.write_text(json.dumps(cfg, indent=2))
         print("wrote", cfgp)
 

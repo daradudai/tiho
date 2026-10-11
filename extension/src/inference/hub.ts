@@ -1,11 +1,11 @@
 // Background-side router between content-script Ports and the offscreen
 // inference host. Chrome APIs are injected so routing is unit-testable.
 //
-//   content Port ("hush:classify") ──{classify, batchId}──▶ hub ──{classify, id: gid}──▶ offscreen Port
+//   content Port ("tiho:classify") ──{classify, batchId}──▶ hub ──{classify, id: gid}──▶ offscreen Port
 //   content Port ◀──{scores, batchId}── hub ◀──{scores, id: gid}── offscreen Port
 //
 // Local scores are also handed to `onScores` (the background forwards them to
-// the optional Hush Engine, whose answers go to the same Port later).
+// the optional Tiho Engine, whose answers go to the same Port later).
 //
 // A model that failed to load (network down during the download, crashed
 // worker) is retried with backoff while any chat is open, so it comes back
@@ -34,7 +34,7 @@ export interface HubDeps {
   /** Create the offscreen document if missing; ask an existing one to (re)connect. */
   ensureOffscreen(): Promise<void>;
   /** chrome.runtime.sendMessage to extension pages (popup / side panel / onboarding). */
-  broadcast(m: { type: 'hush:status'; status: ModelStatus }): void;
+  broadcast(m: { type: 'tiho:status'; status: ModelStatus }): void;
   /** Persist the last status (chrome.storage.session) so a restarted SW answers quickly. */
   saveStatus?(s: ModelStatus): void;
   /** Local scores for a batch were posted to its Port (ids / scores as sent). */
@@ -259,7 +259,7 @@ export class InferenceHub {
     )
       return;
     for (const p of this.clients) safePost(p, { type: 'status', status: s } satisfies PortResponse);
-    this.deps.broadcast({ type: 'hush:status', status: s });
+    this.deps.broadcast({ type: 'tiho:status', status: s });
     if (s.state !== 'downloading') this.deps.saveStatus?.(s);
   }
 

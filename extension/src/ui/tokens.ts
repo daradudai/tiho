@@ -1,4 +1,4 @@
-// Hush design tokens (JS side). The CSS side lives in tokens.css; the two are
+// Tiho design tokens (JS side). The CSS side lives in tokens.css; the two are
 // kept in sync by tests/ui/tokens.test.ts. Use CSS variables in components and
 // these values only where a raw color is needed (decorations injected into the
 // host page, canvas, generated icons).
@@ -30,7 +30,7 @@ export const CATEGORY_META: Record<Category, CategoryMeta> = {
 export const CHIP_CATEGORIES: Category[] = ['toxic', 'scam', 'spam', 'noise', 'negative', 'question', 'positive'];
 
 export const BRAND = {
-  name: 'Hush',
+  name: 'Tiho',
   accent: { dark: '#8487ff', light: '#4f52e0' },
   accentSolid: { dark: '#6366f1', light: '#5457e8' },
   /** Logo gradient stops. */
@@ -58,7 +58,7 @@ export const PRESET_META: Record<Exclude<PresetId, 'custom'>, { label: string; s
 
 export const PRESET_ORDER = ['raw', 'chill', 'focus', 'questions'] as const;
 
-/** Basic's one choice: how much Hush hides. Clean is the one to recommend. */
+/** Basic's one choice: how much Tiho hides. Clean is the one to recommend. */
 export const LEVEL_META: Record<BasicLevel, { label: string; desc: string; recommended?: true }> = {
   off: { label: 'Off', desc: 'Shows every message.' },
   chill: { label: PRESET_META.chill.label, desc: PRESET_META.chill.desc, recommended: true },
@@ -69,14 +69,14 @@ export const LEVEL_ORDER = ['off', 'chill', 'focus'] as const;
 
 /** Sentences more than one surface says (Basic has no numbers, so none of these has one). */
 export const PLAIN = {
-  levelQuestion: 'How much should Hush hide?',
-  on: 'Hush is cleaning up this chat.',
-  off: 'Hush is off. Chat shows every message.',
-  siteOff: (site: string) => `Hush is off on ${site}.`,
+  levelQuestion: 'How much should Tiho hide?',
+  on: 'Tiho is cleaning up this chat.',
+  off: 'Tiho is off. Chat shows every message.',
+  siteOff: (site: string) => `Tiho is off on ${site}.`,
   loading: 'Getting ready… Simple filters already work.',
-  error: "Hush's AI didn't start. Simple filters still work.",
+  error: "Tiho's AI didn't start. Simple filters still work.",
   custom: "You're using a custom setup from Advanced mode. Pick a level to replace it.",
-  customOff: 'Your custom setup from Advanced mode is kept while Hush is off. Turn it back on in Advanced mode, or pick a level to replace it.',
+  customOff: 'Your custom setup from Advanced mode is kept while Tiho is off. Turn it back on in Advanced mode, or pick a level to replace it.',
   extras: (extras: string[]) => `Also on from Advanced mode: ${extras.join(', ')}.`,
   advanced: 'Advanced mode',
   advancedHint: 'For streamers and mods: categories, stats, rules and custom AI filters.',

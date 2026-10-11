@@ -1,5 +1,5 @@
-// Quick look at Hush on a real live chat: load the built extension, open a
-// channel, wait, screenshot the chat and print what Hush decided.
+// Quick look at Tiho on a real live chat: load the built extension, open a
+// channel, wait, screenshot the chat and print what Tiho decided.
 //
 //   node tests/tools/live-look.mjs <url> [seconds] [outPrefix]
 import { chromium } from '@playwright/test';
@@ -10,11 +10,11 @@ import path from 'node:path';
 const url = process.argv[2] ?? 'https://www.twitch.tv/directory/all';
 const secs = Number(process.argv[3] ?? 40);
 const out = process.argv[4] ?? 'live';
-const ext = path.resolve(process.env.HUSH_EXT_DIR ?? '.output-bench/chrome-mv3');
+const ext = path.resolve(process.env.TIHO_EXT_DIR ?? '.output-bench/chrome-mv3');
 const shots = path.resolve('tests/tools/.shots');
 fs.mkdirSync(shots, { recursive: true });
 
-const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'hush-look-')), {
+const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'tiho-look-')), {
   headless: false,
   viewport: { width: 1600, height: 950 },
   args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`, '--enable-unsafe-webgpu', '--autoplay-policy=no-user-gesture-required', '--mute-audio'],
@@ -30,19 +30,19 @@ const frames = [page, ...page.frames()];
 let report = null;
 for (const f of frames) {
   report = await f.evaluate(() => {
-    const rows = [...document.querySelectorAll('[data-hush-c]')];
+    const rows = [...document.querySelectorAll('[data-tiho-c]')];
     if (!rows.length) return null;
     const by = {};
     const act = {};
     for (const r of rows) {
-      by[r.dataset.hushC] = (by[r.dataset.hushC] || 0) + 1;
-      act[r.dataset.hushA] = (act[r.dataset.hushA] || 0) + 1;
+      by[r.dataset.tihoC] = (by[r.dataset.tihoC] || 0) + 1;
+      act[r.dataset.tihoA] = (act[r.dataset.tihoA] || 0) + 1;
     }
     const sample = rows
-      .filter((r) => r.dataset.hushA !== 'show')
+      .filter((r) => r.dataset.tihoA !== 'show')
       .slice(-25)
-      .map((r) => `${r.dataset.hushA}/${r.dataset.hushC} (${r.dataset.hushR || ''}) :: ${(r.textContent || '').replace(/\s+/g, ' ').slice(0, 100)}`);
-    return { rows: rows.length, by, act, bar: !!document.querySelector('hush-bar'), sample };
+      .map((r) => `${r.dataset.tihoA}/${r.dataset.tihoC} (${r.dataset.tihoR || ''}) :: ${(r.textContent || '').replace(/\s+/g, ' ').slice(0, 100)}`);
+    return { rows: rows.length, by, act, bar: !!document.querySelector('tiho-bar'), sample };
   }).catch(() => null);
   if (report) break;
 }

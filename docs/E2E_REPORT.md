@@ -1,5 +1,7 @@
 # Live end-to-end report
 
+*Tiho was called Hush when this report was written. Names in it such as `HUSH_OUT`, `data-hush-*`, `hush:*` messages and `hush_engine` are now `TIHO_OUT`, `data-tiho-*`, `tiho:*` and `tiho_engine`.*
+
 Hush on real, busy live chats on Twitch, Kick and YouTube, with the bundled model and with Hush Engine. Run on 2026-10-10 (evening, CET) against the working tree at `44694ce` plus the uncommitted changes present at that time.
 
 **Result:** the content-script pipeline works on all three sites: rows get verdicts, the bar renders, questions are highlighted, spam is folded, waves are counted, and the model runs on WebGPU and on WASM. Hush Engine answered every question in time. Five bugs were found. The most serious one is [BUG-1](#bug-1-side-panel-and-popup-never-get-live-data): the side panel and the popup never get live data, so the Live, Inbox and Log tabs, the popup stats and the stream-context field do not work on a real page.

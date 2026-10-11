@@ -10,7 +10,7 @@ export interface BarActions {
   setPreset(preset: PresetId): void;
   /** Override one category's action (switches the preset to 'custom'). */
   setAction(category: Category, action: Action): void;
-  /** Turn Hush on/off (global). */
+  /** Turn Tiho on/off (global). */
   toggleEnabled(): void;
   /** Ask the background to open the side panel dashboard for this tab. */
   openSidePanel(): void;
@@ -22,7 +22,7 @@ export interface BarActions {
   setLevel(level: BasicLevel): void;
   /** Show hidden in this tab (not saved). */
   setPeek(on: boolean): void;
-  /** Show only this category in this tab (not saved); null shows everything. Ignored in Basic and while Hush is off. */
+  /** Show only this category in this tab (not saved); null shows everything. Ignored in Basic and while Tiho is off. */
   setSolo(cat: Category | null): void;
 }
 
@@ -41,7 +41,7 @@ export interface BarActionDeps {
   reveal(key: string): void;
   /** The site this bar sits on: picking a level turns it on there. */
   platform: Platform;
-  /** The runtime's views of this tab (HushRuntime.setPeek / setSolo). */
+  /** The runtime's views of this tab (TihoRuntime.setPeek / setSolo). */
   setPeek(on: boolean): void;
   setSolo(cat: Category | null): void;
 }

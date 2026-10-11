@@ -56,7 +56,7 @@ export function LogTab() {
       <div class="sp-toolbar sp-toolbar-wrap">
         <div>
           <h2 class="sp-h2">Hidden messages</h2>
-          <p class="sp-h2-sub">What Hush hid or folded since you opened this panel, newest first</p>
+          <p class="sp-h2-sub">What Tiho hid or folded since you opened this panel, newest first</p>
         </div>
         {cat !== 'all' && <SoloButton cat={cat} />}
       </div>
@@ -82,7 +82,7 @@ export function LogTab() {
       ) : (
         <div class="k-card">
           <Empty icon="shield" title="Nothing hidden yet">
-            When Hush hides or folds a message, it shows up here with the reason.
+            When Tiho hides or folds a message, it shows up here with the reason.
           </Empty>
         </div>
       )}

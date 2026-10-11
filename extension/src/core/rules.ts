@@ -451,7 +451,7 @@ export class RuleEngine {
     let dup = false;
     for (let i = 0; i < h.texts.length; i++) {
       if (h.texts[i] === norm && now - h.ts[i]! <= win) {
-        // the same message seen again (row re-mounted, Hush turned off and on) is no repeat
+        // the same message seen again (row re-mounted, Tiho turned off and on) is no repeat
         if (h.keys[i] === msg.key) return false;
         dup = true;
         h.ts[i] = now;

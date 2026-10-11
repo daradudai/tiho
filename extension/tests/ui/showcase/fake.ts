@@ -80,7 +80,7 @@ function entry(key: string, author: string, text: string, category: Category, ac
 /**
  * What the runtime's "in chat now" counters would say about these rows
  * (each row's category and the action written on it; opened rows count as
- * shown). Nothing is counted while Hush is off on the site.
+ * shown). Nothing is counted while Tiho is off on the site.
  */
 export function inChatOf(rows: { c: Category; a: Action; wm?: boolean }[], on = true): InChat {
   const n = zeroInChat();
@@ -108,8 +108,8 @@ function listRows(s: Settings): { c: Category; a: Action; wm?: boolean }[] {
   return rows;
 }
 
-/** Hush runs on this site (the runtime lets the list go otherwise). */
-export const hushOn = (s: Settings, platform: string) => s.enabled && s.sites[platform as Platform] !== false;
+/** Tiho runs on this site (the runtime lets the list go otherwise). */
+export const tihoOn = (s: Settings, platform: string) => s.enabled && s.sites[platform as Platform] !== false;
 
 export function makeStore(platform = 'twitch', theme: 'dark' | 'light' = 'dark', preset: PresetId = 'chill'): Store {
   const s = createStore({ ...DEFAULT_SETTINGS, preset, actions: preset === 'custom' ? DEFAULT_SETTINGS.actions : { ...PRESETS[preset] } });
@@ -118,9 +118,9 @@ export function makeStore(platform = 'twitch', theme: 'dark' | 'light' = 'dark',
     s.platform.value = platform;
     s.channel.value = platform === 'youtube' ? 'Lofi Girl' : platform === 'kick' ? 'trainwreckstv' : 'xqc';
     s.theme.value = theme;
-    s.model.value = { state: 'ready', backend: 'webgpu', modelId: 'hush-lite/q8', version: 'v2-6L' };
+    s.model.value = { state: 'ready', backend: 'webgpu', modelId: 'tiho-lite/q8', version: 'v2-6L' };
     s.perf.value = { msgsPerSec: 86, inferPerSec: 41, cacheHitRate: 0.52, p50ms: 6, p95ms: 14, queue: 0 };
-    s.inChat.value = inChatOf(listRows(s.settings.peek()), hushOn(s.settings.peek(), platform));
+    s.inChat.value = inChatOf(listRows(s.settings.peek()), tihoOn(s.settings.peek(), platform));
     s.seen.value = 9700;
     s.rate.value = Array.from({ length: 60 }, (_, i) => Math.max(8, 72 + 26 * Math.sin(i / 6) + 18 * Math.sin(i / 2.3) + rnd() * 22 + (i > 44 ? 30 : 0)));
     s.vibe.value = Array.from({ length: 60 }, (_, i) => Math.max(-1, Math.min(1, 0.25 * Math.sin(i / 7) + 0.2 + (i > 30 && i < 38 ? -0.55 : 0) + (rnd() - 0.5) * 0.18)));
@@ -166,7 +166,7 @@ export function runLive(s: Store, mps = 90): () => void {
       batch(() => {
         s.inChat.value = inChatOf(
           list.map((c) => ({ c, a: st.actions[c] })),
-          hushOn(st, s.platform.peek()),
+          tihoOn(st, s.platform.peek()),
         );
         s.seen.value += n;
       });
@@ -193,11 +193,11 @@ export function runLive(s: Store, mps = 90): () => void {
 
 /** Bar actions on the fake store, with the runtime's rules for the tab's views (Show hidden, Solo). */
 export function fakeActions(s: Store, onReveal?: (key: string) => void): BarActions {
-  const on = () => hushOn(s.settings.value, s.platform.peek());
+  const on = () => tihoOn(s.settings.value, s.platform.peek());
   const save = (patch: Partial<Settings>) =>
     batch(() => {
       s.settings.value = { ...s.settings.value, ...patch };
-      // Hush or the site off ends both views; Basic ends Solo.
+      // Tiho or the site off ends both views; Basic ends Solo.
       if (!on()) s.peek.value = false;
       if (!on() || s.settings.value.uiMode !== 'advanced') s.solo.value = null;
     });

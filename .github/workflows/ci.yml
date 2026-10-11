@@ -51,7 +51,7 @@ jobs:
       - name: Build (no bundled model)
         run: npx wxt build
         env:
-          HUSH_BUNDLE_MODEL: '0'
+          TIHO_BUNDLE_MODEL: '0'
 
       - name: Check build output
         run: |
@@ -61,13 +61,13 @@ jobs:
             test -s "$out/$f" || { echo "::error::missing $out/$f"; exit 1; }
           done
           if [ -d "$out/models" ]; then echo "::error::model files leaked into the build"; exit 1; fi
-          if grep -Eq 'huggingface\.co|hf\.co' "$out/manifest.json"; then echo "::error::model host permissions without WXT_HUSH_MODEL_URL"; exit 1; fi
+          if grep -Eq 'huggingface\.co|hf\.co' "$out/manifest.json"; then echo "::error::model host permissions without WXT_TIHO_MODEL_URL"; exit 1; fi
           du -sh "$out"
 
       - name: Upload build
         uses: actions/upload-artifact@v7
         with:
-          name: hush-chrome-mv3-no-model
+          name: tiho-chrome-mv3-no-model
           path: extension/.output/chrome-mv3
           retention-days: 7
 

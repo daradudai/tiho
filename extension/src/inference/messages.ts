@@ -1,6 +1,6 @@
 // Internal messages of the inference subsystem.
 //
-//   background ──Port "hush:offscreen"──▶ offscreen document ──postMessage──▶ worker
+//   background ──Port "tiho:offscreen"──▶ offscreen document ──postMessage──▶ worker
 //
 // The offscreen document is a dumb relay: it adds extension URLs to `init`
 // and forwards everything else verbatim in both directions. The bench page
@@ -10,9 +10,9 @@ import type { ClassifyItem } from '../core/protocol';
 import type { ModelStatus } from '../core/types';
 import type { Device, InferenceTuning } from './config';
 
-export const PORT_OFFSCREEN = 'hush:offscreen';
+export const PORT_OFFSCREEN = 'tiho:offscreen';
 /** runtime message background → offscreen: (re)connect your port. */
-export const MSG_OFFSCREEN_HELLO = 'hush:offscreen:hello';
+export const MSG_OFFSCREEN_HELLO = 'tiho:offscreen:hello';
 
 export interface InitOptions {
   /** Absolute base URLs (trailing slash). Filled in by the offscreen document. */
@@ -21,7 +21,7 @@ export interface InitOptions {
   ortBase?: string;
   /** Force a backend; default: WebGPU when available, else WASM. */
   device?: Device | 'auto';
-  /** Force a model file (key of config.hush.files), e.g. 'q8f16'. */
+  /** Force a model file (key of config.tiho.files), e.g. 'q8f16'. */
   variant?: string;
   /** WASM threads (needs crossOriginIsolated); default min(4, cores/2). */
   threads?: number;

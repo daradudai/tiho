@@ -1,5 +1,5 @@
 // Onboarding (opened once on install): hero with live demo, three steps
-// (what Hush does · how much it should hide · getting ready), privacy,
+// (what Tiho does · how much it should hide · getting ready), privacy,
 // sites, tips. Plain words only: no categories, percentages or model jargon.
 
 import type { ComponentChildren } from 'preact';
@@ -44,7 +44,7 @@ export function OnboardingApp() {
             <path d={BUBBLE_PATH} fill="url(#ob-nav-g)" />
             <path d={WAVE_CALM} stroke="#fff" stroke-width="2.3" fill="none" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-          Hush
+          Tiho
         </span>
         <span class="ob-nav-note">
           <Icon name="lock" size={12} strokeWidth={1.8} /> Private by design · free & open source
@@ -54,25 +54,25 @@ export function OnboardingApp() {
       <section class="ob-hero">
         <div class="ob-hero-text">
           <HeroMark />
-          <p class="ob-eyebrow">Welcome to Hush</p>
+          <p class="ob-eyebrow">Welcome to Tiho</p>
           <h1>
             Live chat,
             <br />
             <span class="ob-grad">minus the noise.</span>
           </h1>
           <p class="ob-lead">
-            Hush is an ad-blocker for live chat. It hides insults, scams and spam on YouTube, Twitch and Kick, and makes questions stand out. A small AI runs
-            on your computer, in any language.
+            Tiho hides spam, scam links and abuse in YouTube, Twitch and Kick chat, and makes questions stand out. A small AI model runs on your own
+            computer. It’s an early version and still makes mistakes: anything it hides is one click away.
           </p>
           <div class="ob-hero-meta">
             <span>
               <Icon name="cpu" size={13} /> On-device AI
             </span>
             <span>
-              <Icon name="globe" size={13} /> 1800+ languages
+              <Icon name="globe" size={13} /> Checked on 13 languages
             </span>
             <span>
-              <Icon name="zap" size={13} /> 100+ msgs/s, no lag
+              <Icon name="lock" size={13} /> Free, no account
             </span>
           </div>
         </div>
@@ -80,7 +80,7 @@ export function OnboardingApp() {
       </section>
 
       <section class="ob-steps">
-        <Step n={1} title="What Hush does" sub="Three quiet jobs, every message, in a couple of milliseconds.">
+        <Step n={1} title="What Tiho does" sub="Three quiet jobs, every message, in a couple of milliseconds.">
           <div class="ob-features">
             <Feature icon="shield" title="Hides the ugly" tone="toxic">
               Insults, scam links, bots and copypasta floods are hidden or folded into a thin <i>“3 hidden · show”</i> line. One click brings them back.
@@ -109,7 +109,7 @@ export function OnboardingApp() {
             <Icon name="lock" size={16} />
           </span>
           <h3>Nothing leaves your machine</h3>
-          <p>Every message is classified locally in your browser. No account, no analytics, no servers. The optional Hush Engine runs on your own GPU, too.</p>
+          <p>Every message is classified locally in your browser. No account, no analytics, no servers. The optional Tiho Engine runs on your own GPU, too.</p>
         </div>
         <div class="ob-card">
           <span class="ob-card-ico">
@@ -137,7 +137,7 @@ export function OnboardingApp() {
 
       <footer class="ob-foot">
         <p>
-          That’s it. Open any live stream — Hush is already listening. <span class="faint">Close this tab whenever you like.</span>
+          That’s it. Open any live stream — Tiho is already listening. <span class="faint">Close this tab whenever you like.</span>
         </p>
       </footer>
     </div>
@@ -183,7 +183,7 @@ function HeroMark() {
   );
 }
 
-/* ── live demo: a tiny chat getting hushed ───────────────────────── */
+/* ── live demo: a tiny chat getting filtered ───────────────────────── */
 
 interface DemoMsg {
   user: string;
@@ -213,7 +213,7 @@ const DEMO: DemoMsg[] = [
 ];
 
 function ChatDemo({ theme }: { theme: 'dark' | 'light' }) {
-  const [hushed, setHushed] = useState(false);
+  const [filtered, setFiltered] = useState(false);
   useEffect(() => {
     const el = document.createElement('style');
     el.textContent = decorationCss('twitch', theme, { mode: 'basic' });
@@ -224,37 +224,37 @@ function ChatDemo({ theme }: { theme: 'dark' | 'light' }) {
   const stopAuto = useRef(() => {});
   useEffect(() => {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setHushed(true);
+      setFiltered(true);
       return;
     }
-    const first = setTimeout(() => setHushed(true), 900);
-    const id = setInterval(() => setHushed((h) => !h), 3600);
+    const first = setTimeout(() => setFiltered(true), 900);
+    const id = setInterval(() => setFiltered((h) => !h), 3600);
     stopAuto.current = () => {
       clearTimeout(first);
       clearInterval(id);
     };
     return () => stopAuto.current();
   }, []);
-  const act = (m: DemoMsg): Action => (!hushed ? 'show' : (PRESETS.chill[m.c] as Action));
+  const act = (m: DemoMsg): Action => (!filtered ? 'show' : (PRESETS.chill[m.c] as Action));
   const acts = DEMO.map(act);
   const runs = pillRuns(acts); // collapsed rows draw their "N hidden · show" pill only with a run mark
   return (
-    <div class="ob-demo" data-theme={theme} data-hushed={hushed ? '' : undefined}>
+    <div class="ob-demo" data-theme={theme} data-filtered={filtered ? '' : undefined}>
       <div class="ob-demo-head">
         <span>Stream chat</span>
         <button
           type="button"
           class="ob-demo-toggle"
-          aria-pressed={hushed}
-          aria-label="With Hush"
+          aria-pressed={filtered}
+          aria-label="With Tiho"
           onFocus={() => stopAuto.current()}
           onClick={() => {
             stopAuto.current();
-            setHushed(!hushed);
+            setFiltered(!filtered);
           }}
         >
-          <span class={!hushed ? 'is-on' : ''}>Before</span>
-          <span class={hushed ? 'is-on' : ''}>With Hush</span>
+          <span class={!filtered ? 'is-on' : ''}>Before</span>
+          <span class={filtered ? 'is-on' : ''}>With Tiho</span>
         </button>
       </div>
       {/* the Basic bar, as a picture: it follows the toggle above */}
@@ -263,10 +263,10 @@ function ChatDemo({ theme }: { theme: 'dark' | 'light' }) {
           <path d={BUBBLE_PATH} fill="url(#ob-g)" />
           <path d={WAVE_CALM} stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" />
         </svg>
-        <span class="ob-demo-seg" style={{ '--i': hushed ? 1 : 0 } as any}>
+        <span class="ob-demo-seg" style={{ '--i': filtered ? 1 : 0 } as any}>
           <i class="ob-demo-thumb" />
           {(['off', 'chill', 'focus'] as const).map((l, i) => (
-            <span data-on={(hushed ? 1 : 0) === i ? '' : undefined}>{LEVEL_META[l].label}</span>
+            <span data-on={(filtered ? 1 : 0) === i ? '' : undefined}>{LEVEL_META[l].label}</span>
           ))}
         </span>
         <span class="ob-demo-peek">
@@ -276,7 +276,7 @@ function ChatDemo({ theme }: { theme: 'dark' | 'light' }) {
       </div>
       <div class="ob-demo-list">
         {DEMO.map((m, i) => (
-          <div class="ob-demo-row" data-hush-c={m.c} data-hush-a={acts[i]} data-hush-r={m.r} data-hush-run={runs[i]}>
+          <div class="ob-demo-row" data-tiho-c={m.c} data-tiho-a={acts[i]} data-tiho-r={m.r} data-tiho-run={runs[i]}>
             <span>
               <b style={{ color: m.color }}>{m.user}</b>: {m.text}
             </span>
@@ -353,16 +353,16 @@ function ModelStep() {
   const getting = state === 'downloading' || state === 'loading';
   const title =
     state === 'ready'
-      ? 'Ready. Hush runs on this computer and works offline.'
+      ? 'Ready. Tiho runs on this computer and works offline.'
       : getting
         ? 'Getting ready…'
         : state === 'error'
-          ? "Hush's AI didn't start."
+          ? "Tiho's AI didn't start."
           : 'Ready when you open a live stream.';
   const sub = getting
     ? 'About 125 MB, once. Simple filters already work.'
     : state === 'error'
-      ? 'Simple filters still work. Hush tries again by itself.'
+      ? 'Simple filters still work. Tiho tries again by itself.'
       : state === 'idle'
         ? 'Its small AI starts as soon as chat appears. Simple filters work from the first message.'
         : '';
@@ -411,7 +411,7 @@ function Tips() {
       <h3>Good to know</h3>
       <ul>
         <li>
-          <Icon name="show" size={13} /> <span>"Show hidden" above chat brings back anything Hush hid.</span>
+          <Icon name="show" size={13} /> <span>"Show hidden" above chat brings back anything Tiho hid.</span>
         </li>
         <li>
           <Icon name="mouse" size={13} /> <span>Click a "2 hidden · show" line to open it.</span>
@@ -432,7 +432,7 @@ function Tips() {
                   <Kbd>{k}</Kbd>
                 </>
               ))}{' '}
-              turns Hush on or off
+              turns Tiho on or off
             </span>
           </li>
         )}

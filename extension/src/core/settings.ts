@@ -94,7 +94,7 @@ export const DEFAULT_SETTINGS: Settings = {
   uiMode: 'basic',
 };
 
-export const SETTINGS_KEY = 'hush.settings.v1';
+export const SETTINGS_KEY = 'tiho.settings.v1';
 
 export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
   const s = { ...DEFAULT_SETTINGS, ...(stored ?? {}) } as Settings;
@@ -115,7 +115,7 @@ export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
 // them, and what Advanced set up that Basic cannot show is named in plain words.
 
 /**
- * The Basic level these settings amount to: 'off' when Hush is off (or off on
+ * The Basic level these settings amount to: 'off' when Tiho is off (or off on
  * `platform`), the preset when it is Clean or Quiet, null for any other setup
  * (Raw, Questions or custom: "a custom setup from Advanced mode").
  */
@@ -125,7 +125,7 @@ export function basicLevel(s: Settings, platform?: Platform): BasicLevel | null 
 }
 
 /**
- * The settings patch that picks a level, saved in one go: 'off' turns Hush
+ * The settings patch that picks a level, saved in one go: 'off' turns Tiho
  * off; Clean and Quiet turn it on, and on `platform` too when given (the site
  * of the chat the viewer is looking at), with the preset and its actions.
  */
@@ -148,7 +148,7 @@ export function advancedExtras(s: Settings): string[] {
   return out;
 }
 
-// ── Hush Engine custom filters ──
+// ── Tiho Engine custom filters ──
 //
 // A filter is stored as the user wrote it; what the engine is asked and the
 // key its answers travel under are derived from that text, so editing a

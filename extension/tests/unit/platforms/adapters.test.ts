@@ -82,7 +82,7 @@ describe('rowSelector is usable by the runtime', () => {
     it(a.platform, () => {
       const { doc } = loadFixture('twitch/special.html', 'https://www.twitch.tv/popout/gorgc/chat');
       expect(() => doc.querySelector(a.rowSelector)).not.toThrow();
-      expect(() => doc.querySelector(`:is(${a.rowSelector})[data-hush-a="hide"]`)).not.toThrow();
+      expect(() => doc.querySelector(`:is(${a.rowSelector})[data-tiho-a="hide"]`)).not.toThrow();
       expect(a.observeSubtree).toBe(false);
     });
   }

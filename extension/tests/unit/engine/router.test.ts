@@ -83,7 +83,7 @@ afterEach(() => {
 describe('EngineRouter', () => {
   it('asks custom filters for every scored text; answers that arrive together share a follow-up', async () => {
     const { router, asked } = setup();
-    const port = new FakePort('hush:classify', { tab: { id: 7 }, url: 'https://www.twitch.tv/xqc' });
+    const port = new FakePort('tiho:classify', { tab: { id: 7 }, url: 'https://www.twitch.tv/xqc' });
     router.onLocalScores({ port, batchId: 4, items: items('go left', 'nice play'), ids: ['n0', 'n1'], scores: [CLEAN, CLEAN] });
     await tick();
     expect(asked).toEqual([
@@ -95,7 +95,7 @@ describe('EngineRouter', () => {
 
   it('asks for a second opinion only where the local model is unsure', async () => {
     const { router, asked } = setup(settings({ filters: [] }));
-    const port = new FakePort('hush:classify', { url: 'https://kick.com/someone' });
+    const port = new FakePort('tiho:classify', { url: 'https://kick.com/someone' });
     router.onLocalScores({ port, batchId: 1, items: items('hmm', 'hello'), ids: ['n0', 'n1'], scores: [UNSURE, CLEAN] });
     await tick();
     expect(asked).toEqual([{ text: 'hmm', platform: 'kick', context: undefined, filters: [], base: true }]);
@@ -103,7 +103,7 @@ describe('EngineRouter', () => {
   });
 
   it('stays quiet when off, when there is nothing to ask, or when the engine is down', async () => {
-    const port = new FakePort('hush:classify');
+    const port = new FakePort('tiho:classify');
     const off = setup(settings({ enabled: false }));
     off.router.onLocalScores({ port, batchId: 1, items: items('go left'), ids: ['n0'], scores: [UNSURE] });
     const nothing = setup(settings({ filters: [], refineUncertain: false }));
@@ -118,7 +118,7 @@ describe('EngineRouter', () => {
 
   it('spends no engine time on chats in background tabs', async () => {
     const { router, asked } = setup();
-    const port = new FakePort('hush:classify', { tab: { id: 7 } });
+    const port = new FakePort('tiho:classify', { tab: { id: 7 } });
     router.onLocalScores({ port, batchId: 1, items: items('go left'), ids: ['n0'], scores: [UNSURE], hidden: true });
     router.onLocalScores({ port, batchId: 2, items: items('go right'), ids: ['n0'], scores: [CLEAN], hidden: false });
     await tick();
@@ -128,7 +128,7 @@ describe('EngineRouter', () => {
 
   it('leaves out texts the engine did not answer, and sends nothing if none were', async () => {
     const { router } = setup(settings(), (q) => (q.text === 'late' ? null : { filters: { [KEY]: 0.7 } }));
-    const port = new FakePort('hush:classify');
+    const port = new FakePort('tiho:classify');
     router.onLocalScores({ port, batchId: 2, items: items('late', 'ok'), ids: ['n0', 'n1'], scores: [CLEAN, CLEAN] });
     router.onLocalScores({ port, batchId: 3, items: items('late'), ids: ['n0'], scores: [CLEAN] });
     await tick();
@@ -137,7 +137,7 @@ describe('EngineRouter', () => {
 
   it('survives a port that closed while the engine was thinking', async () => {
     const { router } = setup();
-    const port = new FakePort('hush:classify');
+    const port = new FakePort('tiho:classify');
     router.onLocalScores({ port, batchId: 2, items: items('go left'), ids: ['n0'], scores: [CLEAN] });
     port.connected = false;
     await tick();
@@ -148,7 +148,7 @@ describe('EngineRouter', () => {
   it('posts each answer as it comes instead of waiting for the whole batch', async () => {
     const eng = later();
     const { router } = setup(settings(), eng.answer);
-    const port = new FakePort('hush:classify');
+    const port = new FakePort('tiho:classify');
     router.onLocalScores({ port, batchId: 5, items: items('slow', 'fast', 'never'), ids: ids(3), scores: [CLEAN, CLEAN, CLEAN] });
     await tick();
     eng.give('fast', p(0.8));
@@ -167,8 +167,8 @@ describe('EngineRouter', () => {
   it('flushes answers to a Port at most every 50 ms, one message per batch', async () => {
     const eng = later();
     const { router } = setup(settings(), eng.answer);
-    const a = new FakePort('hush:classify');
-    const b = new FakePort('hush:classify');
+    const a = new FakePort('tiho:classify');
+    const b = new FakePort('tiho:classify');
     router.onLocalScores({ port: a, batchId: 1, items: items('t0', 't1', 't2', 't3'), ids: ids(4), scores: [CLEAN, CLEAN, CLEAN, CLEAN] });
     router.onLocalScores({ port: a, batchId: 2, items: items('u0'), ids: ids(1), scores: [CLEAN] });
     router.onLocalScores({ port: b, batchId: 1, items: items('v0'), ids: ids(1), scores: [CLEAN] });
@@ -205,7 +205,7 @@ describe('EngineRouter', () => {
   it('dedups filters with the same question and follows settings changes', async () => {
     const twin = { ...BACKSEAT, id: 'b', label: 'again' };
     const { router, asked } = setup(settings({ filters: [BACKSEAT, twin, { ...BACKSEAT, id: 'c', enabled: false, question: 'Off?' }] }));
-    const port = new FakePort('hush:classify');
+    const port = new FakePort('tiho:classify');
     router.onLocalScores({ port, batchId: 1, items: items('x'), ids: ['n0'], scores: [CLEAN] });
     router.setSettings(settings({ filters: [], refineUncertain: false }));
     expect(router.active).toBe(false);
@@ -226,8 +226,8 @@ describe('InferenceHub → EngineRouter', () => {
   it('local scores go out first, engine answers follow on the same Port', async () => {
     const { router, asked } = setup();
     const hub = new InferenceHub({ ensureOffscreen: async () => {}, broadcast: () => {}, onScores: (r) => router.onLocalScores(r) });
-    const content = new FakePort('hush:classify', { tab: { id: 7 } });
-    const off = new FakePort('hush:offscreen');
+    const content = new FakePort('tiho:classify', { tab: { id: 7 } });
+    const off = new FakePort('tiho:offscreen');
     hub.addClient(content);
     hub.attachOffscreen(off);
     content.emit({ type: 'classify', batchId: 12, items: [{ id: 'go left', text: 'Go LEFT!!' }, { id: 'gg', text: 'gg' }] });

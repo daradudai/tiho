@@ -3,11 +3,11 @@
 // Category priority: toxic > scam > spam > noise > question > negative >
 // positive > clean. A label is "on" when its score (nudged by rule signals)
 // reaches its threshold; thresholds come from the model config
-// (`hush.thresholds`) and are shifted by `strictness` in logit space for the
+// (`tiho.thresholds`) and are shifted by `strictness` in logit space for the
 // filtering labels (toxic, spam, scam, noise, negative). Reasons say how sure
 // the model is in words, against the unshifted thresholds ("toxic · likely").
 //
-// Hush Engine (optional): its answers arrive after the local scores and are
+// Tiho Engine (optional): its answers arrive after the local scores and are
 // attached to the same cached score vector (ScoreVector.engine). A custom
 // filter that fires applies its action when that is stronger than the
 // category's; with "second opinion" on, the engine's own scores (asked only
@@ -67,7 +67,7 @@ export function effectiveThresholds(base: ArrayLike<number> | undefined | null, 
 }
 
 /**
- * Thresholds for the Hush Engine's own scores (Clef-Flash on the base schema,
+ * Thresholds for the Tiho Engine's own scores (Clef-Flash on the base schema,
  * the teacher's), aligned with LABELS. Calibrated like the students' (best
  * F-beta, beta 0.7 for toxic, spam and scam: `best_threshold` in
  * ml/train/evaluate.py) on ml/data/gold_teacher.jsonl against the gold labels.
@@ -83,7 +83,7 @@ function engineShift(base: ArrayLike<number> | undefined | null): Float32Array {
   return out;
 }
 
-/** What the Hush Engine said about a text. */
+/** What the Tiho Engine said about a text. */
 export interface EngineOpinion {
   /** Custom-filter probabilities by filter key. */
   filters?: Record<string, number>;
@@ -296,7 +296,7 @@ export function decide(
  * messages, the engine's raw scores against the local thresholds hid about
  * five times as many clean messages as the local model. The average hid fewer
  * clean ones and caught more bad ones than the 6-layer student alone, and came
- * out about even with the 3-layer one.
+ * out about even with the 3-layer one (measured with the v2 students).
  */
 function secondOpinion(local: ArrayLike<number>, engine: ArrayLike<number>, shift: Float32Array): number[] {
   const out = new Array<number>(LABELS.length);

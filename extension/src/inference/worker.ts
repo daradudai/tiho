@@ -1,10 +1,10 @@
-// Module Worker hosting the Hush Lite model (spawned by the offscreen document
+// Module Worker hosting the Tiho Lite model (spawned by the offscreen document
 // and by the bench page). Messages: see messages.ts.
 
 import { REMOTE_MODEL_PINS } from './config';
 import { InferenceEngine } from './engine';
 import type { InitOptions, WorkerIn, WorkerOut } from './messages';
-import { HushModel } from './model';
+import { TihoModel } from './model';
 
 const scope = self as unknown as {
   postMessage(m: unknown): void;
@@ -33,7 +33,7 @@ const engine = new InferenceEngine({
   load: (opts, hooks) => {
     threads = threadsFor(opts);
     const bases = [opts.localModelBase, opts.remoteModelBase].filter((x): x is string => !!x);
-    return HushModel.load({
+    return TihoModel.load({
       bases,
       ortBase: opts.ortBase ?? new URL('/ort/', scope.location.origin).href,
       device: opts.device ?? 'auto',

@@ -10,9 +10,9 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 
 Especially interesting:
 
-- **Hush Engine** (`engine/`), a local HTTP server: anything that lets a web page or another machine reach it or the `llama-server` it starts (CORS, Private Network Access, DNS rebinding, `Host` checks, the API key), read cached message text, or make it run commands.
-- **The extension**: a chat message or page that can run script in an extension context, break out of the in-chat bar's shadow DOM, or make Hush send data anywhere.
-- **Model downloads** (builds made with `WXT_HUSH_MODEL_URL`): loading model files from anywhere other than the configured source, or using a file that does not match the hash pinned in the build.
+- **Tiho Engine** (`engine/`), a local HTTP server: anything that lets a web page or another machine reach it or the `llama-server` it starts (CORS, Private Network Access, DNS rebinding, `Host` checks, the API key), read cached message text, or make it run commands.
+- **The extension**: a chat message or page that can run script in an extension context, break out of the in-chat bar's shadow DOM, or make Tiho send data anywhere.
+- **Model downloads** (builds made with `WXT_TIHO_MODEL_URL`): loading model files from anywhere other than the configured source, or using a file that does not match the hash pinned in the build.
 
 Out of scope: a message the model classifies wrongly (please use the wrong verdict issue template), and attacks that need someone who already controls your browser profile or your computer.
 

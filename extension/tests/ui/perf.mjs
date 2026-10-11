@@ -1,6 +1,6 @@
 // Bar under load: fake store written every frame at N msg/s (showcase ?live).
 // Reports long tasks, frame pacing and main-thread time spent in the bar.
-//   node tests/ui/perf.mjs [mps=150] [--no-build]   (HUSH_SHOWCASE_OUT: build folder, as in shoot.mjs)
+//   node tests/ui/perf.mjs [mps=150] [--no-build]   (TIHO_SHOWCASE_OUT: build folder, as in shoot.mjs)
 import { chromium } from '@playwright/test';
 import { build } from 'vite';
 import http from 'node:http';
@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const dist = process.env.HUSH_SHOWCASE_OUT ? path.resolve(process.env.HUSH_SHOWCASE_OUT) : path.join(here, '.dist');
+const dist = process.env.TIHO_SHOWCASE_OUT ? path.resolve(process.env.TIHO_SHOWCASE_OUT) : path.join(here, '.dist');
 const mps = Number(process.argv.find((a) => /^\d+$/.test(a)) ?? 150);
 if (!process.argv.includes('--no-build')) await build({ configFile: path.join(here, 'vite.config.ts'), logLevel: 'warn', build: { outDir: dist } });
 const server = http.createServer((req, res) => {
@@ -43,7 +43,7 @@ for (const mode of ['basic', 'advanced']) {
           let last = performance.now();
           const t0 = last;
           // count DOM mutations inside the bar's shadow root (≈ render work)
-          const host = document.querySelector('hush-bar');
+          const host = document.querySelector('tiho-bar');
           let muts = 0;
           const mo = new MutationObserver((l) => (muts += l.length));
           mo.observe(host.shadowRoot, { subtree: true, childList: true, characterData: true, attributes: true });

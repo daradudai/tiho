@@ -1,6 +1,6 @@
 {
-  "name": "hush",
-  "description": "Hush — an ad-blocker for live chat. On-device AI filtering for YouTube, Twitch and Kick.",
+  "name": "tiho",
+  "description": "Tiho — an ad-blocker for live chat. On-device AI filtering for YouTube, Twitch and Kick.",
   "private": true,
   "version": "0.1.0",
   "license": "MIT",

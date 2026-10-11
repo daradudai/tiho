@@ -1,4 +1,4 @@
-// The Hush mark: a speech bubble whose sound wave settles into a flat line.
+// The Tiho mark: a speech bubble whose sound wave settles into a flat line.
 // Same geometry as src/assets/logo.svg and the generated toolbar icons.
 
 import type { CSSProperties } from 'preact';
@@ -29,7 +29,7 @@ export interface MarkProps {
 }
 
 export function Mark({ size = 20, variant = 'gradient', class: cls, title, style }: MarkProps) {
-  const id = `hush-g${++gradSeq}`;
+  const id = `tiho-g${++gradSeq}`;
   return (
     <svg
       class={cls}
@@ -53,7 +53,7 @@ export function Mark({ size = 20, variant = 'gradient', class: cls, title, style
       )}
       <path d={BUBBLE_PATH} fill={variant === 'gradient' ? `url(#${id})` : 'currentColor'} />
       <path
-        class="hush-wave"
+        class="tiho-wave"
         d={WAVE_CALM}
         stroke={variant === 'gradient' ? '#fff' : 'var(--mark-wave, #fff)'}
         stroke-width="2.3"
@@ -64,12 +64,12 @@ export function Mark({ size = 20, variant = 'gradient', class: cls, title, style
   );
 }
 
-/** Wordmark: mark + "Hush" set in the UI face. */
+/** Wordmark: mark + "Tiho" set in the UI face. */
 export function Wordmark({ size = 20 }: { size?: number }) {
   return (
-    <span class="hush-wordmark" style={{ display: 'inline-flex', alignItems: 'center', gap: `${Math.round(size * 0.4)}px` }}>
+    <span class="tiho-wordmark" style={{ display: 'inline-flex', alignItems: 'center', gap: `${Math.round(size * 0.4)}px` }}>
       <Mark size={size} />
-      <span style={{ fontWeight: 650, fontSize: `${Math.round(size * 0.8)}px`, letterSpacing: '-0.02em' }}>Hush</span>
+      <span style={{ fontWeight: 650, fontSize: `${Math.round(size * 0.8)}px`, letterSpacing: '-0.02em' }}>Tiho</span>
     </span>
   );
 }
@@ -99,20 +99,20 @@ let liveUrls: [string, string] | null = null;
  * clip, re-walked every frame), and an activity pulse (pulseMark) is a
  * cross-fade of the top image: opacity only, run by the compositor (on an
  * HTML box: Chrome does not composite animations of SVG elements).
- * Sizing + layer hints live with the host's CSS (.hush-live, bar.css).
+ * Sizing + layer hints live with the host's CSS (.tiho-live, bar.css).
  */
 export function LiveMark({ size = 18, liveRef }: { size?: number; liveRef?: (el: HTMLElement | null) => void }) {
   liveUrls ??= [svgUrl(markSvg(WAVE_CALM)), svgUrl(markSvg(WAVE_EXCITED))];
   return (
-    <span class="hush-live" ref={liveRef} aria-hidden="true" style={{ width: `${size}px`, height: `${size}px`, backgroundImage: liveUrls[0] }}>
-      <span class="hush-live-busy" style={{ backgroundImage: liveUrls[1] }} />
+    <span class="tiho-live" ref={liveRef} aria-hidden="true" style={{ width: `${size}px`, height: `${size}px`, backgroundImage: liveUrls[0] }}>
+      <span class="tiho-live-busy" style={{ backgroundImage: liveUrls[1] }} />
     </span>
   );
 }
 
 /** One activity pulse of a LiveMark: the wave swells and settles (≤ 700 ms, opacity only). */
 export function pulseMark(root: Element | null, strength = 1): void {
-  const busy = root?.querySelector<HTMLElement>('.hush-live-busy');
+  const busy = root?.querySelector<HTMLElement>('.tiho-live-busy');
   if (!busy || typeof busy.animate !== 'function') return;
   if (matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
   const peak = 0.55 + 0.45 * Math.max(0, Math.min(1, strength));

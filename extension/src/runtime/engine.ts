@@ -1,16 +1,16 @@
 // The per-frame content-script engine.
 //
 //  MutationObserver (chat list, childList) ──▶ queue
-//  (while filtering, the list carries data-hush-list: rows without a verdict
+//  (while filtering, the list carries data-tiho-list: rows without a verdict
 //   attribute are invisible from birth — no flash, no per-row premark write)
 //                                                │ rAF (timer when hidden, 1 s watchdog)
 //                                                ▼
 //  READ  phase: adapter.extract → normalize → rules → waves → cache → policy
 //               misses → classifier queue; held rows stay invisible
 //  RESOLVE    : scores that arrived (coalesced with page frames), failed
-//               batches, hold timeouts, late Hush Engine answers
-//  WRITE phase: data-hush-a / -c / -r / -wh / -wm attribute diffs, then
-//               data-hush-run on the last row of every changed pill run
+//               batches, hold timeouts, late Tiho Engine answers
+//  WRITE phase: data-tiho-a / -c / -r / -wh / -wm attribute diffs, then
+//               data-tiho-run on the last row of every changed pill run
 //               (that row is the pill: a button for the keyboard too)
 //  FLUSH      : classifier batch → Port; Store (≤ 4 Hz, one batch())
 //
@@ -107,7 +107,7 @@ interface RowState {
   wm: boolean;
   /** Collapsed rows in this row's pill run up to and including it (0 when not collapsed). */
   run: number;
-  /** data-hush-run value on the row (0 = none): only the run's last row carries it. */
+  /** data-tiho-run value on the row (0 = none): only the run's last row carries it. */
   rm: number;
   /** Stamp of the last run re-count that covered this row. */
   runAt: number;
@@ -146,7 +146,7 @@ function percentiles(ring: Float64Array, n: number): [number, number] {
   return [a[Math.floor((m - 1) * 0.5)]!, a[Math.floor((m - 1) * 0.95)]!];
 }
 
-export class HushRuntime {
+export class TihoRuntime {
   readonly store: Store;
   readonly adapter: PlatformAdapter;
   readonly rules = new RuleEngine();
@@ -193,7 +193,7 @@ export class HushRuntime {
   /**
    * State of recent messages by ChatMessage.key, kept across detach. A message
    * that comes back in a new node (Kick re-mounts rows scrolled back into
-   * view, YouTube re-renders the list on a chat-mode switch, Hush or the site
+   * view, YouTube re-renders the list on a chat-mode switch, Tiho or the site
    * turned off and on) keeps its verdict and is not counted, logged or fed to
    * the duplicate tracker and waves a second time. Its scores stand while
    * their model is loaded; after a switch it is scored again (see process).
@@ -205,7 +205,7 @@ export class HushRuntime {
   private held = new Set<HTMLElement>();
   private resolvedIds: string[] = [];
   private failedIds: string[] = [];
-  /** Normalized texts whose cached scores got a Hush Engine answer since the last frame. */
+  /** Normalized texts whose cached scores got a Tiho Engine answer since the last frame. */
   private rescored = new Set<string>();
   private waveDirty = new Set<string>();
   private waveHeads = new Map<string, string>();
@@ -217,7 +217,7 @@ export class HushRuntime {
   private active = false;
   /** The settings can hide or fold a message (an action or a block rule). */
   private canHide = false;
-  /** Hide rows until their first verdict (list-level data-hush-list). */
+  /** Hide rows until their first verdict (list-level data-tiho-list). */
   private holdAtBirth = false;
   private listMarked = false;
   /** First pass over the rows present at attach is done (only then mark the list). */
@@ -355,7 +355,7 @@ export class HushRuntime {
     this.scheduleResolve();
   }
 
-  /** Hush Engine answers were attached to the cached scores of these ids: rows already decided on them may change. */
+  /** Tiho Engine answers were attached to the cached scores of these ids: rows already decided on them may change. */
   onRescored(ids: string[]): void {
     for (const id of ids) this.rescored.add(id);
     this.scheduleResolve();
@@ -400,7 +400,7 @@ export class HushRuntime {
 
   /**
    * Show hidden in this tab (never saved): hidden and folded rows come back in
-   * place, faded and tagged. Ends Solo. Ignored while Hush is off here.
+   * place, faded and tagged. Ends Solo. Ignored while Tiho is off here.
    */
   setPeek(on: boolean): void {
     if (on && !this.active) return;
@@ -410,7 +410,7 @@ export class HushRuntime {
   /**
    * Show only this category in this tab (never saved); the same one again, or
    * null, shows everything. Ends Show hidden. Advanced mode only, and only
-   * while Hush is on here: ignored otherwise.
+   * while Tiho is on here: ignored otherwise.
    */
   setSolo(cat: Category | null): void {
     if (cat && (!this.active || this.settings.uiMode !== 'advanced')) return;
@@ -499,7 +499,7 @@ export class HushRuntime {
     this.ensureBar();
   }
 
-  /** Set / remove data-hush-list on the chat list (rows hidden until their first verdict). */
+  /** Set / remove data-tiho-list on the chat list (rows hidden until their first verdict). */
   private syncListMark(): void {
     const want = !!this.list && this.primed && this.active && this.holdAtBirth && !this.failOpen;
     if (want === this.listMarked) return;
@@ -633,7 +633,7 @@ export class HushRuntime {
   }
 
   private detach(clear: boolean): void {
-    this.setViews(false, null); // Hush or the site off, another channel or page
+    this.setViews(false, null); // Tiho or the site off, another channel or page
     this.observer?.disconnect();
     this.observer = null;
     this.list?.removeEventListener('click', this.onClick, true);
@@ -811,7 +811,7 @@ export class HushRuntime {
       // never leave the chat hidden because of a bug: fail open
       this.failOpen = true;
       this.syncListMark();
-      console.warn('[hush] runtime error, filtering paused for new rows', e);
+      console.warn('[tiho] runtime error, filtering paused for new rows', e);
     }
     this.account(t0, 1);
   };
@@ -894,7 +894,7 @@ export class HushRuntime {
       }
       // Not a message — or not hydrated yet (content rendered after insertion):
       // retry on the next two frames (still invisible meanwhile), then mark it
-      // seen (data-hush-a="") so it is never hidden.
+      // seen (data-tiho-a="") so it is never hidden.
       const n = this.retries.get(row) ?? 0;
       if (n < 2) {
         this.retries.set(row, n + 1);
@@ -913,7 +913,7 @@ export class HushRuntime {
       this.forget(row, prev); // recycled node: new message in an old row
     }
 
-    // Our attributes always include data-hush-a: one read tells whether the
+    // Our attributes always include data-tiho-a: one read tells whether the
     // node carries any (recycled row) — fresh rows skip six more reads.
     const a0 = row.getAttribute(ATTR.action);
     const known = this.recall(row, msg);
@@ -1157,7 +1157,7 @@ export class HushRuntime {
   }
 
   /**
-   * Re-decide live rows showing a text the Hush Engine just answered. The
+   * Re-decide live rows showing a text the Tiho Engine just answered. The
    * answer rides on the cached score vector (ScoreVector.engine); rows still
    * waiting for scores pick it up in resolve().
    */
@@ -1308,7 +1308,7 @@ export class HushRuntime {
   /**
    * Consecutive collapsed rows (skipping rows that take no space) read as ONE
    * pill, drawn by the run's last row, which carries the run length in
-   * data-hush-run; the run's other rows take no space. For each changed row:
+   * data-tiho-run; the run's other rows take no space. For each changed row:
    * start at the nearest collapsed row before it (its prefix count is known)
    * and re-count forward to the end of its run (of both runs, when the row
    * now splits one), moving the mark to the last row. Appending at the
@@ -1616,7 +1616,7 @@ export class HushRuntime {
       this.barCleanup = typeof r === 'function' ? r : () => {};
       this.barAnchor = anchor.el;
     } catch (e) {
-      console.warn('[hush] bar mount failed', e);
+      console.warn('[tiho] bar mount failed', e);
       this.mountBar = null;
     }
   }

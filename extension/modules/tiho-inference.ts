@@ -4,19 +4,19 @@
 //    from node_modules into `ort/` — MV3 forbids remote code, so nothing may
 //    come from a CDN at runtime. (The asyncify build contains both the WASM CPU
 //    EP and the WebGPU EP; it is what `onnxruntime-web/webgpu` loads.)
-// 2. Bundled model (public/models/hush-lite/): included when present unless
-//    HUSH_BUNDLE_MODEL=0. Only the files of the variants in HUSH_MODEL_VARIANTS
-//    (default "q8,uint8", looked up in its config.json `hush.files`) are copied;
+// 2. Bundled model (public/models/tiho-lite/): included when present unless
+//    TIHO_BUNDLE_MODEL=0. Only the files of the variants in TIHO_MODEL_VARIANTS
+//    (default "q8,uint8", looked up in its config.json `tiho.files`) are copied;
 //    "all" = every onnx file except the 560 MB fp32 reference model.onnx.
-//    Without a bundled model the worker downloads from WXT_HUSH_MODEL_URL
+//    Without a bundled model the worker downloads from WXT_TIHO_MODEL_URL
 //    (REMOTE_MODEL_URL in src/inference/config.ts) when set, and runs rules-only
 //    otherwise. Such a build pins the sha256 and size of every file it may fetch
-//    (__HUSH_MODEL_PINS__), computed from the same model folder, so it needs that
-//    folder at build time: HUSH_BUNDLE_MODEL=0 keeps it out of the zip.
-// 3. The bench page (src/entrypoints/bench) is only built with HUSH_BENCH=1.
+//    (__TIHO_MODEL_PINS__), computed from the same model folder, so it needs that
+//    folder at build time: TIHO_BUNDLE_MODEL=0 keeps it out of the zip.
+// 3. The bench page (src/entrypoints/bench) is only built with TIHO_BENCH=1.
 // 4. Cross-origin isolation for extension pages (COOP same-origin + COEP
 //    credentialless) so ORT's WASM backend can use threads (SharedArrayBuffer)
-//    in the offscreen document. Disable with HUSH_COI=0.
+//    in the offscreen document. Disable with TIHO_COI=0.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -24,15 +24,15 @@ import path from 'node:path';
 import { addViteConfig, defineWxtModule } from 'wxt/modules';
 
 const ORT_FILES = ['ort-wasm-simd-threaded.asyncify.mjs', 'ort-wasm-simd-threaded.asyncify.wasm'];
-const MODEL_DIR = 'models/hush-lite/';
+const MODEL_DIR = 'models/tiho-lite/';
 /** Model files besides the onnx ones (what the worker fetches first). */
 const MODEL_META = ['config.json', 'tokenizer.json', 'tokenizer_config.json'];
 
-/** `hush.files` of the model folder's config.json (variant → path relative to the folder); {} without one. */
+/** `tiho.files` of the model folder's config.json (variant → path relative to the folder); {} without one. */
 function modelFiles(dir: string): Record<string, string> {
   try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8')) as { hush?: { files?: Record<string, string> } };
-    return cfg.hush?.files ?? {};
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8')) as { tiho?: { files?: Record<string, string> } };
+    return cfg.tiho?.files ?? {};
   } catch {
     return {};
   }
@@ -52,12 +52,12 @@ function sha256File(file: string): { sha256: string; size: number } {
 }
 
 export default defineWxtModule({
-  name: 'hush-inference',
+  name: 'tiho-inference',
   setup(wxt) {
     const env = process.env;
-    const bundleModel = env.HUSH_BUNDLE_MODEL !== '0';
+    const bundleModel = env.TIHO_BUNDLE_MODEL !== '0';
     const modelDir = path.join(wxt.config.publicDir, MODEL_DIR);
-    const variantsEnv = (env.HUSH_MODEL_VARIANTS ?? 'q8,uint8').trim();
+    const variantsEnv = (env.TIHO_MODEL_VARIANTS ?? 'q8,uint8').trim();
     const allowAll = variantsEnv === 'all';
     const variantFiles = modelFiles(modelDir);
     // onnx files to ship (paths relative to the model folder); with "all", every one but model.onnx
@@ -71,16 +71,16 @@ export default defineWxtModule({
     );
     const isShipped = (rel: string) =>
       !rel.includes('onnx/') || (allowAll ? path.posix.basename(rel) !== 'model.onnx' : allowed.has(rel));
-    const bench = env.HUSH_BENCH === '1';
-    const coi = env.HUSH_COI !== '0';
+    const bench = env.TIHO_BENCH === '1';
+    const coi = env.TIHO_COI !== '0';
 
     // Remote model source: pin every file the worker may fetch from it.
     let pins: Record<string, { sha256: string; size: number }> | null = null;
-    if (env.WXT_HUSH_MODEL_URL) {
+    if (env.WXT_TIHO_MODEL_URL) {
       if (!fs.existsSync(path.join(modelDir, 'config.json')))
         throw new Error(
-          `[hush-inference] WXT_HUSH_MODEL_URL needs the model folder at build time (${modelDir}) to pin its files' hashes; ` +
-            'set HUSH_BUNDLE_MODEL=0 to leave it out of the build',
+          `[tiho-inference] WXT_TIHO_MODEL_URL needs the model folder at build time (${modelDir}) to pin its files' hashes; ` +
+            'set TIHO_BUNDLE_MODEL=0 to leave it out of the build',
         );
       const onnx = allowAll ? Object.values(variantFiles).filter((f) => path.posix.basename(f) !== 'model.onnx') : [...allowed];
       pins = {};
@@ -95,7 +95,7 @@ export default defineWxtModule({
     // does not emit a second 27 MB copy; we load both files from ort/ ourselves.
     // The remote model pins become a compile-time constant (src/inference/config.ts).
     addViteConfig(wxt, () => ({
-      define: { __HUSH_MODEL_PINS__: JSON.stringify(pins) },
+      define: { __TIHO_MODEL_PINS__: JSON.stringify(pins) },
       resolve: {
         alias: [
           {
@@ -115,7 +115,7 @@ export default defineWxtModule({
       const ortDist = path.resolve(wxt.config.root, 'node_modules/onnxruntime-web/dist');
       for (const f of ORT_FILES) {
         const src = path.join(ortDist, f);
-        if (!fs.existsSync(src)) throw new Error(`[hush-inference] missing ${src} (npm install?)`);
+        if (!fs.existsSync(src)) throw new Error(`[tiho-inference] missing ${src} (npm install?)`);
         files.push({ absoluteSrc: src, relativeDest: `ort/${f}` });
       }
       // bundled model files
@@ -123,7 +123,7 @@ export default defineWxtModule({
         const dest = files[i]!.relativeDest.replace(/\\/g, '/');
         if (!dest.startsWith('models/')) continue;
         const keep =
-          bundleModel && dest.startsWith(MODEL_DIR) && isShipped(dest.slice(MODEL_DIR.length)) && !dest.endsWith('hush_export.json');
+          bundleModel && dest.startsWith(MODEL_DIR) && isShipped(dest.slice(MODEL_DIR.length)) && !dest.endsWith('tiho_export.json');
         if (!keep) files.splice(i, 1);
       }
     });

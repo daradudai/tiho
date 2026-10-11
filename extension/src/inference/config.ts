@@ -1,18 +1,18 @@
 // Inference configuration. Everything model-specific comes from the model's
-// own config.json (`hush` block written by ml/export/export_onnx.py).
+// own config.json (`tiho` block written by ml/export/export_onnx.py).
 
 /** Folder name of the bundled dev model (extension/public/models/<name>/). */
-export const LOCAL_MODEL_DIR = 'models/hush-lite/';
+export const LOCAL_MODEL_DIR = 'models/tiho-lite/';
 
 /**
  * Remote model source for builds without the bundled copy: a base URL with the
  * same layout (config.json, tokenizer.json, tokenizer_config.json, onnx/*.onnx)
  * that serves CORS, e.g. a Hugging Face `resolve/<commit>/` URL. Set at build
- * time with WXT_HUSH_MODEL_URL. There is no default: no official mirror is
+ * time with WXT_TIHO_MODEL_URL. There is no default: no official mirror is
  * published yet, and a build without a model filters with rules only.
  * The bundled local copy always wins when present.
  */
-export const REMOTE_MODEL_URL: string = (import.meta.env?.WXT_HUSH_MODEL_URL as string | undefined) ?? '';
+export const REMOTE_MODEL_URL: string = (import.meta.env?.WXT_TIHO_MODEL_URL as string | undefined) ?? '';
 
 /** Expected content of one model file. */
 export interface FilePin {
@@ -21,22 +21,22 @@ export interface FilePin {
   size: number;
 }
 
-declare const __HUSH_MODEL_PINS__: Record<string, FilePin> | null | undefined;
+declare const __TIHO_MODEL_PINS__: Record<string, FilePin> | null | undefined;
 
 /**
  * Every file of the remote model (path relative to REMOTE_MODEL_URL → hash),
- * computed at build time from the model folder by modules/hush-inference.ts.
+ * computed at build time from the model folder by modules/tiho-inference.ts.
  * Remote files are used only if they match, so whoever controls the host can
  * break the download but never change what runs or how it is thresholded.
  * Null when the build has no remote source.
  */
 export const REMOTE_MODEL_PINS: Record<string, FilePin> | null =
-  typeof __HUSH_MODEL_PINS__ === 'undefined' ? null : __HUSH_MODEL_PINS__;
+  typeof __TIHO_MODEL_PINS__ === 'undefined' ? null : __TIHO_MODEL_PINS__;
 
 /** Cache Storage bucket for downloaded model files (remote source only). */
-export const MODEL_CACHE = 'hush-models-v1';
+export const MODEL_CACHE = 'tiho-models-v1';
 
-/** onnxruntime-web runtime files copied into the build by modules/hush-inference.ts. */
+/** onnxruntime-web runtime files copied into the build by modules/tiho-inference.ts. */
 export const ORT_DIR = 'ort/';
 export const ORT_WASM = 'ort-wasm-simd-threaded.asyncify.wasm';
 export const ORT_MJS = 'ort-wasm-simd-threaded.asyncify.mjs';
@@ -45,7 +45,7 @@ export type Device = 'webgpu' | 'wasm';
 
 /**
  * Model file preference per backend, best first; the first one listed in
- * config.hush.files (and supported by the device) is used. See
+ * config.tiho.files (and supported by the device) is used. See
  * tests/bench/RESULTS.md for the measurements behind this order.
  * - q8:    fp32 activations, int8 weight-only MatMulNBits, int8 embeddings (~lossless).
  * - q8f16: same with fp16 activations (~lossless) — not faster on WebGPU in our runs.

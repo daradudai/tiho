@@ -1,5 +1,5 @@
 name: Feature request
-description: An idea for Hush.
+description: An idea for Tiho.
 title: "[idea] "
 labels: ["enhancement"]
 body:
@@ -7,13 +7,13 @@ body:
     id: problem
     attributes:
       label: What problem would this solve?
-      description: Describe the chat situation where Hush falls short today.
+      description: Describe the chat situation where Tiho falls short today.
     validations:
       required: true
   - type: textarea
     id: idea
     attributes:
-      label: What would you like Hush to do?
+      label: What would you like Tiho to do?
     validations:
       required: true
   - type: textarea
@@ -24,4 +24,4 @@ body:
   - type: markdown
     attributes:
       value: |
-        Hush stays private (chat never leaves the device) and light on the page. Ideas that need a server or send chat text anywhere are out of scope.
+        Tiho stays private (chat never leaves the device) and light on the page. Ideas that need a server or send chat text anywhere are out of scope.

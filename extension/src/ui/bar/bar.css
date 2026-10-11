@@ -126,17 +126,17 @@ button:focus-visible,
   background: var(--chip-hover);
 }
 /* the live mark: two stacked images; the excited one fades in on activity (pulseMark) */
-.hush-live,
-.hush-live-busy {
+.tiho-live,
+.tiho-live-busy {
   display: block;
   background-position: center;
   background-size: contain;
   background-repeat: no-repeat;
 }
-.hush-live {
+.tiho-live {
   position: relative;
 }
-.hush-live-busy {
+.tiho-live-busy {
   position: absolute;
   inset: 0;
   opacity: 0;
@@ -179,7 +179,7 @@ button:focus-visible,
   background: var(--warn);
   box-shadow: 0 0 0 2px var(--hb-bg);
 }
-.hb[data-off] .hb-mark .hush-live {
+.hb[data-off] .hb-mark .tiho-live {
   filter: grayscale(1);
   opacity: 0.6;
 }
@@ -287,7 +287,7 @@ button:focus-visible,
     display: none;
   }
 }
-/* where Show hidden sits while Hush is off: words, not a button */
+/* where Show hidden sits while Tiho is off: words, not a button */
 .hb-offnote {
   margin-left: auto;
   min-width: 0;
@@ -608,7 +608,7 @@ button:focus-visible,
   background: var(--soft-2);
 }
 
-/* Off: "Hush is off" + Turn on */
+/* Off: "Tiho is off" + Turn on */
 .hb-paused {
   flex: 1;
   display: flex;

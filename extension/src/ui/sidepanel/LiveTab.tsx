@@ -138,7 +138,7 @@ function Hero({ inChat }: { inChat: InChat }) {
         class={`k-btn k-btn-sm sp-peek ${peek ? 'k-btn-subtle' : ''}`}
         aria-pressed={peek}
         disabled={!canView.value || !!solo}
-        title={solo ? 'Not while one category is shown alone' : peek ? 'Hidden messages are back in chat, faded' : 'Bring back what Hush hid in that tab, faded'}
+        title={solo ? 'Not while one category is shown alone' : peek ? 'Hidden messages are back in chat, faded' : 'Bring back what Tiho hid in that tab, faded'}
         onClick={() => setPeek(!peek)}
       >
         <Icon name={peek ? 'eyeOff' : 'show'} size={13} strokeWidth={1.8} />
@@ -197,7 +197,7 @@ function CatRow({ cat, count, total, action, solo }: { cat: Category; count: num
         class="sp-only"
         aria-pressed={only}
         aria-label={only ? 'Show all messages in chat' : `Show only ${meta.label.toLowerCase()} in chat`}
-        title={only ? 'Show every category again' : `Show only ${meta.label.toLowerCase()} in chat, to check what Hush put there`}
+        title={only ? 'Show every category again' : `Show only ${meta.label.toLowerCase()} in chat, to check what Tiho put there`}
         disabled={!canView.value}
         onClick={() => setSolo(cat)}
       >

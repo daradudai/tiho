@@ -3,7 +3,7 @@
 //   node tests/ui/shoot.mjs            # all shots
 //   node tests/ui/shoot.mjs chat-      # only shots whose name starts with "chat-"
 //   node tests/ui/shoot.mjs --no-build
-//   HUSH_SHOWCASE_OUT=tests/ui/.dist-mine node tests/ui/shoot.mjs   # build into another folder (parallel runs)
+//   TIHO_SHOWCASE_OUT=tests/ui/.dist-mine node tests/ui/shoot.mjs   # build into another folder (parallel runs)
 import { chromium } from '@playwright/test';
 import { build } from 'vite';
 import http from 'node:http';
@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const dist = process.env.HUSH_SHOWCASE_OUT ? path.resolve(process.env.HUSH_SHOWCASE_OUT) : path.join(here, '.dist');
+const dist = process.env.TIHO_SHOWCASE_OUT ? path.resolve(process.env.TIHO_SHOWCASE_OUT) : path.join(here, '.dist');
 const outDir = path.join(here, 'screenshots');
 const args = process.argv.slice(2);
 const filter = args.find((a) => !a.startsWith('--'));
@@ -55,7 +55,7 @@ for (const theme of ['dark', 'light']) {
     chat(`chat-${p}-${theme}-advanced-solo`, `platform=${p}&theme=${theme}&mode=advanced&solo=spam`, w);
     // Reason chip on hover (Advanced only: the last question, right under a long wave head)
     chat(`chat-${p}-${theme}-advanced-hover`, `platform=${p}&theme=${theme}&mode=advanced`, w, 640, async (pg) => {
-      await pg.locator('.bd-row[data-hush-c="question"]').last().hover();
+      await pg.locator('.bd-row[data-tiho-c="question"]').last().hover();
       await pg.waitForTimeout(500);
     });
   }
@@ -91,13 +91,13 @@ chat('chat-twitch-dark-advanced-more', 'platform=twitch&theme=dark&mode=advanced
 chat('chat-twitch-dark-advanced-off', 'platform=twitch&theme=dark&mode=advanced&off', 340, 300);
 chat('chat-twitch-dark-advanced-loading', 'platform=twitch&theme=dark&mode=advanced&model=downloading&empty', 340, 300);
 chat('chat-twitch-light-basic-pill', 'platform=twitch&theme=light&mode=basic', 340, 640, async (pg) => {
-  await pg.locator('.bd-row[data-hush-run]').last().hover({ force: true, position: { x: 50, y: 13 } }); // the row itself is visibility:hidden, its pill parts are not
+  await pg.locator('.bd-row[data-tiho-run]').last().hover({ force: true, position: { x: 50, y: 13 } }); // the row itself is visibility:hidden, its pill parts are not
   await pg.waitForTimeout(200);
 });
 chat('chat-twitch-dark-advanced-revealed', 'platform=twitch&theme=dark&mode=advanced', 340, 640, async (pg) => {
-  await pg.locator('.bd-row[data-hush-run]').last().click({ force: true, position: { x: 50, y: 13 } });
+  await pg.locator('.bd-row[data-tiho-run]').last().click({ force: true, position: { x: 50, y: 13 } });
   await pg.waitForTimeout(200);
-  await pg.locator('.bd-row[data-hush-open]').last().hover();
+  await pg.locator('.bd-row[data-tiho-open]').last().hover();
   await pg.waitForTimeout(500);
 });
 chat('chat-twitch-dark-advanced-wide', 'platform=twitch&theme=dark&mode=advanced&w=560', 560, 480);

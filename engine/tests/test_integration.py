@@ -1,5 +1,5 @@
 """Against a real llama-server running Clef-Flash (default http://127.0.0.1:7378, override with
-HUSH_TEST_BACKEND). Skipped when nothing answers there."""
+TIHO_TEST_BACKEND). Skipped when nothing answers there."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from hush_engine import schema as S
-from hush_engine.app import Engine, EngineConfig, create_app
-from hush_engine.backend import LlamaBackend
+from tiho_engine import schema as S
+from tiho_engine.app import Engine, EngineConfig, create_app
+from tiho_engine.backend import LlamaBackend
 
-URL = os.environ.get("HUSH_TEST_BACKEND", "http://127.0.0.1:7378")
+URL = os.environ.get("TIHO_TEST_BACKEND", "http://127.0.0.1:7378")
 
 
 def _up() -> bool:

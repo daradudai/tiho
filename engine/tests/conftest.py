@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from hush_engine import schema
-from hush_engine.backend import BackendInfo, BackendUnavailable, PromptTooLarge
+from tiho_engine import schema
+from tiho_engine.backend import BackendInfo, BackendUnavailable, PromptTooLarge
 
 
 @pytest.fixture

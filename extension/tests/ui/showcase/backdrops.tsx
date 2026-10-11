@@ -9,14 +9,14 @@ import type { Store } from '../../../src/core/store';
 import type { Action } from '../../../src/core/types';
 import { mountBar } from '../../../src/ui/bar';
 import { buildCss, type StyleOptions } from '../../../src/runtime/styles';
-import { CHAT, fakeActions, hushOn, inChatOf, rnd, type FakeMsg } from './fake';
+import { CHAT, fakeActions, tihoOn, inChatOf, rnd, type FakeMsg } from './fake';
 
 type Platform = 'twitch' | 'youtube' | 'kick';
 
 function useDecorations(o: StyleOptions) {
   useEffect(() => {
     const el = document.createElement('style');
-    el.id = 'hush-deco';
+    el.id = 'tiho-deco';
     // Exactly what ships: the runtime's row stylesheet (decorations, mode and the tab's views included).
     el.textContent = buildCss(o);
     document.head.appendChild(el);
@@ -49,7 +49,7 @@ export function ChatBackdrop({ platform, theme, store, live }: { platform: Platf
   const listRef = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<Row[]>(initialRows);
   const actions = settings.actions;
-  const enabled = hushOn(settings, platform);
+  const enabled = tihoOn(settings, platform);
 
   useEffect(() => {
     const el = listRef.current!;
@@ -79,10 +79,10 @@ export function ChatBackdrop({ platform, theme, store, live }: { platform: Platf
 
   // Clicking a pill reveals its whole run (what the runtime does; not while a view is on).
   const onClick = (e: MouseEvent) => {
-    const row = (e.target as Element).closest('[data-hush-run]') as HTMLElement | null;
+    const row = (e.target as Element).closest('[data-tiho-run]') as HTMLElement | null;
     if (!row || views.peek || views.solo) return;
     const keys: string[] = [];
-    for (let n: Element | null = row; n && n.matches('[data-hush-a="collapse"],[data-hush-a="hide"]'); n = n.previousElementSibling)
+    for (let n: Element | null = row; n && n.matches('[data-tiho-a="collapse"],[data-tiho-a="hide"]'); n = n.previousElementSibling)
       keys.push((n as HTMLElement).dataset.key!);
     setRows((rs) => rs.map((r) => (keys.includes(r.key) && act(r) === 'collapse' ? { ...r, peek: true } : r)));
   };
@@ -106,12 +106,12 @@ export function ChatBackdrop({ platform, theme, store, live }: { platform: Platf
             class="bd-row"
             {...(enabled && {
               // off on this site, the runtime lets the list go: no attributes at all
-              'data-hush-c': r.c,
-              'data-hush-a': act(r),
-              'data-hush-r': r.r,
-              'data-hush-wh': r.w ? String(r.w) : undefined,
-              'data-hush-run': runs.get(r.key),
-              'data-hush-open': r.peek ? '' : undefined,
+              'data-tiho-c': r.c,
+              'data-tiho-a': act(r),
+              'data-tiho-r': r.r,
+              'data-tiho-wh': r.w ? String(r.w) : undefined,
+              'data-tiho-run': runs.get(r.key),
+              'data-tiho-open': r.peek ? '' : undefined,
             })}
           >
             <RowBody platform={platform} m={r} />

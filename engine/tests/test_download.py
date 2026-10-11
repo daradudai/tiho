@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from hush_engine import download as D
+from tiho_engine import download as D
 
 
 def _zip(path: Path, files: dict[str, bytes]) -> Path:

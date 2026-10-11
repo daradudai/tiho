@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy policy — Tiho</title>
+  <meta name="description" content="What the Tiho extension reads, stores and sends. Short version: chat is classified on your device and never leaves your computer.">
+  <link rel="canonical" href="https://tiho.chat/privacy">
+  <link rel="icon" href="/img/logo.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#0b0c14">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/img/logo.svg" alt="" width="30" height="30">Tiho</a>
+      <nav aria-label="Main"><a href="/">Home</a></nav>
+    </div>
+  </header>
+
+  <main class="wrap legal">
+    <h1>Privacy policy</h1>
+    <p class="meta">Applies to the Tiho browser extension 0.1 and to this website. Last updated: 11 October 2026.</p>
+
+    <p><b>Short version:</b> Tiho filters live chat on your own device. It has no server, no account, no analytics and no telemetry. Chat messages never leave your computer. This page explains exactly what the extension reads, stores and sends.</p>
+
+    <h2>What Tiho reads</h2>
+    <ul>
+      <li><b>Chat on YouTube, Twitch and Kick.</b> A content script reads each new chat message on those sites: author name, badges (to know who is a moderator or VIP), message text, emotes and whether it is a paid message. That is what gets classified.</li>
+      <li><b>Your own username, where possible.</b> On Twitch and YouTube, so that messages mentioning you are never hidden. It is used in the page only and is never stored or sent.</li>
+      <li><b>The chat's theme</b> (light or dark), so Tiho's bar matches the site.</li>
+      <li><b>The addresses of the frames in open YouTube, Twitch and Kick tabs</b>, once, when Tiho is installed or updated, to find chats that are already open and start Tiho in them without a reload.</li>
+    </ul>
+    <p>Tiho does not read anything else on those pages and does not run on any other website.</p>
+
+    <h2>Where the work happens</h2>
+    <p>Every message is classified inside your browser by an AI model that ships with the extension, running on your graphics card (WebGPU) or processor (WebAssembly). No code or model is loaded from the internet, and no message text is sent anywhere.</p>
+
+    <h2>What Tiho stores</h2>
+    <table>
+      <thead><tr><th>What</th><th>Where</th><th>How long</th></tr></thead>
+      <tbody>
+        <tr><td>Your settings, presets, rules, custom filter questions and per-channel stream context</td><td>Your browser's extension storage (this browser only, not synced)</td><td>Until you remove the extension</td></tr>
+        <tr><td>"Not spam" feedback: the message text, author, platform, channel and the original decision, at most 500 entries</td><td>Your browser's extension storage</td><td>Until you remove the extension. Never uploaded.</td></tr>
+        <tr><td>The model's current status</td><td>Browser session storage</td><td>Until the browser closes</td></tr>
+        <tr><td>The filtered log (at most 200 messages) and the questions inbox (at most 100)</td><td>Memory of the chat tab</td><td>Until you close or reload the tab</td></tr>
+      </tbody>
+    </table>
+    <p>Removing the extension deletes all of it. Nothing is stored on any server, because there is none.</p>
+
+    <h2>What Tiho sends over the network</h2>
+    <p><b>No chat text leaves your computer.</b> The extension has no server to talk to. The only network traffic it can make involves the optional Tiho Engine:</p>
+    <ul>
+      <li><b>Tiho Engine, only if you turn it on.</b> It is off by default, and while it is off the extension sends it nothing. When you turn it on, the extension sends the text of chat messages (with the platform name), your custom filter questions and any stream context you typed to the Engine address in your settings. By default that is <code>http://127.0.0.1:7377</code>, which is your own computer, so none of it leaves your machine. If you change the address to another computer, the data goes there instead, so only do that for a machine you control.</li>
+    </ul>
+    <p>Separately, when the side panel cannot get the Engine's status from the extension itself, it may ask the Engine address directly whether the Engine is running. That request contains no chat text and, with the default address, never leaves your computer.</p>
+    <p>The <code>127.0.0.1</code> and <code>localhost</code> entries in the extension's permissions exist only for Tiho Engine.</p>
+
+    <h2>Tiho Engine</h2>
+    <p>The optional Engine is a separate app that runs on your computer. It listens only on <code>127.0.0.1</code>, accepts requests only from the browser extension and from localhost, keeps message text only in memory and never logs it. On first start it downloads its AI model and runtime from Hugging Face and GitHub.</p>
+
+    <h2>Permissions</h2>
+    <table>
+      <thead><tr><th>Permission</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>storage</td><td>Settings, rules and "not spam" feedback in your browser</td></tr>
+        <tr><td>offscreen</td><td>Runs the AI model in one background document shared by all tabs</td></tr>
+        <tr><td>sidePanel</td><td>The dashboard in Chrome's side panel</td></tr>
+        <tr><td>scripting</td><td>After install or update, starts Tiho in chats that are already open, so they work without a reload</td></tr>
+        <tr><td>YouTube, Twitch and Kick sites</td><td>Read and decorate their live chat</td></tr>
+        <tr><td>127.0.0.1, localhost</td><td>Talk to the optional Tiho Engine on your own computer</td></tr>
+      </tbody>
+    </table>
+
+    <h2>What we never do</h2>
+    <ul>
+      <li>We do not collect, sell or share your data. We don't have any.</li>
+      <li>We do not use analytics, ads, cookies or tracking in the extension or on this website.</li>
+      <li>We do not transfer data to third parties or use it for anything unrelated to filtering your chat.</li>
+    </ul>
+
+    <h2>Training data</h2>
+    <p>The model was trained on public live-chat messages collected without an account, together with permissively licensed public datasets. Some message texts (without author names) were labelled by AI annotators. Raw chat logs are kept privately, used only to build training data, and never published or shared; only the trained model is distributed.</p>
+
+    <h2>This website</h2>
+    <p>tiho.chat is a static website. It sets no cookies and runs no analytics or third-party scripts. It is served by Cloudflare, which, like any web host, processes your IP address and basic request data to deliver the pages and protect against abuse. If you email us, we use your address only to reply or to send the one launch email you asked for.</p>
+
+    <h2>Changes and contact</h2>
+    <p>If a future version changes anything on this page, we will update it here before that version is released. Questions: <a href="mailto:hello@tiho.chat">hello@tiho.chat</a>.</p>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© 2026 Tiho</span>
+      <nav aria-label="Footer"><a href="/">Home</a><a href="mailto:hello@tiho.chat">hello@tiho.chat</a></nav>
+    </div>
+  </footer>
+</body>
+</html>

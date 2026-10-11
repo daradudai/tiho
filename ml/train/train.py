@@ -1,4 +1,4 @@
-"""Train the Hush Lite student: mmBERT-small + 7 sigmoid heads.
+"""Train the Tiho Lite student: mmBERT-small + 7 sigmoid heads.
 
 Data (JSONL; each source takes one or more glob patterns):
   teacher   data/teacher*.jsonl  rows with "t": soft probs from Clef-Flash  (all 7 labels supervised)

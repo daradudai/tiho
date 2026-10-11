@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tiho — live chat without the junk</title>
+  <meta name="description" content="Tiho is a free browser extension that hides spam, scam links and abuse in YouTube, Twitch and Kick chat. It runs on your own computer. Early version, being tested now.">
+  <link rel="canonical" href="https://tiho.chat/">
+  <link rel="icon" href="/img/logo.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#0b0c14">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://tiho.chat/">
+  <meta property="og:title" content="Tiho — live chat without the junk">
+  <meta property="og:description" content="A free browser extension that hides spam, scam links and abuse in YouTube, Twitch and Kick chat. Runs on your own computer. Early version.">
+  <meta property="og:image" content="https://tiho.chat/img/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/img/logo.svg" alt="" width="28" height="28">Tiho</a>
+      <a class="navlink" href="/privacy">Privacy</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div class="pitch">
+          <span class="status"><span class="dot" aria-hidden="true"></span>Early version · testing now</span>
+          <h1>Live chat without the junk.</h1>
+          <p class="lede">Tiho is a free browser extension that hides spam, scam links and abuse in YouTube, Twitch and Kick chat.</p>
+          <p class="lede">It runs on your own computer. The chat never leaves it.</p>
+          <div class="cta">
+            <span class="btn soon">Coming soon to Chrome</span>
+            <a class="btn ghost" href="mailto:hello@tiho.chat?subject=Tell%20me%20when%20Tiho%20is%20out">Email me when it's out</a>
+          </div>
+        </div>
+
+        <div class="demo">
+          <input class="mode" type="radio" name="mode" id="mode-off" checked>
+          <input class="mode" type="radio" name="mode" id="mode-on">
+          <div class="switch">
+            <label for="mode-off">Without Tiho</label>
+            <label for="mode-on">With Tiho</label>
+          </div>
+
+          <div class="chat" aria-label="Example chat">
+            <div class="chat-head">Stream chat</div>
+            <ul class="msgs">
+              <li class="m"><b class="u c4">plumcat</b>: first time catching a stream live</li>
+              <li class="m"><b class="u c2">zenpike</b>: welcome!</li>
+              <li class="m"><b class="u c5">hazel_newt</b>: hi chat o/</li>
+              <li class="m"><b class="u c3">echo_hare</b>: this map is so good</li>
+              <li class="m"><b class="u c4">cobalt_lark</b>: who's winning rn?</li>
+              <li class="m"><b class="u c6">oakmoth</b>: they're up 2-1</li>
+              <li class="m"><b class="u c2">tinyfern</b>: the comeback is real</li>
+              <li class="m"><b class="u c1">rustyfox</b>: that rotation was clean</li>
+              <li class="m"><b class="u c1">lumen_owl</b>: that clutch was insane</li>
+              <li class="m q"><b class="u c2">sk8rmoth</b>: what keyboard are you using?</li>
+              <li class="m x"><b class="u c3">FREE_SKINS_4U</b>: 🎁 free skins for the first 100 viewers → skins-drop.gift</li>
+              <li class="m"><b class="u c4">bluefinch</b>: KEKW<span class="count">×6</span></li>
+              <li class="m x"><b class="u c5">tomatoboi</b>: KEKW</li>
+              <li class="m x"><b class="u c6">r1ven</b>: KEKW</li>
+              <li class="m x"><b class="u c2">mossy_pine</b>: KEKW</li>
+              <li class="m x"><b class="u c1">gl1tchy</b>: KEKW</li>
+              <li class="m x"><b class="u c3">quietkoi</b>: KEKW</li>
+              <li class="m x"><b class="u c6">nightrat</b>: you're so bad at this, just uninstall lmao</li>
+              <li class="m x"><b class="u c5">promo_wolf</b>: ▓▓ JOIN MY DISCORD ▓▓ JOIN MY DISCORD ▓▓ JOIN MY DISCORD ▓▓</li>
+              <li class="pill"><span class="pill-in"><span class="pdot" aria-hidden="true"></span>3 hidden · <u>show</u></span></li>
+              <li class="m"><b class="u c4"><span class="badge" title="Moderator">MOD</span> modkat</b>: keep it friendly pls</li>
+              <li class="m q"><b class="u c1">nova_finch</b>: is the next match today or tomorrow?</li>
+              <li class="m"><b class="u c2">pearl_jay</b>: gg that was close</li>
+            </ul>
+          </div>
+          <p class="demo-note">A made-up chat to show the idea. Real chats are faster and messier.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="honest">
+      <div class="wrap narrow">
+        <h2>Where it stands</h2>
+        <ul class="plain">
+          <li><b>It's early.</b> We're testing it on real streams right now, and it still makes mistakes.</li>
+          <li><b>Nothing is lost.</b> Anything Tiho hides is one click away, and you can tell it "not spam".</li>
+          <li><b>Languages.</b> So far we've checked it properly on English and about a dozen others. The rest is untested.</li>
+          <li><b>Your computer does the work.</b> A small AI model inside the extension reads each new message. On older computers it can fall behind in very busy chats.</li>
+          <li><b>Free, no account.</b> There's no Tiho server, so there's nothing to sign up for and nothing we could collect.</li>
+        </ul>
+        <p class="contact">Questions or ideas? <a href="mailto:hello@tiho.chat">hello@tiho.chat</a></p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© 2026 Tiho</span>
+      <nav aria-label="Footer"><a href="/privacy">Privacy</a><a href="mailto:hello@tiho.chat">hello@tiho.chat</a></nav>
+    </div>
+  </footer>
+</body>
+</html>

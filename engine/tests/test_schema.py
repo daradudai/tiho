@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from hush_engine import schema as S
+from tiho_engine import schema as S
 
 TEACHER = Path(__file__).resolve().parents[2] / "ml" / "teacher" / "label.py"
 

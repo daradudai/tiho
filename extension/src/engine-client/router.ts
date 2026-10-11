@@ -1,4 +1,4 @@
-// Decides which classified texts go to the Hush Engine and sends its answers
+// Decides which classified texts go to the Tiho Engine and sends its answers
 // back to the content Port that asked, as a follow-up to the local scores:
 //
 //   hub: local scores → Port ──▶ router.onLocalScores({port, batchId, items, ids, scores})

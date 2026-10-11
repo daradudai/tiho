@@ -1,23 +1,23 @@
 # Privacy
 
-Hush filters live chat on your own device. It has no server, no account, no analytics and no telemetry. Chat messages never leave your computer.
+Tiho filters live chat on your own device. It has no server, no account, no analytics and no telemetry. Chat messages never leave your computer.
 
-This page explains exactly what the extension reads, stores and sends, so you can check it against the code. It covers Hush 0.1.
+This page explains exactly what the extension reads, stores and sends, so you can check it against the code. It covers Tiho 0.1.
 
-## What Hush reads
+## What Tiho reads
 
 - **Chat on YouTube, Twitch and Kick.** A content script reads each new chat row on those sites: author name, badges (to know who is a moderator or VIP), message text, emotes and whether it is a paid message. That is what gets classified.
 - **Your own username, where possible.** On Twitch (from the `login` cookie or the user menu) and on YouTube (from the name above the chat box), so that messages mentioning you are never hidden. It is used in the page and never stored or sent.
 - **The chat's theme** (light or dark), so the bar matches the site.
-- **The addresses of the frames in open YouTube, Twitch and Kick tabs**, once, when Hush is installed or updated, to find the chats that are already open and start Hush in them without a reload.
+- **The addresses of the frames in open YouTube, Twitch and Kick tabs**, once, when Tiho is installed or updated, to find the chats that are already open and start Tiho in them without a reload.
 
-Hush does not read anything else on those pages, and does not run on any other site.
+Tiho does not read anything else on those pages, and does not run on any other site.
 
 ## Where the work happens
 
-Every message is classified inside your browser, by a model running in an offscreen extension document on your GPU (WebGPU) or CPU (WebAssembly). The ONNX Runtime code ships inside the extension; Chrome's Manifest V3 forbids loading code from the internet, and Hush does not try.
+Every message is classified inside your browser, by a model running in an offscreen extension document on your GPU (WebGPU) or CPU (WebAssembly). The ONNX Runtime code ships inside the extension; Chrome's Manifest V3 forbids loading code from the internet, and Tiho does not try.
 
-## What Hush stores
+## What Tiho stores
 
 | What | Where | How long |
 |---|---|---|
@@ -29,16 +29,16 @@ Every message is classified inside your browser, by a model running in an offscr
 
 Removing the extension deletes all of it.
 
-## What Hush sends over the network
+## What Tiho sends over the network
 
 Only two kinds of requests:
 
-1. **The model download**, once, and only in a build made to download it. Release zips include the model, so they never download it, and there is no default download location. Someone who builds Hush from source can compile in a URL to fetch the model from instead (`WXT_HUSH_MODEL_URL`); such a build fetches the model files from that URL, checks each one against the SHA-256 hash compiled into it, and uses nothing that does not match. No chat text is sent. Like any download, the host sees your IP address and the files requested.
-2. **Hush Engine, if you turn it on.** It is off by default, and while it is off the extension sends it nothing. (The one exception is a status check without any chat text: if the extension's background worker does not answer, the side panel asks the engine URL for its status directly.) When you turn the engine on, the extension's background service worker checks the engine's status every few seconds and sends it the text of chat messages that reached the in-browser model (with the platform name), your custom filter questions and any stream context you typed. All of it goes only to the engine URL in your settings, by default `http://127.0.0.1:7377`, which is your own computer: with that URL none of it leaves your machine. If you change the URL to another host, all of it goes there instead, so only do that for a machine you control.
+1. **The model download**, once, and only in a build made to download it. Release zips include the model, so they never download it, and there is no default download location. Someone who builds Tiho from source can compile in a URL to fetch the model from instead (`WXT_TIHO_MODEL_URL`); such a build fetches the model files from that URL, checks each one against the SHA-256 hash compiled into it, and uses nothing that does not match. No chat text is sent. Like any download, the host sees your IP address and the files requested.
+2. **Tiho Engine, if you turn it on.** It is off by default, and while it is off the extension sends it nothing. (The one exception is a status check without any chat text: if the extension's background worker does not answer, the side panel asks the engine URL for its status directly.) When you turn the engine on, the extension's background service worker checks the engine's status every few seconds and sends it the text of chat messages that reached the in-browser model (with the platform name), your custom filter questions and any stream context you typed. All of it goes only to the engine URL in your settings, by default `http://127.0.0.1:7377`, which is your own computer: with that URL none of it leaves your machine. If you change the URL to another host, all of it goes there instead, so only do that for a machine you control.
 
-The `127.0.0.1` and `localhost` entries in the extension's permissions exist for Hush Engine. A build made to download the model also lists the host it downloads from; release zips list none.
+The `127.0.0.1` and `localhost` entries in the extension's permissions exist for Tiho Engine. A build made to download the model also lists the host it downloads from; release zips list none.
 
-## Hush Engine
+## Tiho Engine
 
 The optional engine (`engine/`) runs on your machine:
 
@@ -51,16 +51,16 @@ The optional engine (`engine/`) runs on your machine:
 
 | Permission | Why |
 |---|---|
-| `storage`, `unlimitedStorage` | settings, feedback, and caching a downloaded model (one model file and the tokenizer, 119 to 126 MB) |
+| `storage` | settings, rules, feedback and the model's status. A build made to download the model caches one model file and the tokenizer (119 to 126 MB) in Cache Storage, which needs no extra permission. |
 | `offscreen` | runs the model in an offscreen document shared by all tabs |
 | `sidePanel` | the dashboard |
-| `scripting` | after an install or update, start Hush in chats that are already open, so they filter without a reload |
+| `scripting` | after an install or update, start Tiho in chats that are already open, so they filter without a reload |
 | YouTube, Twitch, Kick hosts | read and decorate their live chat |
-| `127.0.0.1`, `localhost` | talk to Hush Engine |
-| the model host (only in builds made with `WXT_HUSH_MODEL_URL`) | download the model from that host; for a Hugging Face URL also `*.hf.co`, where its files are served from. Release zips have no such entry. |
+| `127.0.0.1`, `localhost` | talk to Tiho Engine |
+| the model host (only in builds made with `WXT_TIHO_MODEL_URL`) | download the model from that host; for a Hugging Face URL also `*.hf.co`, where its files are served from. Release zips have no such entry. |
 
 ## Training data
 
 The model was trained on public live-chat messages collected without an account, together with permissively licensed public datasets. Some message texts (without author names) were labeled by AI annotators (Claude) and by a local model. Raw chat logs are kept privately by the maintainer, used only to build training data, and never published or shared; only the trained model weights are. Details: [docs/MODEL_CARD.md](docs/MODEL_CARD.md).
 
-Questions about any of this: [open an issue](https://github.com/daradudai/hush/issues).
+Questions about any of this: write to [hello@tiho.chat](mailto:hello@tiho.chat) or [open an issue](https://github.com/daradudai/hush/issues).

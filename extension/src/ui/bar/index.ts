@@ -1,4 +1,4 @@
-// mountBar: inserts the Hush bar into the platform's chat column, inside a
+// mountBar: inserts the Tiho bar into the platform's chat column, inside a
 // shadow root so the page's CSS and ours never meet.
 //
 // Cost model (tests/stress, bar A/B): the bar must stay invisible in the
@@ -29,7 +29,7 @@ export interface MountOptions {
   synthetic?: boolean;
 }
 
-export const BAR_TAG = 'hush-bar';
+export const BAR_TAG = 'tiho-bar';
 
 /** Events the bar acts on; untrusted ones (dispatched by a script) are dropped before they reach it. */
 const INPUT_EVENTS = ['click', 'contextmenu', 'pointerdown', 'keydown'] as const;
@@ -79,7 +79,7 @@ const PULSE_MS = 6000;
 export function mountBar(anchor: BarAnchor, store: Store, actions: BarActions, opts: MountOptions = {}): () => void {
   if (framedByOtherSite(window)) return () => {};
   const host = document.createElement(BAR_TAG);
-  host.setAttribute('data-hush-ui', '');
+  host.setAttribute('data-tiho-ui', '');
   const shadow = host.attachShadow({ mode: opts.shadow ?? 'closed' });
 
   const style = document.createElement('style');

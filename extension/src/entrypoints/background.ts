@@ -1,8 +1,8 @@
 // Background service worker: routes classify traffic between content-script
 // Ports and the offscreen inference host, relays model status, aggregates
 // per-tab perf for the UI, opens the side panel / onboarding, and injects the
-// content script into chats that were open when Hush was installed or updated.
-// When the optional Hush Engine is on, it also forwards scored texts to it (the
+// content script into chats that were open when Tiho was installed or updated.
+// When the optional Tiho Engine is on, it also forwards scored texts to it (the
 // engine only accepts extension origins, so content scripts cannot call it) and
 // answers the UI's engine status / "Test filter" requests.
 //
@@ -20,7 +20,7 @@ import { InferenceHub, type PortLike } from '../inference/hub';
 import { MSG_OFFSCREEN_HELLO, PORT_OFFSCREEN } from '../inference/messages';
 
 const OFFSCREEN_PATH = 'offscreen.html';
-const STATUS_KEY = 'hush.modelStatus';
+const STATUS_KEY = 'tiho.modelStatus';
 
 type TabPerf = PerfStats & { platform?: string; channel?: string; counts?: Record<string, number> };
 
@@ -69,7 +69,7 @@ export default defineBackground(() => {
   chrome.tabs.onRemoved.addListener((tabId) => perf.delete(tabId));
 
   const engine = new EngineClient({
-    onStatus: (status: EngineStatus) => broadcast({ type: 'hush:engine:status', status }),
+    onStatus: (status: EngineStatus) => broadcast({ type: 'tiho:engine:status', status }),
   });
 
   const hub = new InferenceHub({
@@ -92,7 +92,7 @@ export default defineBackground(() => {
     .then((r) => hub.restoreStatus(r[STATUS_KEY] as ModelStatus | undefined))
     .catch(() => {});
 
-  // GPU preference and Hush Engine from settings.
+  // GPU preference and Tiho Engine from settings.
   const applySettings = (s: Settings) => {
     hub.setDevice(s.preferGpu ? 'auto' : 'wasm');
     engine.configure(s.engine.enabled, s.engine.url);
@@ -141,34 +141,34 @@ export default defineBackground(() => {
   chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
     const msg = raw as RuntimeMessage | { type?: string; windowId?: number };
     switch (msg?.type) {
-      case 'hush:getStatus':
+      case 'tiho:getStatus':
         void hub.kick();
         sendResponse({ ...hub.getStatus(), perf: hub.stats ?? undefined });
         return false;
-      case 'hush:reloadModel':
+      case 'tiho:reloadModel':
         hub.reload();
         return false;
-      case 'hush:perf': {
+      case 'tiho:perf': {
         const tabId = sender.tab?.id;
         if (tabId !== undefined && 'stats' in msg) perf.set(tabId, { stats: msg.stats as TabPerf, at: Date.now() });
         return false;
       }
-      case 'hush:getPerf':
+      case 'tiho:getPerf':
         perfForUi().then(sendResponse, () => sendResponse(null));
         return true;
-      case 'hush:engine:getStatus':
+      case 'tiho:engine:getStatus':
         engineStatus(!!(msg as { fresh?: boolean }).fresh).then(sendResponse, () => sendResponse(null));
         return true;
-      case 'hush:engine:test': {
+      case 'tiho:engine:test': {
         // extension pages only (the side panel), never content scripts
         if (!sender.url?.startsWith(chrome.runtime.getURL(''))) return false;
-        const { text, filters, context, platform } = msg as Extract<RuntimeMessage, { type: 'hush:engine:test' }>;
+        const { text, filters, context, platform } = msg as Extract<RuntimeMessage, { type: 'tiho:engine:test' }>;
         settingsLoaded
           .then(() => engine.test({ text, filters, context, platform }))
           .then(sendResponse, (e: unknown) => sendResponse({ ok: false, error: String((e as Error)?.message ?? e) }));
         return true;
       }
-      case 'hush:openSidePanel': {
+      case 'tiho:openSidePanel': {
         // Must call sidePanel.open synchronously inside the user-gesture-carrying message.
         const tab = sender.tab;
         const windowId = (msg as { windowId?: number }).windowId ?? tab?.windowId;
@@ -197,7 +197,7 @@ export default defineBackground(() => {
 });
 
 /**
- * Chrome runs content scripts only in pages loaded after Hush was installed,
+ * Chrome runs content scripts only in pages loaded after Tiho was installed,
  * and an update cuts the copies already running off from the extension (they
  * stop themselves). Inject the manifest's content scripts into the chat frames
  * open now, so those chats filter again without a reload. A frame that gets
@@ -227,7 +227,7 @@ async function injectChatFrames(tabId: number, files: string[], patterns: MatchP
     if (documentIds.length) await chrome.scripting.executeScript({ target: { tabId, documentIds }, files });
   } catch (e) {
     // closed, navigated away or showing an error page meanwhile: it gets the script on its next load
-    console.warn(`[hush] could not inject into tab ${tabId}:`, e);
+    console.warn(`[tiho] could not inject into tab ${tabId}:`, e);
   }
 }
 

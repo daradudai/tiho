@@ -1,4 +1,4 @@
-"""Distill the full Hush Lite student (22 layers) into a shallower one for
+"""Distill the full Tiho Lite student (22 layers) into a shallower one for
 CPU/WASM and weak GPUs.
 
 The student is initialized from the teacher's own layers. ModernBERT alternates
@@ -6,12 +6,17 @@ one global-attention layer (RoPE theta 160k) with two local ones (theta 10k), an
 the type is derived from the layer index, so we keep whole aligned blocks of 3
 (global, local, local) to preserve each layer's attention type and RoPE.
 
-Targets: teacher (v2) probabilities on every unique real chat message in
-data/raw/ (no labels needed) plus the labeled sets, where the hard label is mixed
-with the teacher probability. Texts are cleaned the way the extension feeds the
-model (`clean_for_model`); gold texts are left out.
+With --student-init the student starts from an existing (already distilled)
+checkpoint instead; that is needed when a teacher is wider than the student.
+
+Targets: the teacher's probabilities (the average of several teachers', given more
+than one --teacher) on every unique real chat message in data/raw/ (no labels
+needed) plus the labeled sets, where the hard label is mixed with the teacher
+probability. Texts are cleaned the way the extension feeds the model
+(`clean_for_model`); gold texts are left out.
 
     python train/distill.py --teacher runs/v2/best --blocks 0,3,6 --out runs/v2-9L
+    python train/distill.py --teacher runs/v3-base/best runs/v2/best --student-init runs/v2-6L/best --out runs/v3-6L-ens
 """
 from __future__ import annotations
 

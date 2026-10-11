@@ -3,7 +3,7 @@
 //
 // Chat author names and @mentions become stable fake handles (the same real
 // name always gets the same one: "pixel_otter", "nightowl88", …) and avatars
-// become colored initials. On the chat sites it never changes text that Hush
+// become colored initials. On the chat sites it never changes text that Tiho
 // reads:
 //   * an author (or mention) element gets data-anon="<fake>"; CSS hides its own
 //     text and draws the fake one in ::before. An attribute write inside a row
@@ -11,7 +11,7 @@
 //   * a plain-text "@name" inside a message (YouTube, Kick, reply previews), or
 //     a bare word that is the name of a chatter seen on the page (Twitch's watch
 //     streak notices), is wrapped in such an element only once the row carries
-//     data-hush-a, that is after Hush extracted it. The runtime observes the
+//     data-tiho-a, that is after Tiho extracted it. The runtime observes the
 //     chat list without subtree (observeSubtree is false on all three
 //     platforms) and extracts a row once, so its text, key and verdict stay
 //     what they were.
@@ -19,11 +19,11 @@
 // root, which media-shoot.mjs hands to watch() through CDP) get their text
 // rewritten instead: nothing reads it back.
 //
-// window.__hushAnon = { fake(name), watch(root), check() }. check() counts how
+// window.__tihoAnon = { fake(name), watch(root), check() }. check() counts how
 // many rows changed verdict after their first one, with and without a wrapped
 // name. (Wrapping keeps the text itself, so even a re-read would see the same.)
 (() => {
-  if (window.__hushAnon) return;
+  if (window.__tihoAnon) return;
 
   const ADJ = ['pixel', 'night', 'lunar', 'mango', 'cosmic', 'velvet', 'turbo', 'quiet', 'frosty', 'neon', 'maple', 'echo', 'sunny', 'rusty', 'misty', 'atomic', 'cobalt', 'amber', 'olive', 'nova', 'cloud', 'cherry', 'pepper', 'silver', 'salty', 'sleepy', 'lucky', 'tiny', 'brave', 'mellow', 'crispy', 'dusty', 'fuzzy', 'golden', 'hazel', 'jolly', 'kiwi', 'lemon', 'mossy', 'noble'];
   const NOUN = ['otter', 'owl', 'fox', 'panda', 'lynx', 'koala', 'heron', 'badger', 'gecko', 'yak', 'moth', 'finch', 'bison', 'orca', 'wombat', 'raven', 'ferret', 'lemur', 'newt', 'puffin', 'crow', 'hare', 'seal', 'toad', 'wolf', 'bear', 'duck', 'goat', 'mole', 'swan', 'crab', 'eel', 'lark', 'mink', 'pug', 'squid', 'tapir', 'vole', 'wren', 'zebu'];
@@ -113,7 +113,7 @@
   }
 
   if (SITE === 'ext') {
-    window.__hushAnon = { fake, watch, check: () => ({ site: SITE }) };
+    window.__tihoAnon = { fake, watch, check: () => ({ site: SITE }) };
     const start = () => watch(document.body);
     if (document.body) start();
     else document.addEventListener('DOMContentLoaded', start);
@@ -201,7 +201,7 @@
   const WORD = /(^|[^\p{L}\p{N}_@.])(@?)([\p{L}\p{N}_][\p{L}\p{N}_.-]*[\p{L}\p{N}_]|[\p{L}\p{N}_])/gu;
   const isName = (at, word) => (at ? !isFake(word) : word.length >= 4 && seenNames.has(word.toLowerCase()));
 
-  /** Wrap the names in the text of a row Hush has extracted in [data-anon] spans; returns how many text nodes had one. */
+  /** Wrap the names in the text of a row Tiho has extracted in [data-anon] spans; returns how many text nodes had one. */
   function wrapNames(row) {
     const walk = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
     const hits = [];
@@ -253,18 +253,18 @@
    * how often that happens with and without a wrapped name.
    */
   const rows = new Map();
-  const verdict = (row) => `${row.getAttribute('data-hush-a')}|${row.getAttribute('data-hush-c')}`;
+  const verdict = (row) => `${row.getAttribute('data-tiho-a')}|${row.getAttribute('data-tiho-c')}`;
 
   function onVerdict(row) {
     let st = rows.get(row);
     if (!st) rows.set(row, (st = { wrapped: wrapNames(row) > 0, first: '' }));
-    if (!st.first && row.getAttribute('data-hush-a') !== 'pending') st.first = verdict(row);
+    if (!st.first && row.getAttribute('data-tiho-a') !== 'pending') st.first = verdict(row);
   }
 
   function check() {
     const out = { site: SITE, wrapped: { rows: 0, changed: 0 }, other: { rows: 0, changed: 0 }, samples: [] };
     for (const [row, st] of rows) {
-      if (!row.isConnected || !st.first || !row.hasAttribute('data-hush-c')) continue;
+      if (!row.isConnected || !st.first || !row.hasAttribute('data-tiho-c')) continue;
       const bucket = st.wrapped ? out.wrapped : out.other;
       bucket.rows++;
       if (verdict(row) === st.first) continue;
@@ -276,7 +276,7 @@
 
   const install = () => {
     const style = document.createElement('style');
-    style.id = 'hush-anon-style';
+    style.id = 'tiho-anon-style';
     style.textContent = CSS + S.css;
     document.head.append(style);
     sweep(document);
@@ -289,10 +289,10 @@
             else if (n.nodeType === 3 && n.parentElement) sweep(n.parentElement); // text hydrated after the element
           }
       }
-    }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-hush-a'] });
+    }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-tiho-a'] });
   };
 
-  window.__hushAnon = { fake, watch, check };
+  window.__tihoAnon = { fake, watch, check };
   if (document.head) install();
   else document.addEventListener('DOMContentLoaded', install);
 })();

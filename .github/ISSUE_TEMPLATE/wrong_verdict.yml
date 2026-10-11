@@ -1,5 +1,5 @@
 name: Wrong verdict
-description: Hush hid, folded or tagged a message it should not have, or let one through that it should have caught.
+description: Tiho hid, folded or tagged a message it should not have, or let one through that it should have caught.
 title: "[verdict] "
 labels: ["model", "wrong-verdict"]
 body:
@@ -31,7 +31,7 @@ body:
   - type: input
     id: got
     attributes:
-      label: What Hush said
+      label: What Tiho said
       description: Hover the message, or check Side panel → Log. For example "toxic 0.94", "wave ×37", "link".
       placeholder: toxic 0.31
   - type: input
@@ -71,6 +71,6 @@ body:
   - type: input
     id: version
     attributes:
-      label: Hush and model version
+      label: Tiho and model version
       description: Side panel → Settings shows both.
-      placeholder: Hush 0.1.0, model v2-6L, WebGPU
+      placeholder: Tiho 0.1.0, model v3-6L-ens, WebGPU

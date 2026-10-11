@@ -14,11 +14,11 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from hush_engine import app as app_module
-from hush_engine.app import Engine, EngineConfig, create_app
-from hush_engine.backend import BackendError, LlamaBackend
-from hush_engine.gpu import PROFILES, Gpu, pick_profile
-from hush_engine.llama import LlamaProcess, build_argv, port_in_use, shown_argv
+from tiho_engine import app as app_module
+from tiho_engine.app import Engine, EngineConfig, create_app
+from tiho_engine.backend import BackendError, LlamaBackend
+from tiho_engine.gpu import PROFILES, Gpu, pick_profile
+from tiho_engine.llama import LlamaProcess, build_argv, port_in_use, shown_argv
 
 from .conftest import free_port
 
@@ -135,7 +135,7 @@ def test_child_dies_with_parent(tmp_path):
         import os, sys, time, asyncio
         sys.path.insert(0, {str(HERE.parent)!r})
         from pathlib import Path
-        from hush_engine.llama import LlamaProcess
+        from tiho_engine.llama import LlamaProcess
         p = LlamaProcess([{PY!r}, {str(FAKE)!r}, "--port", "{port}"], {port}, Path({str(tmp_path / 'c.log')!r}))
         p.start()
         asyncio.run(p.wait_ready(20))

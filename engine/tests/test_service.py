@@ -5,10 +5,10 @@ import time
 
 import pytest
 
-from hush_engine import schema as S
-from hush_engine.backend import InvalidRequest
-from hush_engine.scheduler import Scheduler
-from hush_engine.service import ClassifyService, Filter, Msg
+from tiho_engine import schema as S
+from tiho_engine.backend import InvalidRequest
+from tiho_engine.scheduler import Scheduler
+from tiho_engine.service import ClassifyService, Filter, Msg
 
 from .conftest import FakeBackend
 

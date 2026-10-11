@@ -107,7 +107,7 @@ def download(url: str, dest: Path, size: int | None = None, sha256: str | None =
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
     label = label or dest.name
-    headers = {"User-Agent": "hush-engine"}
+    headers = {"User-Agent": "tiho-engine"}
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
     if token and "huggingface.co" in url:
         headers["Authorization"] = f"Bearer {token}"
@@ -155,12 +155,12 @@ def ensure_model(models_dir: Path, quant: str = "Q8_0", allow_download: bool = T
     if path.exists():
         expected = MODEL_FILES.get(quant, (None, None, None))[1]
         if expected and path.stat().st_size != expected:
-            print(f"[hush-engine] warning: {path} has unexpected size {path.stat().st_size} (expected {expected})", file=sys.stderr)
+            print(f"[tiho-engine] warning: {path} has unexpected size {path.stat().st_size} (expected {expected})", file=sys.stderr)
         return path
     if not allow_download:
         raise FileNotFoundError(f"model not found: {path} (run without --no-download, or pass --model)")
     _, size, sha = MODEL_FILES.get(quant, (name, None, None))
-    print(f"[hush-engine] downloading {name} from huggingface.co/{HF_REPO} ...", file=sys.stderr)
+    print(f"[tiho-engine] downloading {name} from huggingface.co/{HF_REPO} ...", file=sys.stderr)
     return download(hf_url(name), path, size=size, sha256=sha)
 
 
@@ -225,7 +225,7 @@ def ensure_llama_server(llama_dir: Path, build: str = LLAMA_BUILD, nvidia: bool 
     llama_dir.mkdir(parents=True, exist_ok=True)
     dl = llama_dir / ".download"
     for asset in release_assets(build, nvidia):
-        print(f"[hush-engine] downloading llama.cpp {build}: {asset} ...", file=sys.stderr)
+        print(f"[tiho-engine] downloading llama.cpp {build}: {asset} ...", file=sys.stderr)
         size, sha = LLAMA_ASSETS.get(asset, (None, None)) if build == LLAMA_BUILD else (None, None)
         archive = download(LLAMA_RELEASE_URL.format(build=build, asset=asset), dl / asset, size=size, sha256=sha)
         _extract_flat(archive, llama_dir)

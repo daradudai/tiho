@@ -1,7 +1,7 @@
 // In-browser inference benchmark (Playwright + unpacked extension, headed Chromium).
 //
 //   node tests/bench/make-sample.mjs                      # once: real chat texts → .data/ (git-ignored)
-//   HUSH_OUT=.output-inference HUSH_BENCH=1 HUSH_MODEL_VARIANTS=all npx wxt build
+//   TIHO_OUT=.output-inference TIHO_BENCH=1 TIHO_MODEL_VARIANTS=all npx wxt build
 //   node tests/bench/bench.mjs [--quick] [--only webgpu|wasm] [--variants q8f16,q8] [--wasm-best uint8] [--pipeline-only]
 //
 // Writes tests/bench/.data/results-<time>.json and prints a markdown summary.
@@ -16,7 +16,7 @@ import { chromium } from '@playwright/test';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
-const extDir = path.resolve(root, process.env.HUSH_EXT_DIR ?? '.output-inference/chrome-mv3');
+const extDir = path.resolve(root, process.env.TIHO_EXT_DIR ?? '.output-inference/chrome-mv3');
 const dataDir = path.join(here, '.data');
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -29,7 +29,7 @@ const only = opt('--only', '');
 const variantFilter = opt('--variants', '');
 
 if (!fs.existsSync(path.join(extDir, 'manifest.json'))) {
-  console.error(`No build at ${extDir}. Run: HUSH_OUT=.output-inference HUSH_BENCH=1 HUSH_MODEL_VARIANTS=all npx wxt build`);
+  console.error(`No build at ${extDir}. Run: TIHO_OUT=.output-inference TIHO_BENCH=1 TIHO_MODEL_VARIANTS=all npx wxt build`);
   process.exit(1);
 }
 const samplePath = path.join(dataDir, 'chat_sample.json');
@@ -38,8 +38,8 @@ if (!fs.existsSync(samplePath)) {
   process.exit(1);
 }
 const texts = JSON.parse(fs.readFileSync(samplePath, 'utf8')).map((r) => r.text);
-const modelFiles = JSON.parse(fs.readFileSync(path.join(extDir, 'models/hush-lite/config.json'), 'utf8')).hush.files;
-const available = Object.keys(modelFiles).filter((v) => fs.existsSync(path.join(extDir, 'models/hush-lite', modelFiles[v])));
+const modelFiles = JSON.parse(fs.readFileSync(path.join(extDir, 'models/tiho-lite/config.json'), 'utf8')).tiho.files;
+const available = Object.keys(modelFiles).filter((v) => fs.existsSync(path.join(extDir, 'models/tiho-lite', modelFiles[v])));
 
 /** Private bytes of every process of this browser binary (Windows), MB. */
 function browserMemMB(exe) {
@@ -75,7 +75,7 @@ function peakSampler(exe) {
 }
 
 async function main() {
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hush-bench-'));
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tiho-bench-'));
   const ctx = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
     viewport: { width: 900, height: 700 },
@@ -101,8 +101,8 @@ async function main() {
     if (/error|warn|fail/i.test(t) && !t.startsWith('[bench]')) console.log('  [page]', t.slice(0, 300));
   });
   await page.goto(`chrome-extension://${extId}/bench.html`);
-  await page.waitForFunction(() => !!window.hushBench);
-  const env = await page.evaluate(() => window.hushBench.env());
+  await page.waitForFunction(() => !!window.tihoBench);
+  const env = await page.evaluate(() => window.tihoBench.env());
   console.log('env', JSON.stringify(env));
 
   const memIdle = browserMemMB(exe);
@@ -138,7 +138,7 @@ async function main() {
     console.log(`\n== ${c.device} ${c.variant}${c.threads ? ` threads=${c.threads}` : ''}`);
     const before = browserMemMB(exe);
     const stopPeak = peakSampler(exe);
-    const r = await page.evaluate((cfg) => window.hushBench.run(cfg), cfg);
+    const r = await page.evaluate((cfg) => window.tihoBench.run(cfg), cfg);
     r.memPeakMB = await stopPeak();
     r.memBeforeMB = before;
     r.memAfterRunMB = browserMemMB(exe); // measured after the worker terminated → shows leaks only
@@ -150,7 +150,7 @@ async function main() {
   // Peak memory of the production path: offscreen doc via background (default device choice).
   console.log('\n== pipeline (Port → background → offscreen → worker), default backend');
   const memBeforePipe = browserMemMB(exe);
-  const pipe = await page.evaluate((cfg) => window.hushBench.pipeline(cfg), { texts, batches: quick ? 30 : 120, batchSize: 16 });
+  const pipe = await page.evaluate((cfg) => window.tihoBench.pipeline(cfg), { texts, batches: quick ? 30 : 120, batchSize: 16 });
   pipe.memBeforeMB = memBeforePipe;
   pipe.memLoadedMB = browserMemMB(exe);
   console.log(JSON.stringify(pipe));

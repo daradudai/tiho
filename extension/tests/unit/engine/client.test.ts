@@ -92,7 +92,7 @@ describe('EngineClient: health', () => {
     expect(c.ready).toBe(true);
   });
 
-  it('flags something that is not a Hush Engine', async () => {
+  it('flags something that is not a Tiho Engine', async () => {
     fake.health = () => json({ hello: 'world' });
     const c = client();
     c.configure(true, 'http://127.0.0.1:7377');
@@ -272,7 +272,7 @@ describe('EngineClient: classify', () => {
     fake.classify = () => json({ error: { code: 'loading', message: 'engine is loading' } }, 503);
     expect(await c.test({ text: 'x', filters: F })).toEqual({ ok: false, error: 'Engine not ready: engine is loading' });
     fake.classify = () => new TypeError('Failed to fetch');
-    expect(await c.test({ text: 'x', filters: F })).toEqual({ ok: false, error: 'Hush Engine is not running' });
+    expect(await c.test({ text: 'x', filters: F })).toEqual({ ok: false, error: 'Tiho Engine is not running' });
   });
 });
 

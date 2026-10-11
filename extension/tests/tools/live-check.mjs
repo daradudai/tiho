@@ -10,10 +10,10 @@ import path from 'node:path';
 
 const [url, secsArg, ...flags] = process.argv.slice(2);
 const secs = Number(secsArg ?? 20);
-const out = await build({ input: path.resolve('src/platforms/index.ts'), output: { format: 'iife', name: 'HushPlatforms' }, write: false, logLevel: 'silent' });
+const out = await build({ input: path.resolve('src/platforms/index.ts'), output: { format: 'iife', name: 'TihoPlatforms' }, write: false, logLevel: 'silent' });
 const bundle = out.output[0].code;
 
-const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(process.env.TEMP ?? '/tmp', 'hush-live-')), {
+const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(process.env.TEMP ?? '/tmp', 'tiho-live-')), {
   channel: 'chrome',
   headless: !flags.includes('--headed'),
   viewport: { width: 1400, height: 950 },
@@ -31,12 +31,12 @@ for (const sel of ['button[aria-label^="Accept all"]', 'button:has-text("Accept 
 }
 
 function installer(code) {
-  if (window.__hushLive) return window.__hushLive.status;
+  if (window.__tihoLive) return window.__tihoLive.status;
   // eslint-disable-next-line no-new-func
-  const P = new Function(code + ';return HushPlatforms;')();
+  const P = new Function(code + ';return TihoPlatforms;')();
   const a = P.detectAdapter(location);
   if (!a) return 'no-adapter';
-  const st = (window.__hushLive = { status: 'waiting', a, n: 0, msgs: 0, nulls: 0, us: 0, samples: [], nullSamples: [], keys: new Map(), dupKeys: 0, attachedAt: 0 });
+  const st = (window.__tihoLive = { status: 'waiting', a, n: 0, msgs: 0, nulls: 0, us: 0, samples: [], nullSamples: [], keys: new Map(), dupKeys: 0, attachedAt: 0 });
   const attach = () => {
     const list = a.findChatList(document);
     if (!list) return false;
@@ -88,7 +88,7 @@ while (Date.now() - t0 < (secs + 40) * 1000) {
     for (const f of page.frames()) {
       try {
         const r = await f.evaluate(() => {
-          const s = window.__hushLive;
+          const s = window.__tihoLive;
           if (!s || s.status !== 'attached') return null;
           const nulls = s.n - s.msgs;
           const pick = (k) => s.samples.filter(k).slice(0, 3).map((m) => `${m.author} r=${m.roles} e=${m.emotes} paid=${m.paid} reply=${m.isReply} men=${JSON.stringify(m.mentions)} | ${m.text.slice(0, 70)}`);

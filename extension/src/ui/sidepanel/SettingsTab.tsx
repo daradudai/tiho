@@ -15,7 +15,7 @@ const SITES: { id: Platform; name: string }[] = [
 
 /**
  * What "Reset filters to defaults" restores: how chat is filtered. Where
- * (sites), whether (on / off), how Hush looks (bar, decorations, GPU), rules
+ * (sites), whether (on / off), how Tiho looks (bar, decorations, GPU), rules
  * and the engine stay as they are.
  */
 export function filterDefaults(): Partial<Settings> {
@@ -129,7 +129,7 @@ function ModelCard() {
         </div>
         <div>
           <h3>{prettyModel(m?.modelId)}</h3>
-          <p>{m?.modelId ?? 'hush-lite · mmBERT-small, distilled for live chat'}</p>
+          <p>{m?.modelId ?? 'tiho-lite · mmBERT-small, distilled for live chat'}</p>
         </div>
         {m?.state === 'error' ? (
           // what failed is in the box below
@@ -156,7 +156,7 @@ function ModelCard() {
       <dl class="sp-model-grid">
         <div>
           <dt>Languages</dt>
-          <dd>1800+ seen in pre-training · tuned on EN ES DE PT FR RU BG PL TR IT JA KO</dd>
+          <dd>Tuned on real chat in about 30 languages · checked on 13 (EN ES JA RU PL PT TH TR DE AR FR IT UK)</dd>
         </div>
         <div>
           <dt>Detects</dt>

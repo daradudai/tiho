@@ -1,4 +1,4 @@
-// Custom AI filters, answered by the optional Hush Engine: connection status
+// Custom AI filters, answered by the optional Tiho Engine: connection status
 // and setup help, per-channel stream context, filters (own words or presets)
 // and "Test filter" with a sample message.
 
@@ -38,13 +38,13 @@ export function AiFilters() {
         <Toggle
           size="sm"
           checked={eng.enabled}
-          label="Use Hush Engine"
+          label="Use Tiho Engine"
           onChange={(v) => void saveEngine({ enabled: v }).then(() => refreshEngine(true))}
         />
       }
     >
       <p class="sp-ai-lead">
-        Describe what to filter in plain words. Answered by <b>Hush Engine</b>, an optional local AI server on your own GPU — still nothing leaves your machine.
+        Describe what to filter in plain words. Answered by <b>Tiho Engine</b>, an optional local AI server on your own GPU — still nothing leaves your machine.
       </p>
       <EngineConnection />
       {eng.enabled && <StreamContext />}
@@ -113,7 +113,7 @@ function SetupHelp({ open }: { open: boolean }) {
   return (
     <details class="sp-setup" open={open}>
       <summary>
-        <Icon name="info" size={13} /> How to start Hush Engine
+        <Icon name="info" size={13} /> How to start Tiho Engine
       </summary>
       <ol>
         <li>
@@ -121,13 +121,13 @@ function SetupHelp({ open }: { open: boolean }) {
           on macOS), usually slower.
         </li>
         <li>
-          Get Hush from GitHub (<i>Code → Download ZIP</i>) and open the <code>engine</code> folder.
+          Get Tiho from GitHub (<i>Code → Download ZIP</i>) and open the <code>engine</code> folder.
         </li>
         <li>
           Run <code>.\start.ps1</code> in PowerShell (or <code>./start.sh</code> on Linux / macOS). The first start downloads the model (6–9 GB); later starts take
           about 30 s.
         </li>
-        <li>Keep that window open. Hush connects by itself as soon as the engine is ready.</li>
+        <li>Keep that window open. Tiho connects by itself as soon as the engine is ready.</li>
       </ol>
       <a class="sp-setup-link" href={ENGINE_README_URL} target="_blank" rel="noreferrer">
         Full guide: engine/README <Icon name="external" size={11} />
@@ -310,7 +310,7 @@ function FilterTest() {
           onInput={(e) => setText((e.target as HTMLInputElement).value)}
           aria-label="Sample message"
         />
-        <Button type="submit" icon="play" disabled={!text.trim() || !filters.length || busy || !ready} title={ready ? undefined : 'Connect Hush Engine to test'}>
+        <Button type="submit" icon="play" disabled={!text.trim() || !filters.length || busy || !ready} title={ready ? undefined : 'Connect Tiho Engine to test'}>
           {busy ? 'Asking…' : 'Test'}
         </Button>
       </div>

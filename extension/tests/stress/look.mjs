@@ -44,7 +44,7 @@ for (const skin of SKINS)
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     const url = skin === 'twitch' ? 'https://www.twitch.tv/stresschan' : 'https://www.youtube.com/live_chat?v=stress123';
-    await page.goto(`${url}${url.includes('?') ? '&' : '?'}hush=1&theme=${theme}`);
+    await page.goto(`${url}${url.includes('?') ? '&' : '?'}tiho=1&theme=${theme}`);
     await page.evaluate(() => window.__mock.ready);
     await page.evaluate((r) => window.__mock.start(r), RATE);
     await page.waitForTimeout(SECS * 1000);
@@ -55,14 +55,14 @@ for (const skin of SKINS)
     await shot();
 
     // reason chip: the lowest shown row that has a reason
-    const reasoned = page.locator('[data-hush-r]:is([data-hush-a="show"],[data-hush-a="dim"],[data-hush-a="highlight"])').last();
+    const reasoned = page.locator('[data-tiho-r]:is([data-tiho-a="show"],[data-tiho-a="dim"],[data-tiho-a="highlight"])').last();
     if (await reasoned.count()) {
       await reasoned.hover();
       await page.waitForTimeout(450);
       await shot('-hover');
     }
     // the pill (its row is visibility:hidden, the pill halves are not), then reveal the run
-    const pill = page.locator('[data-hush-run]').last();
+    const pill = page.locator('[data-tiho-run]').last();
     if (await pill.count()) {
       await pill.scrollIntoViewIfNeeded();
       const at = { x: skin === 'youtube' ? 40 : 36, y: 13 };
@@ -76,7 +76,7 @@ for (const skin of SKINS)
     const summary = await page.evaluate(() => {
       const rows = [...window.__mock.list.children];
       const n = (sel) => rows.filter((r) => r.matches(sel)).length;
-      return { rows: rows.length, pills: n('[data-hush-run]'), collapsed: n('[data-hush-a="collapse"]'), open: n('[data-hush-open]'), waveHeads: n('[data-hush-wh]') };
+      return { rows: rows.length, pills: n('[data-tiho-run]'), collapsed: n('[data-tiho-a="collapse"]'), open: n('[data-tiho-open]'), waveHeads: n('[data-tiho-wh]') };
     });
     console.log(name, JSON.stringify(summary), errors.length ? `errors: ${errors.join(' | ')}` : '');
     await ctx.close();

@@ -1,4 +1,4 @@
-// Bench page (built only with HUSH_BENCH=1). Exposes `window.hushBench` for
+// Bench page (built only with TIHO_BENCH=1). Exposes `window.tihoBench` for
 // tests/bench/bench.mjs:
 //   - run(cfg):      spawns a fresh inference worker (same code the offscreen
 //                    document uses), loads the model with a forced backend /
@@ -47,7 +47,7 @@ class WorkerClient {
   private seq = 1;
 
   constructor() {
-    this.w = new Worker(new URL('../../inference/worker.ts', import.meta.url), { type: 'module', name: 'hush-bench' });
+    this.w = new Worker(new URL('../../inference/worker.ts', import.meta.url), { type: 'module', name: 'tiho-bench' });
     this.w.onmessage = (e: MessageEvent<WorkerOut>) => {
       const m = e.data;
       if (m.type === 'status') {
@@ -257,7 +257,7 @@ async function pipeline(cfg: { texts: string[]; batches: number; batchSize: numb
     if (m.type !== 'scores') errors++;
     lat.push(performance.now() - t1);
   }
-  const status = (await chrome.runtime.sendMessage({ type: 'hush:getStatus' })) as ModelStatus & { perf?: InferenceStats };
+  const status = (await chrome.runtime.sendMessage({ type: 'tiho:getStatus' })) as ModelStatus & { perf?: InferenceStats };
   port.disconnect();
   return {
     readyMs,
@@ -280,5 +280,5 @@ async function envInfo() {
   };
 }
 
-(window as unknown as { hushBench: unknown }).hushBench = { run, pipeline, env: envInfo, memory };
+(window as unknown as { tihoBench: unknown }).tihoBench = { run, pipeline, env: envInfo, memory };
 log('ready');

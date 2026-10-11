@@ -1,4 +1,4 @@
-/* Hush design tokens.
+/* Tiho design tokens.
  * Theme is selected by a `data-theme="dark|light"` attribute on any ancestor
  * (html for extension pages, the shadow wrapper for the in-chat bar).
  * Category colors must match src/ui/tokens.ts (checked by tests/ui/tokens.test.ts). */

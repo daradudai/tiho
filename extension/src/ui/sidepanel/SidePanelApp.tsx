@@ -1,4 +1,4 @@
-// Side panel. Basic: one page (how much Hush hides, the Advanced mode
+// Side panel. Basic: one page (how much Tiho hides, the Advanced mode
 // switch). Advanced: the dashboard, Live · Inbox · Log · Rules · Settings.
 
 import { useEffect, useState } from 'preact/hooks';
@@ -28,7 +28,7 @@ const TABS: { id: TabId; label: string; icon: IconName }[] = [
 export function SidePanelApp({ initialTab = 'live' }: { initialTab?: TabId }) {
   const [tab, setTab] = useState<TabId>(() => {
     try {
-      return (sessionStorage.getItem('hush.sp.tab') as TabId) || initialTab;
+      return (sessionStorage.getItem('tiho.sp.tab') as TabId) || initialTab;
     } catch {
       return initialTab;
     }
@@ -41,7 +41,7 @@ export function SidePanelApp({ initialTab = 'live' }: { initialTab?: TabId }) {
   }, []);
   useEffect(() => {
     try {
-      sessionStorage.setItem('hush.sp.tab', tab);
+      sessionStorage.setItem('tiho.sp.tab', tab);
     } catch {
       /* ignore */
     }
@@ -60,7 +60,7 @@ export function SidePanelApp({ initialTab = 'live' }: { initialTab?: TabId }) {
         <div class="sp-top">
           <Brand />
           <Where live />
-          <Toggle size="sm" checked={s.enabled} label="Hush on/off" onChange={(v) => updateSettings({ enabled: v })} />
+          <Toggle size="sm" checked={s.enabled} label="Tiho on/off" onChange={(v) => updateSettings({ enabled: v })} />
         </div>
         <nav class="sp-tabs" role="tablist" style={{ '--i': idx, '--n': TABS.length } as any}>
           {TABS.map((x) => (
@@ -88,7 +88,7 @@ export function Brand() {
   return (
     <div class="sp-brand">
       <Mark size={22} />
-      <span class="sp-name">Hush</span>
+      <span class="sp-name">Tiho</span>
     </div>
   );
 }
@@ -128,7 +128,7 @@ export function NoChat() {
       <h2>{t?.platform ? 'Waiting for chat' : 'Open a live stream'}</h2>
       <p>
         {t?.platform
-          ? `Hush connects as soon as ${SITE_NAME[t.platform]} chat appears on this page.`
+          ? `Tiho connects as soon as ${SITE_NAME[t.platform]} chat appears on this page.`
           : 'Live stats, questions and hidden messages show up here while you watch a stream.'}
       </p>
       {!t?.platform && (

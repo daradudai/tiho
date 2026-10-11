@@ -1,6 +1,6 @@
 # Third-party notices
 
-Hush's code and the Hush Lite model weights are under the [MIT License](LICENSE). The extension package (a release zip, or `extension/.output/chrome-mv3` after a build) also contains the third-party software and model files below, under their own licenses. Both files, `LICENSE` and this one, are copied into every build. The license texts are at the end of this file.
+Tiho's code and the Tiho Lite model weights are under the [MIT License](LICENSE). The extension package (a release zip, or `extension/.output/chrome-mv3` after a build) also contains the third-party software and model files below, under their own licenses. Both files, `LICENSE` and this one, are copied into every build. The license texts are at the end of this file.
 
 ## In the extension package
 
@@ -11,13 +11,13 @@ Hush's code and the Hush Lite model weights are under the [MIT License](LICENSE)
 | [Preact](https://github.com/preactjs/preact) | Jason Miller | MIT | in-chat bar, popup, side panel, onboarding |
 | [Preact Signals](https://github.com/preactjs/signals) (`@preact/signals`, `@preact/signals-core`) | Preact Team | MIT | same |
 | [WXT](https://github.com/wxt-dev/wxt) runtime helpers (`wxt`, `@wxt-dev/browser`) | Aaron Klinker | MIT | content script and extension pages |
-| [mmBERT-small](https://huggingface.co/jhu-clsp/mmBERT-small) | Johns Hopkins University CLSP | MIT | `models/hush-lite/`: the base model Hush Lite was fine-tuned from, and its tokenizer |
+| [mmBERT-small](https://huggingface.co/jhu-clsp/mmBERT-small) | Johns Hopkins University CLSP | MIT | `models/tiho-lite/`: the base model Tiho Lite was fine-tuned from, and its tokenizer |
 
 The exact versions are in `extension/package-lock.json`. ONNX Runtime's WebAssembly binary also contains libraries that ONNX Runtime links statically; their notices are in ONNX Runtime's [ThirdPartyNotices.txt](https://github.com/microsoft/onnxruntime/blob/main/ThirdPartyNotices.txt).
 
 ## Training data of the model
 
-Hush Lite was fine-tuned on live-chat messages collected for this project (not published) and on the public datasets below. The datasets are not part of this repository or of the extension; only the trained weights are. Details: [docs/MODEL_CARD.md](docs/MODEL_CARD.md#training-data).
+Tiho Lite was fine-tuned on live-chat messages collected for this project (not published) and on the public datasets below. The datasets are not part of this repository or of the extension; only the trained weights are. Details: [docs/MODEL_CARD.md](docs/MODEL_CARD.md#training-data).
 
 | Dataset | License |
 |---|---|
@@ -29,11 +29,11 @@ Hush Lite was fine-tuned on live-chat messages collected for this project (not p
 | [clapAI/MultiLingualSentiment](https://huggingface.co/datasets/clapAI/MultiLingualSentiment) | Apache-2.0 |
 | [YouTube Spam Collection](https://archive.ics.uci.edu/dataset/380/youtube+spam+collection) | CC BY 4.0 |
 
-**YouTube Spam Collection.** Alberto, T. & Lochter, J. (2015). YouTube Spam Collection [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C58885. Licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changes: Hush mapped its comments to its own labels (spam comments as `scam`) and used them as training data. Paper: T. C. Alberto, J. V. Lochter, T. A. Almeida, "TubeSpam: Comment Spam Filtering on YouTube", ICMLA 2015.
+**YouTube Spam Collection.** Alberto, T. & Lochter, J. (2015). YouTube Spam Collection [Dataset]. UCI Machine Learning Repository. https://doi.org/10.24432/C58885. Licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Changes: Tiho mapped its comments to its own labels (spam comments as `scam`) and used them as training data. Paper: T. C. Alberto, J. V. Lochter, T. A. Almeida, "TubeSpam: Comment Spam Filtering on YouTube", ICMLA 2015.
 
-## Downloaded by Hush Engine
+## Downloaded by Tiho Engine
 
-These are not in this repository or in the extension. Hush Engine (`engine/`) downloads them on its first run from their publishers, under their own licenses.
+These are not in this repository or in the extension. Tiho Engine (`engine/`) downloads them on its first run from their publishers, under their own licenses.
 
 | Component | From | License |
 |---|---|---|

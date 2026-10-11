@@ -1,4 +1,4 @@
-# Hush architecture
+# Tiho architecture
 
 How a chat message gets from the page to a verdict, and why each piece is built the way it is. [SPEC.md](../SPEC.md) is the contract; this page describes the implementation. File paths are relative to `extension/src/` unless they say otherwise.
 
@@ -12,16 +12,16 @@ flowchart TB
     subgraph ext["Extension"]
         sw["Background service worker<br/>InferenceHub, perf, side panel"]
         off["Offscreen document"]
-        wk["Inference worker<br/>Hush Lite on ONNX Runtime Web"]
+        wk["Inference worker<br/>Tiho Lite on ONNX Runtime Web"]
         ui["Popup · Side panel · Onboarding"]
     end
-    eng["Hush Engine<br/>127.0.0.1:7377 (optional)"]
+    eng["Tiho Engine<br/>127.0.0.1:7377 (optional)"]
 
-    cs <-- "Port hush:classify<br/>batches of texts / scores" --> sw
+    cs <-- "Port tiho:classify<br/>batches of texts / scores" --> sw
     sw <-- "Port" --> off
     off <-- "postMessage" --> wk
     ui -- "runtime messages<br/>(status, perf)" --> sw
-    ui <-- "Port hush:live<br/>snapshot ~1/s" --> cs
+    ui <-- "Port tiho:live<br/>snapshot ~1/s" --> cs
     sw -. "HTTP, extension origin only" .-> eng
 ```
 
@@ -42,7 +42,7 @@ sequenceDiagram
     Note over R: next animation frame
     R->>R: extract → normalize → rules → waves → cache
     alt decided by rules or cache
-        R->>P: write data-hush-* (same frame)
+        R->>P: write data-tiho-* (same frame)
     else needs the model
         Note over P,R: row stays invisible (hold ≤ 250 ms)
         R->>B: classify batch (≤ 32 unique texts)
@@ -50,13 +50,13 @@ sequenceDiagram
         W->>W: dynamic batch (≤ 64, ≤ 12 ms wait), bucket by length, run
         W-->>B: 7 probabilities per text
         B-->>R: scores
-        R->>P: write data-hush-* (next frame)
+        R->>P: write data-tiho-* (next frame)
     end
 ```
 
 ### 1. Observe
 
-`runtime/engine.ts` attaches one `MutationObserver` to the chat list the adapter points at, `childList` only. New rows go into a queue; nothing else happens in the observer callback. While the runtime filters, the list carries `data-hush-list`, and the stylesheet hides any row of that list that has no verdict attribute yet. So rows are invisible from birth without a write per row, and there is no flash of unfiltered text even for rows inserted during the page's own animation frame. On Kick such a row also takes no space (see [Platform adapters](#platform-adapters)).
+`runtime/engine.ts` attaches one `MutationObserver` to the chat list the adapter points at, `childList` only. New rows go into a queue; nothing else happens in the observer callback. While the runtime filters, the list carries `data-tiho-list`, and the stylesheet hides any row of that list that has no verdict attribute yet. So rows are invisible from birth without a write per row, and there is no flash of unfiltered text even for rows inserted during the page's own animation frame. On Kick such a row also takes no space (see [Platform adapters](#platform-adapters)).
 
 ### 2. Read phase (once per frame)
 
@@ -74,13 +74,13 @@ For each queued row:
 
 ### 3. Resolve
 
-Scores that arrived since the last frame are matched to their rows. Late model verdicts are coalesced with the page's next rendering frame (above 20 msg/s) instead of forcing an extra style recalculation each. Held rows whose deadline passed are shown with a provisional verdict (rules only) and re-evaluated when their score lands, so they can still fold later. Failed batches fall back to rules. Hush Engine answers arrive later still (see [below](#extension-side-engine-client-background)): the rows already showing an answered text are decided again in the same pass, so a custom filter can hide a message that is on screen.
+Scores that arrived since the last frame are matched to their rows. Late model verdicts are coalesced with the page's next rendering frame (above 20 msg/s) instead of forcing an extra style recalculation each. Held rows whose deadline passed are shown with a provisional verdict (rules only) and re-evaluated when their score lands, so they can still fold later. Failed batches fall back to rules. Tiho Engine answers arrive later still (see [below](#extension-side-engine-client-background)): the rows already showing an answered text are decided again in the same pass, so a custom filter can hide a message that is on screen.
 
 ### 4. Policy (`core/policy.ts`)
 
-1. **Thresholds.** Per-label thresholds come with the model file in use, calibrated on the gold set for that student (`config.json` → `hush.variant_thresholds[variant]`, else `hush.thresholds`), and reach the content script in the model status. The strictness slider shifts the thresholds of the filtering labels (toxic, spam, scam, noise, negative) in logit space by up to ±1.5.
+1. **Thresholds.** Per-label thresholds come with the model file in use, calibrated on the gold set for that student (`config.json` → `tiho.variant_thresholds[variant]`, else `tiho.thresholds`), and reach the content script in the model status. The strictness slider shifts the thresholds of the filtering labels (toxic, spam, scam, noise, negative) in logit space by up to ±1.5.
 2. **Category.** Rule signals nudge the scores, then the first label at or above its threshold in priority order wins: toxic > scam > spam > noise > question > negative > positive. None → clean.
-3. **Action.** The category maps to the action in the current settings (`show`, `highlight`, `dim`, `collapse`, `hide`). A Hush Engine custom filter that fired raises the action when its own is stronger. User rules override both: block → hide, allow → show. Wave members fold into their head unless an allow rule says otherwise. Protected messages are capped at show / highlight, and when that changed the action their reason ends in `· always shown`.
+3. **Action.** The category maps to the action in the current settings (`show`, `highlight`, `dim`, `collapse`, `hide`). A Tiho Engine custom filter that fired raises the action when its own is stronger. User rules override both: block → hide, allow → show. Wave members fold into their head unless an allow rule says otherwise. Protected messages are capped at show / highlight, and when that changed the action their reason ends in `· always shown`.
 
 The `Verdict` carries category, action, a short reason and its source (`rule`, `cache`, `model`, `user`, `engine`). The reason is written for people, because the hover chip and the side panel log show it as is: `toxic · 94%` (the winning label's probability), `scam · link` (a rule signal carried the label over its threshold), `wave ×37`, `filter: backseating`, `repeat ×8`, `link · first message`, `toxic · 94% · always shown` (a protected author).
 
@@ -90,26 +90,26 @@ Only attribute diffs, in one pass, on the row element:
 
 | Attribute | Meaning |
 |---|---|
-| `data-hush-a` | action: `show`, `highlight`, `dim`, `collapse`, `hide` |
-| `data-hush-c` | category |
-| `data-hush-r` | reason, shown on hover (Advanced) and in the tags of Show hidden and Solo |
-| `data-hush-wh` / `data-hush-wm` | wave head (with count) / wave member |
-| `data-hush-run` | on the last folded row of a run: the run's length. That row draws the "3 hidden · show" pill and is a button for the keyboard and screen readers (`tabindex`, `role`, `aria-label`; Enter or Space opens it). The run's other folded rows take no space. |
-| `data-hush-open` | the viewer expanded a folded row |
+| `data-tiho-a` | action: `show`, `highlight`, `dim`, `collapse`, `hide` |
+| `data-tiho-c` | category |
+| `data-tiho-r` | reason, shown on hover (Advanced) and in the tags of Show hidden and Solo |
+| `data-tiho-wh` / `data-tiho-wm` | wave head (with count) / wave member |
+| `data-tiho-run` | on the last folded row of a run: the run's length. That row draws the "3 hidden · show" pill and is a button for the keyboard and screen readers (`tabindex`, `role`, `aria-label`; Enter or Space opens it). The run's other folded rows take no space. |
+| `data-tiho-open` | the viewer expanded a folded row |
 
-All visuals come from one injected stylesheet (`runtime/styles.ts`, with the message decorations from `ui/decorations.ts`) made of plain attribute selectors and `--hush-*` custom properties. No inline styles, no layout reads, no `:is()` row scoping or sibling combinators: in the stress harness each of those multiplied style-recalculation cost (see [stress results](../extension/tests/stress/RESULTS.md#findings)). The UI mode and the views of a tab (Show hidden, Solo) are variants of this one stylesheet, not attributes: see [UI surfaces](#ui-surfaces).
+All visuals come from one injected stylesheet (`runtime/styles.ts`, with the message decorations from `ui/decorations.ts`) made of plain attribute selectors and `--tiho-*` custom properties. No inline styles, no layout reads, no `:is()` row scoping or sibling combinators: in the stress harness each of those multiplied style-recalculation cost (see [stress results](../extension/tests/stress/RESULTS.md#findings)). The UI mode and the views of a tab (Show hidden, Solo) are variants of this one stylesheet, not attributes: see [UI surfaces](#ui-surfaces).
 
 ### 6. Flush
 
-The classifier batch goes over the Port, and the reactive store (`core/store.ts`, Preact signals) that the in-chat bar reads is updated at most 4 times per second in one `batch()`. Rows are tracked in a `WeakMap`; a row whose content changes (a recycled node) is evaluated again. What was decided about the last 1,024 messages is also kept by message key, across Hush being turned off and on: a message that comes back in a new node (Kick re-mounts rows scrolled back into view, YouTube re-renders the list on a chat-mode switch) keeps its verdict, wave role and "show" click, and is not counted twice, logged or fed to the duplicate rule and waves again.
+The classifier batch goes over the Port, and the reactive store (`core/store.ts`, Preact signals) that the in-chat bar reads is updated at most 4 times per second in one `batch()`. Rows are tracked in a `WeakMap`; a row whose content changes (a recycled node) is evaluated again. What was decided about the last 1,024 messages is also kept by message key, across Tiho being turned off and on: a message that comes back in a new node (Kick re-mounts rows scrolled back into view, YouTube re-renders the list on a chat-mode switch) keeps its verdict, wave role and "show" click, and is not counted twice, logged or fed to the duplicate rule and waves again.
 
-**In chat now.** The counts the UI shows about the chat (`Store.inChat`) describe the rows the chat list holds right now: on Twitch the ~150 messages it keeps, on Kick the rows it has mounted (about 30, up to a few hundred when most are hidden; rows in the list, not in the viewport). Each row with a verdict counts once, under its category, as what the runtime wrote on it: shown (rows the viewer opened included), hidden, folded into a pill, or folded into a wave head's `×N`. Rows waiting for the model count as nothing. Each row remembers what it adds, and every attribute write and every removal moves the counters by the difference, in O(1), so they always equal a recount of the list. A settings change re-decides the rows on screen and shows in the next store flush (the bar follows within about 750 ms). When Hush or the site is turned off, or on another page, the list is let go and the counts read 0. Nothing is counted since page load; every other number states its window (messages per second over the last 60 s, mood over the last 5 minutes).
+**In chat now.** The counts the UI shows about the chat (`Store.inChat`) describe the rows the chat list holds right now: on Twitch the ~150 messages it keeps, on Kick the rows it has mounted (about 30, up to a few hundred when most are hidden; rows in the list, not in the viewport). Each row with a verdict counts once, under its category, as what the runtime wrote on it: shown (rows the viewer opened included), hidden, folded into a pill, or folded into a wave head's `×N`. Rows waiting for the model count as nothing. Each row remembers what it adds, and every attribute write and every removal moves the counters by the difference, in O(1), so they always equal a recount of the list. A settings change re-decides the rows on screen and shows in the next store flush (the bar follows within about 750 ms). When Tiho or the site is turned off, or on another page, the list is let go and the counts read 0. Nothing is counted since page load; every other number states its window (messages per second over the last 60 s, mood over the last 5 minutes).
 
 ## Inference
 
 ### Routing (`inference/hub.ts`, background)
 
-The hub assigns each content batch a global id, forwards it to the offscreen document and routes scores back to the right Port. It creates the offscreen document on demand, queues up to 8,192 texts while it starts, and broadcasts model status to the popup and side panel. A model that failed to load (the download broke, the worker crashed) is loaded again while any chat is open: after 5 s, then twice as long each time, up to 5 minutes, so it comes back without the viewer touching a setting. **Retry** in the popup or the side panel (`hush:reloadModel`) loads it again at once, with or without an open chat, and starts the backoff over. When Hush Engine is on, the hub also hands every batch of scores it sent back to the engine router ([below](#extension-side-engine-client-background)), with a flag for batches that came from a background tab.
+The hub assigns each content batch a global id, forwards it to the offscreen document and routes scores back to the right Port. It creates the offscreen document on demand, queues up to 8,192 texts while it starts, and broadcasts model status to the popup and side panel. A model that failed to load (the download broke, the worker crashed) is loaded again while any chat is open: after 5 s, then twice as long each time, up to 5 minutes, so it comes back without the viewer touching a setting. **Retry** in the popup or the side panel (`tiho:reloadModel`) loads it again at once, with or without an open chat, and starts the backoff over. When Tiho Engine is on, the hub also hands every batch of scores it sent back to the engine router ([below](#extension-side-engine-client-background)), with a flag for batches that came from a background tab.
 
 ### Worker (`inference/worker.ts`, `engine.ts`, `batcher.ts`, `bucketing.ts`)
 
@@ -121,9 +121,9 @@ The hub assigns each content batch a global id, forwards it to the offscreen doc
 
 ### Model loading (`inference/model.ts`, `config.ts`, `integrity.ts`)
 
-1. The worker tries the bundled copy (`models/hush-lite/`) and then, only in a build made with `WXT_HUSH_MODEL_URL`, that remote base URL, and uses the first `config.json` it can load. There is no default remote source: release zips bundle the model, and a build with neither has no model (rules only). The `hush` block of `config.json` lists labels, thresholds, max length, files per variant and their sizes, and, for a folder that combines two students, each file's layers and version (`variant_info`) and thresholds (`variant_thresholds`).
+1. The worker tries the bundled copy (`models/tiho-lite/`) and then, only in a build made with `WXT_TIHO_MODEL_URL`, that remote base URL, and uses the first `config.json` it can load. There is no default remote source: release zips bundle the model, and a build with neither has no model (rules only). The `tiho` block of `config.json` lists labels, thresholds, max length, files per variant and their sizes, and, for a folder that combines two students, each file's layers and version (`variant_info`) and thresholds (`variant_thresholds`).
 2. Backend: WebGPU if the adapter is usable and "Use the GPU" is on, otherwise WASM. Variant preference is `q8` for WebGPU and `uint8` for WASM, with fallbacks (see [inference benchmark](../extension/tests/bench/RESULTS.md)). fp16 variants need `shader-f16`. In the shipped folder the two defaults are different students: `q8` is the 6-layer one, `uint8` the 3-layer one, because WASM has far less compute to spend per message. Each user downloads or loads only the file for their backend.
-3. The tokenizer (Transformers.js) and the ONNX file load in parallel with progress reporting. Files from a remote base must match the SHA-256 and size pinned in the build (`REMOTE_MODEL_PINS`, computed from the model folder by `modules/hush-inference.ts` at build time); an unpinned or different file is refused, so the host can break the download but cannot change the model or its thresholds. The tokenizer and the ONNX file are cached in Cache Storage keyed by URL and pinned hash, and cached files the build does not pin are pruned. Bundled files are part of the extension package and need no pin.
+3. The tokenizer (Transformers.js) and the ONNX file load in parallel with progress reporting. Files from a remote base must match the SHA-256 and size pinned in the build (`REMOTE_MODEL_PINS`, computed from the model folder by `modules/tiho-inference.ts` at build time); an unpinned or different file is refused, so the host can break the download but cannot change the model or its thresholds. The tokenizer and the ONNX file are cached in Cache Storage keyed by URL and pinned hash, and cached files the build does not pin are pruned. Bundled files are part of the extension package and need no pin.
 4. The session is created with ONNX Runtime Web from the extension's own `ort/` files (MV3 allows no remote code) and warmed up on four batch shapes. Non-finite outputs (fp16 overflow, a broken execution provider) count as a failure and trigger the next variant or backend. If WebGPU fails twice in a row while running (a lost device), the worker reloads the model on WASM.
 5. Scores are only valid with the thresholds of the model that produced them. When another student is loaded (the GPU setting changed, WebGPU was lost), the worker's and the content scripts' score caches start empty, a forward pass that straddled the switch is run again, and the rows on screen are scored again by the new model.
 6. Extension pages are cross-origin isolated (COOP `same-origin`, COEP `credentialless`) so the WASM backend can use threads: up to 4, or half the cores.
@@ -136,19 +136,19 @@ Each adapter (`platforms/types.ts`) finds the chat list, extracts rows, reports 
 |---|---|---|
 | YouTube | `live_chat` iframe (also popout and replay), Polymer light DOM | The element id is the message id. Paid messages, stickers and memberships are separate renderers. |
 | Twitch | channel page, popout, embed, moderator view | No message id in the DOM, so the key is a content hash. 7TV replaces the whole list with its own (handled); FrankerFaceZ and BTTV lines are handled too. |
-| Kick | channel page and popout, React | The list is virtualized: it mounts the rows near the viewport (about 30, more when many take no space), and rows scrolled away are unmounted and re-mounted as new nodes. Keys are content hashes so a re-mounted row keeps its verdict. Kick measures a row as it mounts, before Hush has written anything on it, and again when its size changes, and places rows by those sizes. A row that shrinks after it mounted (born at full height, then hidden) pulls more rows in, which shrink in turn: with many rows hidden (Quiet, Solo, or Clean in a spammy chat) Kick mounted and unmounted 350 to 800 rows a second, fell below 20 fps and lost its place at the bottom (measured live). So on Kick a row waiting for its verdict takes no space (`display:none` instead of `visibility:hidden`): a verdict can only make it grow, and a row that grows only pushes rows out, so the list settles. It then mounts about one row per message at every level and view; switching one re-measures the rows once (a few hundred mounts over 1 to 3 s). Kick puts 2 px between rows, hidden ones included, so a run of hidden rows leaves a thin gap (20 hidden rows: 40 px). |
+| Kick | channel page and popout, React | The list is virtualized: it mounts the rows near the viewport (about 30, more when many take no space), and rows scrolled away are unmounted and re-mounted as new nodes. Keys are content hashes so a re-mounted row keeps its verdict. Kick measures a row as it mounts, before Tiho has written anything on it, and again when its size changes, and places rows by those sizes. A row that shrinks after it mounted (born at full height, then hidden) pulls more rows in, which shrink in turn: with many rows hidden (Quiet, Solo, or Clean in a spammy chat) Kick mounted and unmounted 350 to 800 rows a second, fell below 20 fps and lost its place at the bottom (measured live). So on Kick a row waiting for its verdict takes no space (`display:none` instead of `visibility:hidden`): a verdict can only make it grow, and a row that grows only pushes rows out, so the list settles. It then mounts about one row per message at every level and view; switching one re-measures the rows once (a few hundred mounts over 1 to 3 s). Kick puts 2 px between rows, hidden ones included, so a run of hidden rows leaves a thin gap (20 hidden rows: 40 px). |
 
 Content-script injection targets are in `platforms/matches.ts`. Twitch and Kick are single-page apps, so the runtime re-checks `adapter.matches()` on navigation.
 
 ## UI surfaces
 
 - **Modes.** `settings.uiMode` picks the UI. **Basic** (the default, for someone who sees chat for the first time) offers one choice, a level: Off, Clean (preset `chill`) or Quiet (preset `focus`), and Show hidden; it shows no counts, categories or percentages. **Advanced** (for streamers and mods) has the presets, per-category actions, live counts, rules, custom AI filters and Solo. Both edit the same settings, so the mode changes only the UI, never what is filtered (`core/settings.ts`: `basicLevel`, `levelPatch`, `advancedExtras`). In chat, Basic draws no category edges and no reason chips.
-- **Views of a tab.** **Show hidden** (both modes) brings back what Hush hid or folded, in place, faded and tagged with why (`Hidden · spam` in Basic, `folded · spam · 97%` in Advanced). **Solo** (Advanced) shows one category alone, every row of it in full and tagged with its reason and what it normally gets (`spam · 97% · folded`), to check what the model put there. Neither is saved. Each is a variant of the one row stylesheet, swapped in one text change: nothing is written on rows and nothing is decided again, so a toggle costs one style recalculation, like a theme change, and new rows follow on their own. While Solo is on, new rows are hidden at birth and held for the model (any of them may belong to another category). Turning one view on ends the other; both end when Hush or the site is turned off, on another channel or page, and Solo also in Basic mode. Clicks on rows are left to the page while a view is on.
-- **In-chat bar** (`ui/bar/`): mounted in a shadow root above the chat, so page CSS and Hush CSS never meet. It reads a frame-aligned, rate-limited mirror of the store (`view.ts`: counters at 2 fps, charts and stats at most 1 fps, nothing while the tab is hidden) and animates only opacity and transform.
-- **Popup** and **side panel** (`ui/popup/`, `ui/sidepanel/`) are extension pages. They read settings from `chrome.storage.local`, model status and perf from the background, and live data from the active chat tab over a `hush:live` Port (`ui/bridge.ts`: one `LiveSnapshot` about every second while open, with the in-chat-now counts and the tab's views; commands back for Show in chat, "Not spam", Show hidden and Solo).
+- **Views of a tab.** **Show hidden** (both modes) brings back what Tiho hid or folded, in place, faded and tagged with why (`Hidden · spam` in Basic, `folded · spam · 97%` in Advanced). **Solo** (Advanced) shows one category alone, every row of it in full and tagged with its reason and what it normally gets (`spam · 97% · folded`), to check what the model put there. Neither is saved. Each is a variant of the one row stylesheet, swapped in one text change: nothing is written on rows and nothing is decided again, so a toggle costs one style recalculation, like a theme change, and new rows follow on their own. While Solo is on, new rows are hidden at birth and held for the model (any of them may belong to another category). Turning one view on ends the other; both end when Tiho or the site is turned off, on another channel or page, and Solo also in Basic mode. Clicks on rows are left to the page while a view is on.
+- **In-chat bar** (`ui/bar/`): mounted in a shadow root above the chat, so page CSS and Tiho CSS never meet. It reads a frame-aligned, rate-limited mirror of the store (`view.ts`: counters at 2 fps, charts and stats at most 1 fps, nothing while the tab is hidden) and animates only opacity and transform.
+- **Popup** and **side panel** (`ui/popup/`, `ui/sidepanel/`) are extension pages. They read settings from `chrome.storage.local`, model status and perf from the background, and live data from the active chat tab over a `tiho:live` Port (`ui/bridge.ts`: one `LiveSnapshot` about every second while open, with the in-chat-now counts and the tab's views; commands back for Show in chat, "Not spam", Show hidden and Solo).
 - **Onboarding** (`ui/onboarding/`) opens on install, shows model download progress and lets the viewer pick a level (or Advanced mode).
 
-## Hush Engine
+## Tiho Engine
 
 The optional engine (`engine/`) is a FastAPI server in front of llama.cpp running Clef-Flash. The extension calls it only from the background service worker: the engine accepts extension and localhost origins and nothing else, and a content script's requests carry the page's origin. In managed mode the engine starts its own `llama-server` and locks it with a random API key made up on every run, because llama-server checks neither `Origin` nor `Host`. See [engine/README.md](../engine/README.md) for its API, scheduling (LIFO under load, per-request deadlines, dedup, adaptive concurrency) and security model.
 
@@ -158,7 +158,7 @@ The optional engine (`engine/`) is a FastAPI server in front of llama.cpp runnin
 sequenceDiagram
     participant R as Runtime (content script)
     participant B as Background (hub + router)
-    participant E as Hush Engine
+    participant E as Tiho Engine
     R->>B: classify batch
     B-->>R: local scores (row verdicts as usual)
     B->>E: POST /v1/classify (filters, second opinion where unsure, stream)
@@ -181,6 +181,6 @@ sequenceDiagram
 | Inference | batcher (dedup, newest first, expiry, backpressure), bucketing, engine with a fake model, switching students, pinned-hash checks, hub routing and load retries with fake Ports |
 | Engine client | router and client against a fake engine (batching, deadlines, follow-ups, background tabs), policy with engine answers, runtime re-deciding rows on a late answer |
 | UI | vitest for the bar, decorations, pill runs, the live bridge to the popup and side panel, and the extension pages; a showcase app renders every surface on mock data for screenshots |
-| Performance | Playwright stress harness: mock Twitch / YouTube chats fed with real chat lines at 10 to 200 msg/s, Hush paused vs. running in alternating windows ([results](../extension/tests/stress/RESULTS.md)) |
+| Performance | Playwright stress harness: mock Twitch / YouTube chats fed with real chat lines at 10 to 200 msg/s, Tiho paused vs. running in alternating windows ([results](../extension/tests/stress/RESULTS.md)) |
 | Model speed | Playwright inference benchmark of every ONNX variant on WebGPU and WASM ([results](../extension/tests/bench/RESULTS.md)) |
 | Engine | pytest with an in-process fake backend and a fake `llama-server` process; integration tests against a real one |

@@ -1,11 +1,11 @@
-# Contributing to Hush
+# Contributing to Tiho
 
-Thanks for helping. Hush is small and opinionated: it has to stay fast in 150 msg/s chats, private, and calm to look at. This page tells you how to work on it without breaking any of that.
+Thanks for helping. Tiho is small and opinionated: it has to stay fast in 150 msg/s chats, private, and calm to look at. This page tells you how to work on it without breaking any of that.
 
 ## Ways to help
 
 - **Report a wrong verdict.** A message that was hidden but should not have been, or the other way round. These are the most useful reports we get. Use the [wrong verdict template](https://github.com/daradudai/hush/issues/new?template=wrong_verdict.yml). Leave out the author's name.
-- **Report a broken site.** YouTube, Twitch and Kick change their chat markup without warning. If Hush stops tagging messages, open a [bug report](https://github.com/daradudai/hush/issues/new?template=bug_report.yml) with the page URL and, if you can, the chat's HTML (see [Platform adapters](#platform-adapters)).
+- **Report a broken site.** YouTube, Twitch and Kick change their chat markup without warning. If Tiho stops tagging messages, open a [bug report](https://github.com/daradudai/hush/issues/new?template=bug_report.yml) with the page URL and, if you can, the chat's HTML (see [Platform adapters](#platform-adapters)).
 - **Your language.** Hard cases in your language (slang, insults that look harmless, harmless swearing that looks like an insult) make the next model better. Put them in an issue with what each one should be.
 - **Code.** Look for issues labeled `good first issue`, or open an issue before a big change so we can agree on the approach.
 
@@ -14,7 +14,7 @@ Thanks for helping. Hush is small and opinionated: it has to stay fast in 150 ms
 | Folder | What | Guide |
 |---|---|---|
 | `extension/` | Chrome MV3 extension: WXT, TypeScript, Preact, `@preact/signals` | [extension/README.md](extension/README.md) |
-| `engine/` | Hush Engine: Python, FastAPI, llama.cpp | [engine/README.md](engine/README.md) |
+| `engine/` | Tiho Engine: Python, FastAPI, llama.cpp | [engine/README.md](engine/README.md) |
 | `ml/` | data collection, labeling, training, ONNX export | [ml/README.md](ml/README.md) |
 | `docs/` | architecture, model card, screenshots | [docs/architecture.md](docs/architecture.md) |
 
@@ -27,13 +27,13 @@ Thanks for helping. Hush is small and opinionated: it has to stay fast in 150 ms
 ```sh
 cd extension
 npm ci
-npm run dev            # WXT dev mode: opens Chrome with Hush loaded, reloads on change
+npm run dev            # WXT dev mode: opens Chrome with Tiho loaded, reloads on change
 npx tsc --noEmit       # typecheck
 npx vitest run         # unit tests
 npm run build          # production build into .output/chrome-mv3
 ```
 
-The model is not in git. To work with the real model, put it in `extension/public/models/hush-lite/` (see [extension/README.md](extension/README.md#the-model)). Without it, Hush still runs: rules filter on their own and the model status says "Model not included in this build".
+The model is not in git. To work with the real model, put it in `extension/public/models/tiho-lite/` (see [extension/README.md](extension/README.md#the-model)). Without it, Tiho still runs: rules filter on their own and the model status says "Model not included in this build".
 
 **Engine** (Python 3.10+, no GPU needed for tests):
 
@@ -48,13 +48,13 @@ python -m venv .venv
 
 ## Rules of the house
 
-**Privacy.** Chat text never leaves the device. No analytics, no telemetry, no remote code (Manifest V3 forbids it anyway), no new network destinations without discussion. The only allowed requests are the model download (only in builds made with `WXT_HUSH_MODEL_URL`, and only files whose hashes the build pins) and the user's own Hush Engine.
+**Privacy.** Chat text never leaves the device. No analytics, no telemetry, no remote code (Manifest V3 forbids it anyway), no new network destinations without discussion. The only allowed requests are the model download (only in builds made with `WXT_TIHO_MODEL_URL`, and only files whose hashes the build pins) and the user's own Tiho Engine.
 
 **Performance** (SPEC.md §8). The content script shares the page's main thread with the chat itself:
 
 - One `MutationObserver` on the chat list, `childList` only. Never poll or walk the whole DOM.
 - Read in one pass, write in one pass, once per animation frame. No layout reads (`offsetHeight`, `getBoundingClientRect`, ...) in the hot path.
-- Rows get attributes only (`data-hush-*`, plus the button attributes of a pill row); all visuals live in the one injected stylesheet. No inline styles on rows.
+- Rows get attributes only (`data-tiho-*`, plus the button attributes of a pill row); all visuals live in the one injected stylesheet. No inline styles on rows.
 - Bounded memory: LRU caches with a size, `WeakMap` for nodes.
 
 If you touch `src/runtime`, `src/core` or `src/platforms`, run the stress harness before and after and put both numbers in the PR:
@@ -93,7 +93,7 @@ Never commit raw captures: they contain real usernames.
 
 ## Security
 
-Please do not open public issues for security problems (for example in Hush Engine's local server). See [SECURITY.md](.github/SECURITY.md).
+Please do not open public issues for security problems (for example in Tiho Engine's local server). See [SECURITY.md](.github/SECURITY.md).
 
 ## License
 

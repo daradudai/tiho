@@ -18,13 +18,13 @@ export const filtered = signal<LogEntry[]>([]);
 /** Session-local "answered" marks for the questions inbox. */
 export const done = signal<Set<string>>(new Set());
 
-/** Hush Engine connection (pushed by the background on change, polled for counters). */
+/** Tiho Engine connection (pushed by the background on change, polled for counters). */
 export const engineStatus = signal<EngineStatus | null>(null);
 
 /**
  * What this panel asked the tab for (Show hidden, Solo) and when: shown at
  * once, and kept until a snapshot made after the request answers with the
- * tab's own state (which may differ: Solo needs Advanced and Hush on).
+ * tab's own state (which may differ: Solo needs Advanced and Tiho on).
  */
 const asked = signal<{ peek: boolean; solo: Category | null; at: number } | null>(null);
 
@@ -35,7 +35,7 @@ export const views = computed(() => {
   return a ? { peek: a.peek, solo: a.solo } : { peek: s?.peek ?? false, solo: s?.solo ?? null };
 });
 
-/** A view can be asked for while a chat answers and Hush is on. */
+/** A view can be asked for while a chat answers and Tiho is on. */
 export const canView = computed(() => !!live.value?.enabled);
 
 /** Show hidden in the tab, or hide again. */

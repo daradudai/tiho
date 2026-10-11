@@ -205,7 +205,7 @@ export class InferenceEngine {
             this.setStatus({ state: 'downloading', backend: 'none', progress: Math.min(1, pr.progress ?? 0) });
           } else this.setStatus({ state: 'loading', backend: 'none' });
         },
-        onFallback: (what, err) => console.warn(`[hush] ${what} failed, falling back:`, err),
+        onFallback: (what, err) => console.warn(`[tiho] ${what} failed, falling back:`, err),
       })
       .then((m) => {
         if (this.loading !== p) {
@@ -224,7 +224,7 @@ export class InferenceEngine {
         this.setStatus({
           state: 'ready',
           backend: m.backend as ModelBackend,
-          modelId: `hush-lite/${m.variant}`,
+          modelId: `tiho-lite/${m.variant}`,
           version: m.version,
           thresholds: m.thresholds,
         });
@@ -293,7 +293,7 @@ export class InferenceEngine {
 
   /** WebGPU device lost / EP failure: after 2 consecutive failures switch to WASM. */
   private async onRunError(m: ModelLike, e: unknown): Promise<void> {
-    console.warn('[hush] inference failed', e);
+    console.warn('[tiho] inference failed', e);
     if (m.backend !== 'webgpu' || this.model !== m) return;
     if (++this.gpuFailures < 2) return;
     this.forceDevice = 'wasm';
